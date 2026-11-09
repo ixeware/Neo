@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Симулятор Changan UNI-Z</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;700&display=swap">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+  "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.10/src/index.js",
+  "three-bvh-csg": "https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.18/src/index.js",
+  "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.21.0/dist/lil-gui.esm.js"
+} }
+</script>
+<style>
+/* Layout: full-bleed 3D canvas; glass panels float over it (config left, specs right, HUD bottom in drive mode).
+   Single deliberate dark theme — the cabin's graphite and ambient-light blue. */
+:root {
+  --bg: #0b0d10;
+  --panel: rgba(18, 21, 26, 0.86);
+  --panel-solid: #14171c;
+  --line: rgba(160, 176, 198, 0.16);
+  --fg: #e7ebf1;
+  --muted: #8e98a8;
+  --accent: #4fb6ff;
+  --accent-ink: #062033;
+  --ok: #3ddc97;
+  --warn: #ffb020;
+  --bad: #ff5a5a;
+  --font-display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --font-ui: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 10px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font-ui); overflow: hidden; -webkit-font-smoothing: antialiased; }
+#app { position: fixed; inset: 0; }
+#app > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+.topbar { position: absolute; top: 0; left: 0; right: 0; display: flex; gap: 12px; align-items: center; justify-content: space-between;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(to bottom, rgba(8, 10, 13, 0.85), rgba(8, 10, 13, 0)); pointer-events: none; z-index: 5; }
+.topbar > * { pointer-events: auto; }
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand .mark { font: 700 20px/1 var(--font-display); letter-spacing: 0.04em; white-space: nowrap; }
+.brand .sub { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg { display: inline-flex; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; padding: 6px 14px; border-radius: 999px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.tools { display: flex; gap: 8px; align-items: center; }
+.btn { border: 1px solid var(--line); background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 7px 11px; line-height: 1.1; }
+.btn:hover { border-color: rgba(79, 182, 255, 0.5); }
+.btn[aria-pressed="true"] { background: rgba(79, 182, 255, 0.18); border-color: var(--accent); color: #fff; }
+select.btn { padding-right: 8px; background: var(--panel-solid); }
+
+.panel { position: absolute; top: calc(64px + env(safe-area-inset-top, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 300px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  padding: 14px 14px 18px; display: flex; flex-direction: column; gap: 16px; z-index: 4; scrollbar-width: thin; }
+.panel.left { left: max(16px, env(safe-area-inset-left, 0px)); }
+.panel.right { right: max(16px, env(safe-area-inset-right, 0px)); width: 280px; }
+.panel h3 { margin: 0 0 8px; font: 600 11px/1 var(--font-ui); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.panel section { display: flex; flex-direction: column; gap: 8px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; }
+.row .btn { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+.swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.swatch { aspect-ratio: 1; border-radius: 50%; border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset -6px -8px 14px rgba(0, 0, 0, 0.35); max-width: 100%; }
+.swatch[aria-pressed="true"] { border-color: var(--accent); }
+.swatch-custom { position: relative; overflow: hidden; background: conic-gradient(#ff5a5a, #ffb020, #3ddc97, #4fb6ff, #a87cff, #ff5a5a); }
+.swatch-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.caption { color: var(--muted); font-size: 12px; }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.switch input { width: 34px; height: 18px; accent-color: var(--accent); }
+dl.specs { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; margin: 0; font-size: 13px; }
+dl.specs dt { color: var(--muted); }
+dl.specs dd { margin: 0; text-align: right; font: 500 12.5px var(--font-data); font-variant-numeric: tabular-nums; }
+.chk-ok { color: var(--ok); } .chk-bad { color: var(--bad); }
+
+/* drive HUD */
+.hud { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.hud .cluster { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: flex-end; gap: 18px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 10px 18px; backdrop-filter: blur(8px); }
+.speed { display: flex; flex-direction: column; align-items: center; min-width: 120px; }
+.speed b { font: 700 54px/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.speed small { color: var(--muted); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.gear { font: 700 26px/1 var(--font-display); color: var(--accent); min-width: 54px; text-align: center; }
+.hud canvas { display: block; }
+.flags { display: flex; gap: 6px; font: 600 11px var(--font-data); }
+.flags span { padding: 3px 6px; border-radius: 5px; border: 1px solid var(--line); color: #4a5568; }
+.flags span.on { color: #1b1300; background: var(--warn); border-color: var(--warn); }
+.hud .map { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.hud .gmeter { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.hud .lap { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(64px + env(safe-area-inset-top, 0px)); text-align: right; font: 500 13px var(--font-data);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-variant-numeric: tabular-nums; }
+.hud .lap .t { font: 600 22px var(--font-data); }
+.drivebar { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(64px + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: 8px; z-index: 4;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; width: 220px; }
+.drivebar label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.drivebar input[type=range] { width: 100%; accent-color: var(--accent); }
+.hint { font-size: 12px; color: var(--muted); }
+kbd { font: 600 11px var(--font-data); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--fg); }
+
+.touch { position: absolute; inset: auto 0 0 0; height: 0; z-index: 6; }
+.touch .steer { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(110px + env(safe-area-inset-bottom, 0px)); width: 180px; height: 64px; border-radius: 32px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); touch-action: none; }
+.touch .steer i { position: absolute; top: 6px; left: 58px; width: 64px; height: 50px; border-radius: 25px; background: rgba(79, 182, 255, 0.35); }
+.touch .pedals { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(110px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 10px; }
+.touch .pedals button { width: 64px; height: 84px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.07); touch-action: none; font-weight: 600; }
+
+.overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(6, 8, 11, 0.72); z-index: 20; padding: 16px; }
+.overlay .card { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; max-width: 640px; width: 100%; max-height: 90%; overflow: auto; }
+.overlay h2 { margin: 0 0 12px; font: 700 18px var(--font-display); text-wrap: balance; }
+table.keys { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.keys td { padding: 5px 4px; border-top: 1px solid var(--line); }
+table.keys td:last-child { text-align: right; white-space: nowrap; }
+textarea.geo { width: 100%; height: 300px; background: #0d1014; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.35 var(--font-data); padding: 8px; }
+
+.loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 30; background: radial-gradient(circle at 50% 45%, #1a2029 0%, var(--bg) 60%); }
+.loading .box { width: min(420px, 100%); padding: 0 16px; }
+.loading .title { font: 700 30px/1.1 var(--font-display); letter-spacing: 0.02em; }
+.loading .bar { height: 3px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; margin: 16px 0 10px; overflow: hidden; }
+.loading .bar i { display: block; height: 100%; width: 5%; background: var(--accent); transition: width 0.3s ease; }
+.loading ol { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+.loading li.done { color: var(--fg); }
+.toast { position: absolute; left: 50%; top: calc(70px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 25; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 13px; opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: calc(100% - 32px); }
+.toast.show { opacity: 1; }
+
+@media (max-width: 860px) {
+  .brand .sub { display: none; }
+  .panel.right { display: none; }
+  .panel.left { top: auto; height: 46%; width: auto; right: max(16px, env(safe-area-inset-right, 0px)); }
+  .panel.left.collapsed { height: 52px; overflow: hidden; }
+  .drivebar { width: 180px; }
+  .hud .map { display: none; }
+  .hud .gmeter { display: none; }
+  .hud .cluster { padding: 8px 12px; gap: 10px; }
+  .speed b { font-size: 40px; }
+}
+@media (max-width: 520px) {
+  .tools .hide-sm { display: none; }
+  .topbar { gap: 8px; }
+  .seg button { padding: 6px 9px; font-size: 13px; }
+  .brand .mark { font-size: 16px; }
+  .drivebar { width: auto; right: max(16px, env(safe-area-inset-right, 0px)); flex-direction: row; flex-wrap: wrap; padding: 8px; }
+  .drivebar > label, .drivebar #drive-hint, .drivebar #drive-modes { display: none; }
+  .drivebar .row { flex: 1 1 100%; }
+  .hud .cluster canvas { display: none; }
+  .hud .lap { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .loading .bar i, .toast { transition: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><span class="mark">UNI-Z</span><span class="sub">Changan · процедурная модель и симуляция</span></div>
+    <div class="seg" role="group" aria-label="Режим">
+      <button id="mode-showroom" aria-pressed="true">Шоурум</button>
+      <button id="mode-drive" aria-pressed="false">Тест-драйв</button>
+    </div>
+    <div class="tools">
+      <select id="quality" class="btn hide-sm" aria-label="Качество графики"></select>
+      <button id="btn-sound" class="btn" aria-pressed="false" title="Звук">Звук</button>
+      <button id="btn-help" class="btn" title="Управление">?</button>
+    </div>
+  </header>
+
+  <aside id="panel-config" class="panel left" aria-label="Конфигуратор">
+    <section>
+      <h3>Версия</h3>
+      <select id="sel-version" class="btn"></select>
+      <select id="sel-powertrain" class="btn"></select>
+    </section>
+    <section>
+      <h3>Цвет кузова</h3>
+      <div id="swatches" class="swatches"></div>
+      <div id="paint-name" class="caption"></div>
+    </section>
+    <section>
+      <h3>Диски</h3>
+      <div class="seg" role="group" aria-label="Диски"><button id="wheels-19" aria-pressed="true">19″ 225/55</button><button id="wheels-20" aria-pressed="false">20″ 245/50</button></div>
+    </section>
+    <section>
+      <h3>Опции</h3>
+      <label class="switch">Рейлинги <input type="checkbox" id="opt-rails" checked></label>
+      <label class="switch">Чёрная крыша <input type="checkbox" id="opt-twotone"></label>
+      <label class="switch">Утопленные ручки <input type="checkbox" id="opt-flush"></label>
+      <label class="switch">Номер КНР <input type="checkbox" id="opt-plate-cn"></label>
+    </section>
+    <section>
+      <h3>Открыть</h3>
+      <div class="row" id="open-buttons"></div>
+    </section>
+    <section>
+      <h3>Свет</h3>
+      <div class="seg" role="group" aria-label="Режим света" id="light-modes"></div>
+      <div class="row" id="light-buttons"></div>
+    </section>
+  </aside>
+
+  <aside id="panel-info" class="panel right" aria-label="Характеристики и камера">
+    <section>
+      <h3>Характеристики</h3>
+      <dl class="specs" id="specs"></dl>
+      <div class="caption" id="dims-check"></div>
+    </section>
+    <section>
+      <h3>Камера</h3>
+      <div class="row" id="cam-buttons"></div>
+    </section>
+    <section>
+      <h3>Инструменты</h3>
+      <div class="row">
+        <button class="btn" id="tool-dims" aria-pressed="false">Размеры</button>
+        <button class="btn" id="tool-night" aria-pressed="false">Ночь</button>
+        <button class="btn" id="tool-spin" aria-pressed="false">Вращение</button>
+        <button class="btn" id="tool-photo">Фото PNG</button>
+        <button class="btn" id="tool-glb">Экспорт GLB</button>
+        <button class="btn" id="tool-geo">Геометрия</button>
+        <button class="btn" id="tool-debug" aria-pressed="false">Отладка</button>
+      </div>
+      <div class="caption" id="stats"></div>
+    </section>
+  </aside>
+
+  <div id="drivebar" class="drivebar" hidden>
+    <div class="seg" role="group" aria-label="Режим движения" id="drive-modes"></div>
+    <label>Время суток <input type="range" id="tod" min="0" max="24" step="0.25" value="15"></label>
+    <div class="row">
+      <button class="btn" id="as-abs" aria-pressed="true">ABS</button>
+      <button class="btn" id="as-tcs" aria-pressed="true">TCS</button>
+      <button class="btn" id="as-esp" aria-pressed="true">ESP</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="btn-cam">Камера: погоня</button>
+      <button class="btn" id="btn-reset">Сброс</button>
+      <button class="btn" id="btn-selftest">Автотест</button>
+    </div>
+    <div class="hint" id="drive-hint"><kbd>W</kbd><kbd>S</kbd> газ/тормоз · <kbd>A</kbd><kbd>D</kbd> руль · <kbd>Space</kbd> ручник · <kbd>C</kbd> камера</div>
+  </div>
+
+  <div id="hud" class="hud" hidden>
+    <canvas id="hud-map" class="map" width="200" height="200"></canvas>
+    <div class="cluster">
+      <canvas id="hud-gauge" width="150" height="86"></canvas>
+      <div class="speed"><b id="hud-speed">0</b><small>км/ч</small></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <div class="gear" id="hud-gear">P</div>
+        <div class="flags"><span id="f-abs">ABS</span><span id="f-tcs">TCS</span><span id="f-esp">ESP</span></div>
+      </div>
+      <canvas id="hud-energy" width="120" height="86"></canvas>
+    </div>
+    <canvas id="hud-g" class="gmeter" width="150" height="150"></canvas>
+    <div class="lap"><div class="t" id="lap-time">0:00.0</div><div id="lap-best">лучший —</div><div id="lap-surface">асфальт</div></div>
+  </div>
+
+  <div id="touch" class="touch" hidden>
+    <div class="steer" id="touch-steer"><i></i></div>
+    <div class="pedals"><button id="touch-hb">Р</button><button id="touch-brake">Тормоз</button><button id="touch-gas">Газ</button></div>
+  </div>
+
+  <div id="help" class="overlay" hidden>
+    <div class="card">
+      <h2>Управление</h2>
+      <table class="keys"><tbody>
+        <tr><td>Газ / тормоз (в R — наоборот; удерживайте тормоз на месте, чтобы включить R)</td><td><kbd>W</kbd> <kbd>S</kbd> · <kbd>↑</kbd> <kbd>↓</kbd></td></tr>
+        <tr><td>Руль</td><td><kbd>A</kbd> <kbd>D</kbd> · <kbd>←</kbd> <kbd>→</kbd></td></tr>
+        <tr><td>Ручник</td><td><kbd>Space</kbd></td></tr>
+        <tr><td>Ручной режим КП, передача ±</td><td><kbd>G</kbd> · <kbd>E</kbd> <kbd>Q</kbd></td></tr>
+        <tr><td>Режим Eco / Normal / Sport</td><td><kbd>M</kbd></td></tr>
+        <tr><td>Свет по кругу / дальний</td><td><kbd>L</kbd> <kbd>K</kbd></td></tr>
+        <tr><td>Поворотники / аварийка</td><td><kbd>Z</kbd> <kbd>X</kbd> / <kbd>J</kbd></td></tr>
+        <tr><td>Сигнал</td><td><kbd>H</kbd></td></tr>
+        <tr><td>Камера (погоня, капот, водитель, колесо, кино, свободная)</td><td><kbd>C</kbd></td></tr>
+        <tr><td>Сброс машины на старт</td><td><kbd>R</kbd></td></tr>
+        <tr><td>Двери 1–4, капот 5, багажник 6 (на месте)</td><td><kbd>1</kbd>…<kbd>6</kbd></td></tr>
+        <tr><td>Фото без интерфейса</td><td><kbd>P</kbd></td></tr>
+        <tr><td>Геймпад: стик — руль, RT/LT — газ/тормоз, A — ручник, Y — камера</td><td></td></tr>
+      </tbody></table>
+      <p class="caption">Модель построена кодом по габаритам 4730 × 1890 × 1680 мм и базе 2795 мм. Эмблема упрощённая: Changan и UNI — товарные знаки Changan Automobile.</p>
+      <button class="btn" id="help-close">Закрыть</button>
+    </div>
+  </div>
+
+  <div id="geo" class="overlay" hidden>
+    <div class="card">
+      <h2>Геометрия кузова</h2>
+      <p class="caption">Таблицы сечений в миллиметрах (LOWER: s, h_top, h_bot, w_max, h_wmax, w_top, crown; GREEN: s, h_top, h_belt, w_top, w_belt). После правки кузов перестроится за несколько секунд.</p>
+      <textarea class="geo" id="geo-text" spellcheck="false" aria-label="Таблицы сечений"></textarea>
+      <div class="row" style="margin-top:10px"><button class="btn" id="geo-apply">Перестроить кузов</button><button class="btn" id="geo-close">Закрыть</button></div>
+      <div class="caption" id="geo-msg"></div>
+    </div>
+  </div>
+
+  <div id="selftest" class="overlay" hidden>
+    <div class="card"><h2>Автотест динамики</h2><div id="selftest-body" class="caption">Считаю…</div><button class="btn" id="selftest-close">Закрыть</button></div>
+  </div>
+
+  <div id="loading" class="loading">
+    <div class="box">
+      <div class="title">Changan UNI-Z</div>
+      <div class="caption">Собираю модель кодом: кузов, детали, салон, колёса</div>
+      <div class="bar"><i id="load-bar"></i></div>
+      <ol id="load-steps"></ol>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

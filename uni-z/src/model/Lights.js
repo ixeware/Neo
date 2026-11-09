@@ -1,0 +1,256 @@
+import * as THREE from 'three';
+import { DETAILS, sToZ, AXLES } from '../config/geometry.js';
+import { orientToSurface } from './Surface.js';
+import { beamCookie } from '../util/textures.js';
+import { lerp } from '../util/math.js';
+
+// Grid of surface hits along a horizontal contour: rows = heights, cols = headings.
+function contourGrid(probe, { cz, ys, headings }) {
+  return ys.map((y) => headings.map((h) => probe.polar(0, cz, y, h)));
+}
+
+// Strip mesh from a sub-range of the grid, lifted along the surface normal
+function stripMesh(grid, { rows = [0, grid.length - 1], cols = [0, grid[0].length - 1], lift = 0.004, material, name }) {
+  const pos = [], nrm = [], uv = [], idx = [];
+  const nr = rows[1] - rows[0] + 1, nc = cols[1] - cols[0] + 1;
+  for (let r = rows[0]; r <= rows[1]; r++) {
+    for (let c = cols[0]; c <= cols[1]; c++) {
+      const h = grid[r][c];
+      const p = h ? h.point.clone().addScaledVector(h.normal, lift) : new THREE.Vector3();
+      pos.push(p.x, p.y, p.z);
+      const n = h ? h.normal : new THREE.Vector3(0, 0, 1);
+      nrm.push(n.x, n.y, n.z);
+      uv.push((c - cols[0]) / Math.max(1, nc - 1), (r - rows[0]) / Math.max(1, nr - 1));
+    }
+  }
+  for (let r = 0; r < nr - 1; r++) for (let c = 0; c < nc - 1; c++) {
+    const a = r * nc + c, b = a + 1, d = a + nc, e = d + 1;
+    const ok = [a, b, d, e].every((k) => grid[rows[0] + Math.floor(k / nc)][cols[0] + (k % nc)]);
+    if (ok) idx.push(a, b, d, b, e, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  // winding to agree with normals
+  const P = g.attributes.position, A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3();
+  let agree = 0;
+  for (let i = 0; i < idx.length; i += 3) {
+    A.fromBufferAttribute(P, idx[i]); B.fromBufferAttribute(P, idx[i + 1]); C.fromBufferAttribute(P, idx[i + 2]);
+    B.sub(A); C.sub(A); B.cross(C);
+    agree += B.dot(new THREE.Vector3().fromBufferAttribute(g.attributes.normal, idx[i])) > 0 ? 1 : -1;
+  }
+  if (agree < 0) { for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; } g.setIndex(idx); }
+  const m = new THREE.Mesh(g, material);
+  m.name = name || material.name;
+  return m;
+}
+
+// Instanced boxes placed on grid points of one row
+function pixelRow(grid, row, cols, { size, lift, material, step = 1, name }) {
+  const list = [];
+  for (let c = cols[0]; c <= cols[1]; c += step) if (grid[row][c]) list.push(grid[row][c]);
+  const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
+  const inst = new THREE.InstancedMesh(geo, material, list.length);
+  const o = new THREE.Object3D();
+  list.forEach((h, i) => {
+    orientToSurface(o, h.point.clone().addScaledVector(h.normal, lift), h.normal);
+    o.updateMatrix();
+    inst.setMatrixAt(i, o.matrix);
+  });
+  inst.name = name || 'pixels';
+  return inst;
+}
+
+export class CarLights {
+  constructor(model, probe, quality) {
+    this.model = model;
+    this.M = model.M;
+    this.quality = quality;
+    this.state = { mode: 'drl', high: false, turn: 0, hazard: false, brake: 0, reverse: false, fog: false, welcome: 0 };
+    this.blink = 0;
+    this.groups = { front: new THREE.Group(), rearBody: new THREE.Group(), rearGate: new THREE.Group() };
+    this.groups.front.name = 'Headlights'; this.groups.rearBody.name = 'Taillights_Body'; this.groups.rearGate.name = 'Taillight_Center';
+    this.buildHeadlights(probe);
+    this.buildTaillights(probe);
+    this.buildSources();
+    model.body.add(this.groups.front, this.groups.rearBody);
+    model.attach('tailgate', this.groups.rearGate);
+    this.apply();
+  }
+
+  buildHeadlights(probe) {
+    const D = DETAILS.headlight, M = this.M;
+    const cz = sToZ(650);
+    const ys = [];
+    for (let i = 0; i <= 8; i++) ys.push(lerp(D.hLow, D.hHigh, i / 8) / 1000);
+    this.headlightMeta = [];
+    for (const sign of [1, -1]) {
+      const inner = probe.front(sign * D.xInner / 1000, 0.83);
+      const outer = probe.side(sign, sToZ(D.toS), 0.83);
+      if (!inner || !outer) continue;
+      const th0 = Math.atan2(Math.abs(inner.point.x), inner.point.z - cz);
+      const th1 = Math.atan2(Math.abs(outer.point.x), outer.point.z - cz);
+      const N = 36, headings = [];
+      for (let i = 0; i < N; i++) headings.push(sign * lerp(th0, th1, Math.pow(i / (N - 1), 0.85)));
+      const grid = contourGrid(probe, { cz, ys, headings });
+      const g = this.groups.front;
+      g.add(stripMesh(grid, { lift: 0.004, material: M.housing, name: 'Headlight_Housing' }));
+      g.add(stripMesh(grid, { lift: 0.011, material: M.lens, name: 'Headlight_Lens' }));
+      // DRL: top edge, full length; amber turn segment just below on the outer half
+      g.add(stripMesh(grid, { rows: [6, 7], lift: 0.007, material: M.led_drl, name: 'DRL' }));
+      g.add(stripMesh(grid, { rows: [5, 5 + 0], cols: [Math.floor(N * 0.45), N - 3], lift: 0.0065, material: M.led_amber, name: 'Turn_Front' }));
+      // reflector bowl + two LED projector modules
+      g.add(stripMesh(grid, { rows: [1, 4], cols: [2, Math.floor(N * 0.62)], lift: 0.005, material: M.reflector, name: 'Headlight_Chrome' }));
+      for (const f of [0.18, 0.4]) {
+        const h = grid[3][Math.floor(N * f)];
+        if (!h) continue;
+        const proj = new THREE.Group();
+        const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.021, 0.008, 28, 1, true), M.reflector);
+        ring.rotation.x = Math.PI / 2;
+        const lensDisc = new THREE.Mesh(new THREE.CircleGeometry(0.018, 28), M.led_beam);
+        lensDisc.position.z = 0.004;
+        proj.add(ring, lensDisc);
+        orientToSurface(proj, h.point.clone().addScaledVector(h.normal, 0.006), h.normal);
+        g.add(proj);
+      }
+      const mid = grid[4][Math.floor(N * 0.3)];
+      if (mid) this.headlightMeta.push({ sign, point: mid.point.clone(), normal: mid.normal.clone() });
+    }
+  }
+
+  buildTaillights(probe) {
+    const D = DETAILS.taillight, M = this.M;
+    const cz = sToZ(4250);
+    const ys = [];
+    for (let i = 0; i <= 5; i++) ys.push(lerp(D.hLow, D.hHigh, i / 5) / 1000);
+    const wrap = probe.side(1, sToZ(D.sideToS), 1.067);
+    if (!wrap) return;
+    const thMax = Math.atan2(wrap.point.x, cz - wrap.point.z);
+    const N = 141, headings = [];
+    for (let i = 0; i < N; i++) {
+      const t = (i / (N - 1)) * 2 - 1; // −1..1
+      headings.push(Math.PI - thMax * Math.sign(t) * Math.pow(Math.abs(t), 0.9));
+    }
+    const grid = contourGrid(probe, { cz, ys, headings });
+    // split columns into centre (on the tailgate) and outer segments by |x|
+    const xs = grid[2].map((h) => (h ? h.point.x : 0));
+    const split = 0.728, gap = 0.012;
+    let cL = -1, cR = -1;
+    xs.forEach((x, i) => { if (Math.abs(x) < split - gap / 2) { if (cL < 0) cL = i; cR = i; } });
+    const segs = [
+      { cols: [cL, cR], group: this.groups.rearGate, centre: true },
+      { cols: [0, cL - 2], group: this.groups.rearBody },
+      { cols: [cR + 2, N - 1], group: this.groups.rearBody },
+    ];
+    this.tailMeta = [];
+    for (const sg of segs) {
+      if (sg.cols[1] <= sg.cols[0]) continue;
+      sg.group.add(stripMesh(grid, { cols: sg.cols, lift: 0.003, material: M.housing, name: 'Tail_Housing' }));
+      sg.group.add(stripMesh(grid, { cols: sg.cols, lift: 0.010, material: M.lens_red, name: 'Tail_Lens' }));
+      sg.group.add(pixelRow(grid, 3, sg.cols, { size: [0.010, 0.016, 0.003], lift: 0.006, material: M.led_tail, step: 1, name: 'Tail_Pixels' }));
+      if (!sg.centre) {
+        sg.group.add(pixelRow(grid, 1, sg.cols, { size: [0.010, 0.010, 0.003], lift: 0.006, material: M.led_amber, step: 1, name: 'Turn_Rear' }));
+      }
+    }
+    // reverse lamps, rear fog and reflectors in the bumper corners
+    const lamp = (x, y, w, h, mat, name) => {
+      const hit = probe.rear(x, y);
+      if (!hit) return;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+      orientToSurface(m, hit.point.clone().addScaledVector(hit.normal, 0.003), hit.normal);
+      m.name = name;
+      this.groups.rearBody.add(m);
+    };
+    for (const sign of [1, -1]) {
+      lamp(sign * 0.69, 0.585, 0.024, 0.10, M.led_reverse, 'Reverse');
+      lamp(sign * 0.725, 0.585, 0.016, 0.10, sign > 0 ? M.led_fog : M.reflector_red, sign > 0 ? 'Fog_Rear' : 'Reflector');
+    }
+  }
+
+  buildSources() {
+    const q = this.quality;
+    this.sources = { low: [], high: [], reverse: null, tail: null };
+    const cookieLow = beamCookie(false), cookieHigh = beamCookie(true);
+    for (const meta of this.headlightMeta || []) {
+      for (const kind of ['low', 'high']) {
+        const s = new THREE.SpotLight(0xfff4e8, 0, kind === 'low' ? 70 : 140, kind === 'low' ? 0.62 : 0.42, 0.55, 1.4);
+        s.position.copy(meta.point).add(new THREE.Vector3(0, 0, 0.05));
+        s.target.position.set(meta.sign * (kind === 'low' ? 1.6 : 0.6), kind === 'low' ? -0.4 : 0.3, 25);
+        s.map = kind === 'low' ? cookieLow : cookieHigh;
+        s.castShadow = kind === 'low' && q.shadows >= 2048 && meta.sign > 0;
+        s.shadow.mapSize.set(1024, 1024);
+        s.shadow.bias = -0.0005;
+        s.name = `Beam_${kind}_${meta.sign > 0 ? 'L' : 'R'}`;
+        this.model.root.add(s, s.target);
+        this.sources[kind].push(s);
+      }
+    }
+    const rev = new THREE.SpotLight(0xffffff, 0, 25, 0.9, 0.7, 1.6);
+    rev.position.set(0, 0.55, sToZ(4740));
+    rev.target.position.set(0, -0.4, sToZ(4740) - 8);
+    this.model.root.add(rev, rev.target);
+    this.sources.reverse = rev;
+    const tail = new THREE.PointLight(0xff2020, 0, 6, 2);
+    tail.position.set(0, 0.8, sToZ(5900));
+    this.model.root.add(tail);
+    this.sources.tail = tail;
+  }
+
+  set(patch) { Object.assign(this.state, patch); this.apply(); }
+
+  cycleMode() {
+    const order = ['off', 'drl', 'park', 'low', 'auto'];
+    const i = order.indexOf(this.state.mode);
+    this.set({ mode: order[(i + 1) % order.length] });
+    return this.state.mode;
+  }
+
+  isNightOn() { return this.state.mode === 'low' || (this.state.mode === 'auto' && this.night); }
+
+  apply() {
+    const M = this.M, st = this.state;
+    const beamsOn = this.isNightOn();
+    const tailOn = beamsOn || st.mode === 'park' || st.mode === 'drl' || st.mode === 'auto';
+    const blinkOn = this.blink % 1 < 0.5;
+    const turnL = (st.hazard || st.turn > 0) && blinkOn;
+    const turnR = (st.hazard || st.turn < 0) && blinkOn;
+    const welcome = st.welcome > 0;
+    M.led_drl.emissiveIntensity = st.mode === 'off' ? 0 : (turnL || turnR ? 1.2 : 6.5) * (welcome ? 1.4 : 1);
+    M.led_beam.emissiveIntensity = beamsOn ? (st.high ? 12 : 8) : 0.0;
+    M.led_tail.emissiveIntensity = st.brake > 0.05 ? 7 : tailOn || welcome ? 1.6 : 0;
+    M.led_brake.emissiveIntensity = st.brake > 0.05 ? 9 : 0;
+    M.led_reverse.emissiveIntensity = st.reverse ? 6 : 0;
+    M.led_fog.emissiveIntensity = st.fog ? 5 : 0;
+    // amber: drive per-side via two cloned materials would cost draw calls; both sides share one material,
+    // so we light it when either side is active and hide the inactive side's meshes instead.
+    M.led_amber.emissiveIntensity = turnL || turnR ? 9 : 0;
+    for (const m of this.amberMeshes()) m.visible = m.userData.side > 0 ? turnL || !(turnL || turnR) : turnR || !(turnL || turnR);
+    for (const s of this.sources.low) s.intensity = beamsOn ? 2600 : 0;
+    for (const s of this.sources.high) s.intensity = beamsOn && st.high ? 7000 : 0;
+    this.sources.reverse.intensity = st.reverse ? 40 : 0;
+    this.sources.tail.intensity = st.brake > 0.05 && this.night ? 2.5 : 0;
+  }
+
+  amberMeshes() {
+    if (!this._amber) {
+      this._amber = [];
+      this.model.root.traverse((o) => {
+        if (o.material === this.M.led_amber) { const c = new THREE.Vector3(); new THREE.Box3().setFromObject(o).getCenter(c); o.userData.side = Math.sign(c.x) || 1; this._amber.push(o); }
+      });
+    }
+    return this._amber;
+  }
+
+  update(dt, { night = false } = {}) {
+    this.night = night;
+    const st = this.state;
+    const prev = this.blink % 1 < 0.5;
+    if (st.turn !== 0 || st.hazard) this.blink += dt * 1.5; else this.blink = 0;
+    const now = this.blink % 1 < 0.5;
+    if (st.welcome > 0) st.welcome = Math.max(0, st.welcome - dt);
+    this.apply();
+    return prev !== now && (st.turn !== 0 || st.hazard); // true on blinker toggle (for the click sound)
+  }
+}

@@ -46,9 +46,10 @@ Changan UNI-Z на Three.js r180 (import map, ES-модули). Масштаб 1
 Данные: 4730×1890×1680 мм, база 2795, колея ≈1603, шины 225/55 R19 (опция 245/50 R20), Cd 0,338,
 McPherson/многорычажка, передний привод. Версии: 1.5T 7DCT (188 л.с./300 Н·м; РФ — 147 л.с./280 Н·м)
 и PHEV iDD (ДВС 72 кВт + мотор 158 кВт/330 Н·м, LFP 18,4 кВт·ч, E-CVT). Масса 1500–1720 кг.
-Узнаваемость: безрамочная решётка в форме перевёрнутой трапеции с параметрическим точечным узором,
-растворяющимся к краям; L-образные точечные элементы; V-эмблема; очень узкие острые LED-фары из краёв
-решётки; fastback-крыша; чёрная задняя стойка («парящая крыша»); сквозной LED-фонарь; спойлер над
+Узнаваемость: X-образный передок — безрамочная решётка-трапеция из 56 хромированных элементов
+«летящее крыло», растворяющаяся к краям «драконьей чешуёй»; фары спрятаны в верхних углах решётки
+(тонкая DRL-полоса по кромке); треугольные воздуховоды и трапециевидный воздухозаборник; V-эмблема;
+fastback-крыша; чёрная задняя стойка («парящая крыша»); сквозной LED-фонарь; спойлер над
 задним стеклом; многоугольные хромированные накладки выхлопа; многоспицевые диски 19–20".
 Салон: 10,25" приборка + 14,6" «парящий» экран с живыми данными, руль и педали двигаются.
 Кузов: лофт по поперечным сечениям (нижний кузов замкнутый + оранжерея), арки, проём салона и панели
@@ -67,8 +68,8 @@ McPherson/многорычажка, передний привод. Версии:
 1. Калибровка силуэта: включи режим чертежей (reference/side.png, front.png, rear.png, top.png),
    совмести масштаб по колёсной базе 2795 мм и подгони таблицы раздела 6 так, чтобы контур совпадал
    в пределах 10 мм. Покажи таблицу «было → стало».
-2. Передок крупным планом: доведи решётку dot-matrix (плотность, затухание к краям, глубина),
-   узкие фары с DRL и L-элементы бампера. Сравни с фото, перечисли отличия и исправь их.
+2. Передок крупным планом: доведи X-образный передок (56 элементов «крыло», затухание «чешуёй»,
+   скрытые фары с DRL, воздуховоды и воздухозаборник). Сравни с фото, перечисли отличия и исправь их.
 3. Корма: сквозной фонарь с пиксельной структурой, спойлер со стоп-сигналом, накладки выхлопа,
    надписи. Центр фонаря должен подниматься вместе с крышкой багажника.
 4. Колёса: два дизайна дисков 19" и 20", прогиб спиц, двухцветная отделка, протектор и боковина
@@ -101,4 +102,5 @@ Changan и UNI — товарные знаки Changan Automobile. По умол
 - Autohome: [Cd 0,338](https://www.autohome.com.cn/news/202505/1306382.html), [1.5T 138 кВт / 300 Н·м](https://www.autohome.com.cn/spec/69344), [цвета 2026](https://chejiahao.autohome.com.cn/info/25094497)
 - Autocango: [PHEV: подвеска и шины](https://www.autocango.com/sku/newcar-ChangAn-UNI-Z-ACN1036528), [1.5T 192 л.с. / 310 Н·м](https://www.autocango.com/carspecs-detail/ChangAn-UNI-Z-Q1GA7A)
 - [auto-data.net: UNI-Z iDD](https://www.auto-data.net/en/changan-uni-z-idd-1.5l-215hp-plug-in-hybrid-e-cvt-55122)
+- Дизайн передка (56 элементов «летящее крыло», скрытые фары, воздуховоды, X-образное «лицо»): [Sohu](https://www.sohu.com/a/773056734_694967), [Autohome 车家号](https://chejiahao.autohome.com.cn/info/14838034), [12365auto](https://www.12365auto.com/xcdg/20240320/524147-all.shtml), [易车号](https://hao.yiche.com/wenzhang/88307287/), [Yiche](https://www.yiche.com/zhai/1906582), [Sina Auto](https://auto.sina.cn/newcar/2024-03-28/detail-inapvxxw5712912.d.html), [YD China Auto](https://www.ydchinauto.com/products/changan-uni-z), [Carso Journal](https://journal.carso.ru/articles/changan-uni-z-podrobnyy-obzor-harakteristiki-tehnologii-i-preimuschestva), [Mobile-review: обзор](https://mobile-review.com/all/reviews/auto/krossover-changan-uni-z-priehal-v-rossiyu/), [автоход.рф](https://xn--80aeg3baww.xn--p1ai/blog/changan-uni-z.html)
 - Россия: [Колёса.ру — комплектации и цены](https://www.kolesa.ru/news/krossover-changan-uni-z-startuet-v-rossii-komplektacii-i-ceny), [Колёса.ру — оснащение](https://www.kolesa.ru/news/krossover-changan-uni-z-dlia-rossii-raskryt-sostav-komplektacii), [Autonews.ru](https://www.autonews.ru/news/6ae89b8e9a7947c753ecab56), [Авто.ру Журнал](https://auto.ru/mag/article/on-mog-stat-volgoy-changan-rasskazal-o-novom-krossovere-uniz-dlya-rossii/), [Mobile-review](https://mobile-review.com/all/?p=264564)

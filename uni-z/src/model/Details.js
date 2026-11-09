@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { DETAILS, sToZ, zToS, LOWER, CAVITIES, tableAt } from '../config/geometry.js';
 import { orientToSurface } from './Surface.js';
-import { grilleFadeTexture, labelTexture, plateTexture } from '../util/textures.js';
+import { labelTexture, plateTexture } from '../util/textures.js';
+import { buildFront } from './Front.js';
 import { lerp, smoothstep, clamp } from '../util/math.js';
 
 // Exterior details placed on the body surface with ray probes.
@@ -10,74 +11,6 @@ export function buildDetails(model, probe, opts = {}) {
   const M = model.M;
   const out = { mirrors: [], handles: [], rails: null, plates: [], badges: [] };
   const body = model.body;
-
-  // ---------------------------------------------------------------- grille (borderless dot matrix)
-  {
-    const G = DETAILS.grille;
-    const fadeTex = grilleFadeTexture();
-    const decalMat = new THREE.MeshStandardMaterial({ map: fadeTex, transparent: true, roughness: 0.35, metalness: 0.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    decalMat.name = 'grille_fade';
-    const x0 = -0.70, x1 = 0.70, y0 = (G.botH - 40) / 1000, y1 = (G.topH + 30) / 1000;
-    const decal = probe.patch((u, v) => probe.front(lerp(x0, x1, u), lerp(y0, y1, v)), 56, 24, 0.0015);
-    if (decal) { const m = new THREE.Mesh(decal, decalMat); m.name = 'Grille_Fade'; body.add(m); }
-
-    const dotGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 14, 1);
-    dotGeo.rotateX(Math.PI / 2);
-    const density = opts.grilleDensity ?? 1;
-    const dots = [];
-    const pitch = G.pitch / 1000 / Math.sqrt(density);
-    const hwAt = (y) => lerp(G.botHalfW, G.topHalfW, (y * 1000 - G.botH) / (G.topH - G.botH)) / 1000;
-    let row = 0;
-    for (let y = G.botH / 1000 - 0.03; y <= G.topH / 1000 + 0.01; y += pitch * 0.866, row++) {
-      for (let x = -0.9 + (row % 2) * pitch / 2; x <= 0.9; x += pitch) {
-        const d = Math.min(hwAt(y) - Math.abs(x), G.topH / 1000 - y, y - G.botH / 1000) * 1000; // mm inside the trapezoid
-        if (d < -45) continue;
-        const f = smoothstep(-45, 110, d);
-        const size = lerp(1.5, G.dotMax, f) / 1000;
-        if (size < 0.002) continue;
-        // keep clear of the emblem and plate
-        if (Math.abs(x) < 0.12 && Math.abs(y - DETAILS.emblemFront.h / 1000) < 0.06) continue;
-        if (Math.abs(x) < 0.29 && Math.abs(y - DETAILS.plateFront.h / 1000) < 0.075) continue;
-        dots.push([x, y, size]);
-      }
-    }
-    // L-shaped dot elements in the lower bumper corners
-    const L = DETAILS.lElements;
-    for (const sign of [1, -1]) {
-      for (let y = L.hLow / 1000; y <= L.hHigh / 1000; y += 0.024) for (let x = (L.xOut - 50) / 1000; x <= L.xOut / 1000; x += 0.024) dots.push([sign * x, y, lerp(5, 11, (y * 1000 - L.hLow) / (L.hHigh - L.hLow)) / 1000]);
-      for (let x = L.xIn / 1000; x < (L.xOut - 50) / 1000; x += 0.024) for (let y = L.hLow / 1000; y <= (L.hLow + 50) / 1000; y += 0.024) dots.push([sign * x, y, lerp(4, 10, (x * 1000 - L.xIn) / (L.xOut - L.xIn)) / 1000]);
-    }
-    const inst = new THREE.InstancedMesh(dotGeo, M.grille_dot_edge, dots.length);
-    const o = new THREE.Object3D();
-    let n = 0;
-    for (const [x, y, size] of dots) {
-      const hit = probe.front(x, y);
-      if (!hit || hit.normal.z < 0.25) continue;
-      orientToSurface(o, hit.point.clone().addScaledVector(hit.normal, 0.0025), hit.normal);
-      o.scale.set(size, size, 0.004);
-      o.updateMatrix();
-      inst.setMatrixAt(n++, o.matrix);
-    }
-    inst.count = n;
-    inst.name = 'Grille_Dots';
-    body.add(inst);
-    out.grilleDots = n;
-  }
-
-  // ---------------------------------------------------------------- front emblem (simplified V badge)
-  {
-    const s = new THREE.Shape();
-    s.moveTo(-0.095, 0.05); s.lineTo(-0.062, 0.05); s.lineTo(0, -0.028); s.lineTo(0.062, 0.05); s.lineTo(0.095, 0.05); s.lineTo(0.012, -0.055); s.lineTo(-0.012, -0.055); s.closePath();
-    const g = new THREE.ExtrudeGeometry(s, { depth: 0.006, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 2 });
-    const hit = probe.front(0, DETAILS.emblemFront.h / 1000);
-    if (hit) {
-      const m = new THREE.Mesh(g, M.chrome);
-      orientToSurface(m, hit.point.clone().addScaledVector(hit.normal, 0.004), hit.normal);
-      m.name = 'Emblem_Front';
-      body.add(m);
-      out.badges.push(m);
-    }
-  }
 
   // ---------------------------------------------------------------- plates
   const plate = (format, hit, parent, name) => {
@@ -94,8 +27,8 @@ export function buildDetails(model, probe, opts = {}) {
     parent.add(grp);
     return grp;
   };
-  out.plateFront = plate(opts.plate || 'RU', probe.front(0, DETAILS.plateFront.h / 1000), body, 'Plate_Front');
   out.plateRearHit = probe.rear(0, DETAILS.plateRear.h / 1000);
+  buildFront(model, probe, out);
 
   // ---------------------------------------------------------------- mirrors (on the front doors, foldable)
   for (const sign of [1, -1]) {

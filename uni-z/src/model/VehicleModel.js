@@ -96,7 +96,7 @@ export class VehicleModel {
     step('Детали: решётка, зеркала, спойлер');
     const t0 = performance.now();
     this.probe = new SurfaceProbe([this.bodyMesh, this.greenMesh, ...Object.values(this.partMeshes)]);
-    this.details = buildDetails(this, this.probe, { grilleDensity: quality?.grilleDensity ?? 1, plate: this.config.plate });
+    this.details = buildDetails(this, this.probe, { plate: this.config.plate });
     step('Оптика');
     this.lights = new CarLights(this, this.probe, quality || { shadows: 0 });
     this.stats.detailsMs = performance.now() - t0;

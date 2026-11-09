@@ -44,7 +44,7 @@ export class Showroom {
     ctx.strokeStyle = 'rgba(160,170,185,0.10)'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(256, 256, 150, 0, Math.PI * 2); ctx.stroke();
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-    this.floorMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.42, metalness: 0.0, transparent: !!quality.reflector, opacity: quality.reflector ? 0.86 : 1 });
+    this.floorMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.62, metalness: 0.0, transparent: !!quality.reflector, opacity: quality.reflector ? 0.86 : 1 });
     const floor = new THREE.Mesh(new THREE.CircleGeometry(16, 96), this.floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;

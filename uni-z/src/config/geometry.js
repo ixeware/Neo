@@ -9,12 +9,12 @@ export const AXLES = { frontS: 950, rearS: 3745, wheelCentreH: 365, halfTrack: 8
 
 // Lower body stations: s, h_top, h_bot, w_max, h_wmax, w_top, crown
 export const LOWER = [
-  [5, 640, 480, 470, 560, 380, 1],
-  [20, 720, 410, 650, 575, 530, 1],
-  [50, 815, 345, 780, 600, 620, 1],
-  [110, 905, 300, 860, 640, 680, 1],
-  [180, 918, 282, 900, 710, 710, 1],
-  [320, 937, 270, 930, 780, 724, 1],
+  [5, 700, 440, 560, 560, 470, 1],
+  [20, 815, 375, 705, 575, 600, 1],
+  [50, 878, 330, 805, 600, 670, 1],
+  [110, 905, 300, 870, 640, 700, 1],
+  [180, 920, 282, 905, 710, 715, 1],
+  [320, 937, 270, 932, 780, 726, 1],
   [550, 960, 265, 940, 830, 730, 1],
   [950, 1005, 250, 945, 870, 740, 1],
   [1300, 1050, 205, 945, 905, 745, 1],
@@ -112,11 +112,6 @@ export const HINGES = {
 };
 
 export const DETAILS = {
-  headlight: { fromS: 30, toS: 330, hLow: 795, hHigh: 865, xInner: 470, xOuter: 880 },
-  grille: { topH: 780, topHalfW: 620, botH: 330, botHalfW: 420, pitch: 26, dotMin: 4, dotMax: 14 },
-  lElements: { xIn: 620, xOut: 820, hLow: 300, hHigh: 560 },
-  emblemFront: { h: 760, width: 190 },
-  plateFront: { h: 420 },
   mirror: { s: [1700, 1880], h: [1100, 1230], outerX: 1040 },
   handles: { front: { s: [2480, 2650], h: 1010 }, rear: { s: [3390, 3560], h: 1030 } },
   rails: { fromS: 2400, toS: 4150, x: 600, heightMm: 30 },
@@ -128,6 +123,38 @@ export const DETAILS = {
   exhaust: { xIn: 470, xOut: 690, hLow: 405, hHigh: 462 },
   reflectors: { hLow: 450, hHigh: 600 },
   wipers: { s: 1520 },
+};
+
+// Front fascia (metres, x = +left, y = height; shapes are given for the right half x >= 0 and mirrored).
+// UNI-Z: large inverted-trapezoid borderless grille with 6 rows / 56 parametric "flying wing" chrome
+// elements, headlights hidden in the grille's upper corners, triangular air guides with chrome strips
+// under the headlights and a wide trapezoidal lower intake — together an X-shaped face.
+// The black face is projected straight ahead, so every shape stays on the forward-facing nose (surface
+// normal z ≳ 0.3): rays landing further back than maxS (fender top, wheel-arch wall) are dropped.
+export const FRONT = {
+  bounds: { x0: -0.93, x1: 0.93, y0: 0.26, y1: 0.905 },
+  maxS: 340,
+  // grille: crisp top edge under the hood line (the DRL runs along it), "dragon scale" fade elsewhere
+  grille: [[0, 0.863], [0.55, 0.863], [0.845, 0.858], [0.80, 0.798], [0.40, 0.50], [0, 0.50]],
+  grilleTopVerts: 3,
+  intake: [[0, 0.448], [0.36, 0.448], [0.60, 0.29], [0, 0.29]],
+  // a top-outer, b bottom-outer, c inner tip; the outer edge leans in with the bumper corner
+  guide: [[0.888, 0.725], [0.858, 0.37], [0.64, 0.385]],
+  // 6 rows / 56 wings; the top row stops short of the headlight corners (maxHalf), edgeMargin keeps the
+  // wings clear of the fade band
+  rows: {
+    y: [0.815, 0.759, 0.703, 0.647, 0.591, 0.535], counts: [10, 12, 10, 10, 8, 8], skipCentre: [2, 0, 0, 0, 0, 0],
+    scale: [1, 1, 1, 0.96, 0.9, 0.84], maxHalf: [0.56, null, null, null, null, null], edgeMargin: 0.035,
+  },
+  // DRL light guide just under the grille's top edge, wrapping round the corner to s = wrapS
+  drl: { from: [0.42, 0.85], wrapS: 245, wrapY: 0.852, width: 0.011 },
+  // LED projector modules (bezel radius projectorR) in the wing-free upper corners, between the DRL and
+  // the second wing row
+  projectors: [[0.6, 0.803], [0.71, 0.803]],
+  projectorR: 0.025,
+  emblem: { y: 0.804, width: 0.16 },
+  plate: { y: 0.39 },
+  fadeMm: 46,
 };
 
 export const INTERIOR = {

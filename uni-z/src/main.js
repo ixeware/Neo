@@ -124,6 +124,7 @@ class App {
     if (prev) Object.assign(this.car.config, prev);
     this.car.build({ quality: this.q });
     this.car.root.position.y = this.car.rideOffset;
+    this.car.lights.sourceScale = this.mode === 'drive' ? 1 : 0.012;
     this.scene.add(this.car.root);
     this.buildMs = performance.now() - t0;
     this.car.root.traverse((o) => { if (o.isMesh) o.castShadow = o.castShadow !== false; });
@@ -133,7 +134,9 @@ class App {
     const q = this.q, r = this.renderer;
     this.composer?.dispose?.();
     if (q.post === 'none') { this.composer = null; return; }
-    const comp = new EffectComposer(r);
+    // multisampled targets: 4 mm panel gaps and trim lines are thinner than a pixel and break up without MSAA
+    const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
+    const comp = new EffectComposer(r, rt);
     comp.setPixelRatio(r.getPixelRatio());
     comp.setSize(innerWidth, innerHeight);
     comp.addPass(new RenderPass(this.scene, this.camera));
@@ -174,7 +177,10 @@ class App {
     if (!b) return;
     if (this.mode === 'drive' && !this.night) { b.threshold = 3.2; b.strength = 0.22; b.radius = 0.3; }
     else if (this.mode === 'drive') { b.threshold = 1.6; b.strength = 0.45; b.radius = 0.35; }
-    else { b.threshold = 1.05; b.strength = 0.55; b.radius = 0.45; }
+    else if (this.night) { b.threshold = 1.8; b.strength = 0.35; b.radius = 0.3; }
+    // showroom day: only lamps and the hottest glints bloom, so a softbox highlight on the paint does not
+    // haze over the black grille next to it
+    else { b.threshold = 2.2; b.strength = 0.5; b.radius = 0.3; }
   }
 
   applyShowroomEnv() {
@@ -392,6 +398,7 @@ class App {
       this.showroom.setNight(on);
       this.scene.environmentIntensity = on ? 0.12 : 1;
       this.setLightMode(on ? 'low' : 'drl');
+      this.tuneBloom();
     } else { this.timeOfDay = on ? 22.5 : 15; $('tod').value = this.timeOfDay; this.todDirty = true; }
   }
 
@@ -438,6 +445,7 @@ class App {
   setMode(mode) {
     if (mode === this.mode) return;
     this.mode = mode;
+    this.car.lights.sourceScale = mode === 'drive' ? 1 : 0.012;
     $('mode-showroom').setAttribute('aria-pressed', String(mode === 'showroom'));
     $('mode-drive').setAttribute('aria-pressed', String(mode === 'drive'));
     const drive = mode === 'drive';

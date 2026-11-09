@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-import { DETAILS, sToZ, AXLES } from '../config/geometry.js';
+import { DETAILS, FRONT, sToZ, AXLES } from '../config/geometry.js';
 import { orientToSurface } from './Surface.js';
 import { beamCookie } from '../util/textures.js';
-import { lerp } from '../util/math.js';
+import { lerp, smoothstep } from '../util/math.js';
+
+const TURN_OFF = new THREE.Color(0.05, 0.03, 0.01), TURN_ON = new THREE.Color(5.0, 2.0, 0.15);
 
 // Grid of surface hits along a horizontal contour: rows = heights, cols = headings.
 function contourGrid(probe, { cz, ys, headings }) {
@@ -80,44 +82,64 @@ export class CarLights {
     this.apply();
   }
 
+  // Headlights hidden in the grille's upper corners: a slim, sharp light guide (DRL) along the top edge that
+  // wraps onto the fender, a sequential amber turn signal under it, and two LED projector modules.
   buildHeadlights(probe) {
-    const D = DETAILS.headlight, M = this.M;
+    const F = FRONT, M = this.M;
     const cz = sToZ(650);
-    const ys = [];
-    for (let i = 0; i <= 8; i++) ys.push(lerp(D.hLow, D.hHigh, i / 8) / 1000);
     this.headlightMeta = [];
+    this.turnSeq = [];
+    const g = this.groups.front;
     for (const sign of [1, -1]) {
-      const inner = probe.front(sign * D.xInner / 1000, 0.83);
-      const outer = probe.side(sign, sToZ(D.toS), 0.83);
-      if (!inner || !outer) continue;
-      const th0 = Math.atan2(Math.abs(inner.point.x), inner.point.z - cz);
-      const th1 = Math.atan2(Math.abs(outer.point.x), outer.point.z - cz);
-      const N = 36, headings = [];
-      for (let i = 0; i < N; i++) headings.push(sign * lerp(th0, th1, Math.pow(i / (N - 1), 0.85)));
-      const grid = contourGrid(probe, { cz, ys, headings });
-      const g = this.groups.front;
-      g.add(stripMesh(grid, { lift: 0.004, material: M.housing, name: 'Headlight_Housing' }));
-      g.add(stripMesh(grid, { lift: 0.011, material: M.lens, name: 'Headlight_Lens' }));
-      // DRL: top edge, full length; amber turn segment just below on the outer half
-      g.add(stripMesh(grid, { rows: [6, 7], lift: 0.007, material: M.led_drl, name: 'DRL' }));
-      g.add(stripMesh(grid, { rows: [5, 5 + 0], cols: [Math.floor(N * 0.45), N - 3], lift: 0.0065, material: M.led_amber, name: 'Turn_Front' }));
-      // reflector bowl + two LED projector modules
-      g.add(stripMesh(grid, { rows: [1, 4], cols: [2, Math.floor(N * 0.62)], lift: 0.005, material: M.reflector, name: 'Headlight_Chrome' }));
-      for (const f of [0.18, 0.4]) {
-        const h = grid[3][Math.floor(N * f)];
+      const start = probe.front(sign * F.drl.from[0], F.drl.from[1]);
+      const wrap = probe.side(sign, sToZ(F.drl.wrapS), F.drl.wrapY);
+      if (!start || !wrap) continue;
+      const th0 = Math.atan2(Math.abs(start.point.x), start.point.z - cz);
+      const th1 = Math.atan2(Math.abs(wrap.point.x), wrap.point.z - cz);
+      const N = 56, rows = [[], []], seq = [];
+      for (let i = 0; i < N; i++) {
+        const t = i / (N - 1);
+        const th = sign * lerp(th0, th1, Math.pow(t, 0.92));
+        const yMid = lerp(F.drl.from[1], F.drl.wrapY, smoothstep(0, 1, t * 1.15));
+        const half = (F.drl.width / 2) * (t > 0.8 ? 1 - ((t - 0.8) / 0.2) * 0.75 : 1);
+        rows[0].push(probe.polar(0, cz, yMid - half, th));
+        rows[1].push(probe.polar(0, cz, yMid + half, th));
+        if (t > 0.42 && t < 0.93 && i % 2 === 0) seq.push(probe.polar(0, cz, yMid - half - 0.0075, th));
+      }
+      g.add(stripMesh(rows, { lift: 0.0045, material: M.led_drl, name: 'DRL' }));
+      // sequential turn signal: instanced segments with per-instance HDR colour
+      const segs = seq.filter(Boolean);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      mat.name = 'turn_seq';
+      const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.02, 0.005, 0.003), mat, segs.length);
+      const o = new THREE.Object3D();
+      segs.forEach((h, i) => {
+        orientToSurface(o, h.point.clone().addScaledVector(h.normal, 0.004), h.normal);
+        o.updateMatrix(); inst.setMatrixAt(i, o.matrix); inst.setColorAt(i, TURN_OFF);
+      });
+      inst.name = 'Turn_Front_Seq';
+      g.add(inst);
+      this.turnSeq.push({ inst, side: sign, n: segs.length });
+      // LED projector modules in the wing-free upper corners of the grille
+      for (const [px, py] of F.projectors) {
+        const h = probe.front(sign * px, py);
         if (!h) continue;
         const proj = new THREE.Group();
-        const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.021, 0.008, 28, 1, true), M.reflector);
+        const R = F.projectorR, ring = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.004, R - 0.004, 0.01, 32, 1, true), M.reflector);
         ring.rotation.x = Math.PI / 2;
-        const lensDisc = new THREE.Mesh(new THREE.CircleGeometry(0.018, 28), M.led_beam);
-        lensDisc.position.z = 0.004;
-        proj.add(ring, lensDisc);
-        orientToSurface(proj, h.point.clone().addScaledVector(h.normal, 0.006), h.normal);
+        const lensDisc = new THREE.Mesh(new THREE.CircleGeometry(R - 0.008, 32), M.led_beam);
+        lensDisc.position.z = 0.005;
+        const bezel = new THREE.Mesh(new THREE.RingGeometry(R - 0.004, R, 32), M.housing);
+        bezel.position.z = 0.004;
+        proj.add(ring, lensDisc, bezel);
+        orientToSurface(proj, h.point.clone().addScaledVector(h.normal, 0.003), h.normal);
+        proj.name = 'Projector';
         g.add(proj);
+        this.headlightMeta.push({ sign, point: h.point.clone(), normal: h.normal.clone() });
       }
-      const mid = grid[4][Math.floor(N * 0.3)];
-      if (mid) this.headlightMeta.push({ sign, point: mid.point.clone(), normal: mid.normal.clone() });
     }
+    // keep one beam per side for the real light sources
+    this.headlightMeta = this.headlightMeta.filter((m, i, arr) => arr.findIndex((o) => o.sign === m.sign) === i);
   }
 
   buildTaillights(probe) {
@@ -227,10 +249,12 @@ export class CarLights {
     // so we light it when either side is active and hide the inactive side's meshes instead.
     M.led_amber.emissiveIntensity = turnL || turnR ? 9 : 0;
     for (const m of this.amberMeshes()) m.visible = m.userData.side > 0 ? turnL || !(turnL || turnR) : turnR || !(turnL || turnR);
-    for (const s of this.sources.low) s.intensity = beamsOn ? 2600 : 0;
-    for (const s of this.sources.high) s.intensity = beamsOn && st.high ? 7000 : 0;
-    this.sources.reverse.intensity = st.reverse ? 40 : 0;
-    this.sources.tail.intensity = st.brake > 0.05 && this.night ? 2.5 : 0;
+    // the studio is lit with far weaker units than the road at night: scale the lamps to the scene
+    const k = this.sourceScale ?? 1;
+    for (const s of this.sources.low) s.intensity = beamsOn ? 2600 * k : 0;
+    for (const s of this.sources.high) s.intensity = beamsOn && st.high ? 7000 * k : 0;
+    this.sources.reverse.intensity = st.reverse ? 40 * k : 0;
+    this.sources.tail.intensity = st.brake > 0.05 && this.night ? 2.5 * k : 0;
   }
 
   amberMeshes() {
@@ -243,6 +267,18 @@ export class CarLights {
     return this._amber;
   }
 
+  // front turn signals sweep outward during the "on" half of each blink
+  updateSequential() {
+    const st = this.state, phase = this.blink % 1;
+    const active = st.turn !== 0 || st.hazard;
+    for (const t of this.turnSeq || []) {
+      const sideOn = active && (st.hazard || (t.side > 0 ? st.turn > 0 : st.turn < 0)) && phase < 0.5;
+      const lit = sideOn ? Math.ceil(Math.min(1, phase / 0.32) * t.n) : 0;
+      for (let i = 0; i < t.n; i++) t.inst.setColorAt(i, i < lit ? TURN_ON : TURN_OFF);
+      t.inst.instanceColor.needsUpdate = true;
+    }
+  }
+
   update(dt, { night = false } = {}) {
     this.night = night;
     const st = this.state;
@@ -251,6 +287,7 @@ export class CarLights {
     const now = this.blink % 1 < 0.5;
     if (st.welcome > 0) st.welcome = Math.max(0, st.welcome - dt);
     this.apply();
+    this.updateSequential();
     return prev !== now && (st.turn !== 0 || st.hazard); // true on blinker toggle (for the click sound)
   }
 }

@@ -31,6 +31,7 @@ export function createMaterials() {
   M.satin = std({ color: 0xb6bbc2, metalness: 1, roughness: 0.34 });
   M.grille_dot = phys({ color: 0x060607, metalness: 0.4, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.05 });
   M.grille_dot_edge = std({ color: 0xc9ced6, metalness: 1, roughness: 0.22 });
+  M.grille_wing = phys({ color: 0xd8dde4, metalness: 1, roughness: 0.2, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1.6 });
   M.mesh_dark = std({ color: 0x0b0b0c, roughness: 0.6, metalness: 0.3 });
 
   // Lights (emissive intensity driven by Lights.js)

@@ -6,7 +6,7 @@
 //   pack (pack face textures) · pack3d · lm[&crowd=4] (all landmarks) · lm1&k=stadium · game2[&dist=38]
 // Extras: &yaw= &pitch= (camera), &spicy (18+ sign), &anim (spin the doner), &noshadow.
 import * as THREE from 'three';
-import { unitGeometry, unitScale, islamRig, zurabRig } from '../src/render/models';
+import { unitGeometry, unitScale, islamRig, zurabRig, houseGeometries } from '../src/render/models';
 import { heroGeometry, heroScale, donerBey, fudzi, gym, taxiStand, HERO_TYPES } from '../src/render/heroes';
 import { propUnitGeometry, propUnitScale, gelikProp, sportikiCrowd, cigPackTexture, cigPack, landmark, LANDMARK_KINDS, PROP_TYPES } from '../src/render/props';
 import { mosque, HqBuilding } from '../src/render/world';
@@ -299,6 +299,53 @@ if (view === 'all') {
   if (view === 'lm1') { unit(0, 0, 3.4, 4.2, 0.3, false); unit(17, 1, 4.4, 4.0, -0.3, false); }
   pitch = Number(q.get('pitch') ?? (view === 'lm1' ? 0.5 : 0.62));
   tight = view === 'lm1' ? 0.95 : 1.0;
+} else if (view === 'houses') {
+  // village house kits, instanced like world.ts (wall / roof instance colours; &vc turns vertexColors on):
+  // the three variants up front, then a mock street — two rows of plots facing a road, at the game camera
+  const kit = houseGeometries();
+  const mat = new THREE.MeshLambertMaterial({ color: '#ffffff', vertexColors: q.has('vc') });
+  const walls = ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
+  const roofs = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
+  const rnd = (i: number) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+  const spots: { v: number; x: number; z: number; ry: number; s: number; sy: number; w: number; r: number }[] = [];
+  kit.variants.forEach((_, v) => spots.push({ v, x: -2.2 + v * 1.1, z: 1.9, ry: 0, s: 0.42, sy: 0.27, w: v + 1, r: v * 2 + 1 }));
+  for (let k = 0; k < 9; k++) for (const side of [1, -1]) {
+    const i = k * 2 + (side > 0 ? 0 : 1);
+    const v = rnd(i) < 0.3 ? 0 : rnd(i + 7) < 0.5 ? 1 : 2;
+    spots.push({ v, x: -4 + k * 0.62 + rnd(i + 3) * 0.08, z: side * 0.62, ry: side > 0 ? Math.PI : 0, s: 0.3 + rnd(i + 5) * 0.12, sy: rnd(i + 9) > 0.78 ? 0.42 : 0.24 + rnd(i + 2) * 0.06, w: Math.floor(rnd(i + 11) * 7), r: Math.floor(rnd(i + 13) * 7) });
+  }
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 0.42), new THREE.MeshLambertMaterial({ color: '#8d8a83' }));
+  road.rotation.x = -Math.PI / 2; road.position.set(-1.2, 0.005, 0); road.receiveShadow = true;
+  scene.add(road);
+  const m4 = new THREE.Matrix4(), qq = new THREE.Quaternion();
+  kit.variants.forEach((kv, v) => {
+    const list = spots.filter(s => s.v === v);
+    for (const [geo, roof] of [[kv.body, false], [kv.roof, true]] as const) {
+      const im = new THREE.InstancedMesh(geo, mat, list.length);
+      list.forEach((s, i) => {
+        qq.setFromEuler(new THREE.Euler(0, s.ry, 0));
+        im.setMatrixAt(i, m4.compose(new THREE.Vector3(s.x, 0, s.z), qq, new THREE.Vector3(s.s, s.sy, s.s)));
+        im.setColorAt(i, roof ? roofs[s.r % 7] : walls[s.w % 7]);
+      });
+      im.castShadow = true; im.receiveShadow = true;
+      scene.add(im); placed.push(im);
+    }
+    labels.push({ text: kv.kind, sub: `${kv.tris} тр`, at: new THREE.Vector3(-2.2 + v * 1.1, 0.5, 1.9), side: -1 });
+  });
+  if (q.has('units')) { unit(0, 0, 2.6, 0.2, -0.6, false); unit(16, 1, 3.6, 2.4, 2.2, false); }
+  if (q.has('dist')) gameCam = { x: -1.2, z: 0.9, dist: Number(q.get('dist')) };
+  pitch = Number(q.get('pitch') ?? 0.62);
+} else if (view === 'mosques') {
+  // Шали (big), the Атаги brick mosque (style 0) and the Курчалой Ottoman one (style 1), a пацан for scale
+  const items: [THREE.Group, number, string][] = [[mosque(true), -3.2, 'Шали «Гордость мусульман»'], [mosque(false, 0), 1.6, 'мечеть Атагов (style 0)'], [mosque(false, 1), 4.6, 'мечеть Курчалоя (style 1)']];
+  for (const [o, x, name] of items) {
+    addObj(o, x, 0, Number(q.get('ry') ?? 0));
+    const sz = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3());
+    labels.push({ text: name, sub: `${o.userData.tris} тр · h ${sz.y.toFixed(2)}`, at: new THREE.Vector3(x, sz.y + 0.35, 0), side: -1 });
+  }
+  unit(0, 0, 3.1, 1.6, 0.3, false);
+  if (q.has('dist')) gameCam = { x: 0.6, z: 0, dist: Number(q.get('dist')) };
+  pitch = Number(q.get('pitch') ?? 0.32);
 } else if (view === 'game2') {
   // a village corner at the in-game camera: stadium, gym, carwash, park, гелики and спортики around
   addObj(landmark('stadium', { side: 1, name: 'СТАДИОН', crowd: 4 }), 0, -2);
@@ -376,7 +423,7 @@ sun.target.position.copy(target);
 // ---- DOM labels + nav -----------------------------------------------------------------------
 const nav = document.getElementById('bar')!;
 for (const [v, txt] of [['all', 'всё'], ['heroes', 'новые'], ['units', 'сравнение 1'], ['units&half=2', 'сравнение 2'], ['hero&t=6', 'крупно'], ['bld', 'здания'], ['doner', 'донер'], ['decor', 'декор'], ['game', 'как в игре'], ['portraits', 'портреты'],
-  ['v3', 'v3 герои'], ['plate', 'КРА 95'], ['crowd', 'спортики'], ['pack', 'пачка 2D'], ['pack3d', 'пачка 3D'], ['lm', 'места'], ['game2', 'места в игре']]) {
+  ['v3', 'v3 герои'], ['plate', 'КРА 95'], ['crowd', 'спортики'], ['pack', 'пачка 2D'], ['pack3d', 'пачка 3D'], ['lm', 'места'], ['game2', 'места в игре'], ['houses', 'дома'], ['houses&dist=14', 'улица в игре'], ['mosques', 'мечети']]) {
   const a = document.createElement('a');
   a.href = `?view=${v}`; a.textContent = txt;
   const lq = new URLSearchParams(`view=${v}`);

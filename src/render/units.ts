@@ -28,9 +28,9 @@ export const BS = 1.45; // units read better a bit larger than true scale
 
 const isHero = (t: number) => t >= 6 && t <= 12;
 /** Instances per side and type: heroes are unique per side, summons and rides are few. */
-const capFor = (t: number) => (isHero(t) ? 4 : t === 13 ? 8 : t === 14 ? 40 : CAP);
+const capFor = (t: number) => (isHero(t) ? 4 : t === 13 ? 8 : t === 14 ? 40 : t === 16 ? 6 : CAP);
 /** Cars move without the walk cycle (no lean or roll, a low bob). */
-const isCar = (t: number, s: number) => t === 14 || (t === 3 && s === 1);
+const isCar = (t: number, s: number) => t === 14 || t === 16 || (t === 3 && s === 1);
 
 /** Model-space top of each unit type (before scaling). */
 function modelTop(t: number, s: 0 | 1) {

@@ -3,7 +3,7 @@
 // vertex-coloured geometry so a crowd instances cheaply. Units face +z and stand on y=0.
 import * as THREE from 'three';
 import { Builder, PAL } from './models';
-import { body, strokeText } from './props';
+import { body, strokeText, propUnitGeometry, propUnitScale, propUnitHeight } from './props';
 
 type V3 = [number, number, number];
 type Col = THREE.Color;
@@ -591,6 +591,7 @@ export const HERO_TYPES = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 
 /** Merged vertex-coloured geometry for unit types 6..15 (instancing, like unitGeometry). */
 export function heroGeometry(type: number, side: 0 | 1): THREE.BufferGeometry {
+  if (type === 16 || type === 17) return propUnitGeometry(type, side);
   const b = new Builder();
   const team = PAL.side[side], dark = PAL.sideDark[side];
   switch (type) {
@@ -618,6 +619,7 @@ export function heroGeometry(type: number, side: 0 | 1): THREE.BufferGeometry {
 
 /** Extra scale on top of the renderer's ×1.7 unit scale. */
 export function heroScale(type: number, side: 0 | 1): number {
+  if (type === 16 || type === 17) return propUnitScale(type, side);
   switch (type) {
     case 6: return 1.05;
     case 7: return 1.05;
@@ -634,6 +636,7 @@ export function heroScale(type: number, side: 0 | 1): number {
 const heights = new Map<number, number>();
 /** Model-space top of the unit (before heroScale and the ×1.7 unit scale): for health bars. */
 export function heroHeight(type: number, side: 0 | 1): number {
+  if (type === 16 || type === 17) return propUnitHeight(type, side);
   const k = type * 2 + side;
   let h = heights.get(k);
   if (h === undefined) {
@@ -646,7 +649,7 @@ export function heroHeight(type: number, side: 0 | 1): number {
 }
 
 /** Vehicles: no leaning/rolling walk cycle in the renderer. */
-export const isVehicle = (type: number) => type === 14;
+export const isVehicle = (type: number) => type === 14 || type === 16;
 
 // ---- street food and village decor ----------------------------------------------------------
 /** Canvas texture that repaints itself once the web fonts it uses have loaded. */

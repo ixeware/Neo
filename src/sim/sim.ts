@@ -6,18 +6,21 @@ import {
   MILITIA_EVERY, FIRST_VOTE, VOTE_EVERY, VOTE_LEN, WAR_RESET, BOSS_RESPAWN, type Side,
   BOSS, CHIMAEV, WOU, ADMIN, ERSNO, BEKHAN, ADAM, MOHMAD, GOLEM, RIDE, CHICKEN, HEROES,
   HERO, DONER, EVENTS, EVENT_FIRST, EVENT_EVERY, JAM_R, AI_W, unitName,
+  GELIK, SPORTIK, PLACE, BUFF, type Card,
 } from './defs';
 import { buildFlow, flowDir, type Flow } from './flow';
 import { navIndex, passable, lcAt, LC, type Terrain } from '../world/terrain';
+import { CAPTURE_PLACES } from '../data/places';
 
 export interface U {
   id: number; s: Side; t: number; x: number; z: number; hp: number; mhp: number;
   cd: number; tg: number; g: number; rt: number; slow: number; stun: number;
   own: number; mv: number; ab: number; hit: number; born: number;
-  psn: number; // poisoned until tick («я отравился»)
-  tt: number; tn: number; // taunted until tick, by unit id (WOU «Рейджбайт»)
+  psn: number; // poisoned until tick («я отравился», «Курение убивает»)
+  tt: number; tn: number; // taunted until tick, by unit id (Амин «Рейджбайт»)
   ld: number; // link: Мохьмад ↔ его Голем
   f: number; // UF flags
+  fr: number; // scared until tick (админ «Курение убивает»): runs from the pack, never attacks
 }
 /** Unit flags (U.f). */
 export const UF = { LAGMAN: 1, GONE: 2, UNLOADED: 4, FLEE: 8 } as const;
@@ -25,10 +28,14 @@ export interface P {
   x: number; z: number; tx: number; tz: number; tg: number; hq: number; s: Side;
   dmg: number; sp: number; slow: number; at: number; k: number; from: number;
 }
-/** kind: 0 high-rise (HQ), 1 village, 2 special point (Донер Бей). */
+/**
+ * kind: 0 high-rise (HQ), 1 village, 2 special point (Донер Бей), 3 «место» (capture place of a
+ * side's village, pts[9..12]: `side` is the home side, `perk` what it gives its current owner).
+ */
 export interface Pt {
   key: string; name: string; x: number; z: number; r: number;
-  kind: 0 | 1 | 2; side: -1 | 0 | 1; owner: -1 | 0 | 1; prog: number;
+  kind: 0 | 1 | 2 | 3; side: -1 | 0 | 1; owner: -1 | 0 | 1; prog: number;
+  perk?: 'sportiki' | 'gelik' | 'gym' | 'market';
 }
 export interface SideState {
   money: number; floors: number; hq: number; focus: number; focusUntil: number;
@@ -47,6 +54,12 @@ export interface SideState {
   immune: number; // «Н ма дилита!»: immune to stun/slow/Н until tick
   skip: number; // 1 = next сход of this side is cancelled («четырёхдневка»)
   aiWant: number; aiWantUntil: number; // AI saving up for a hero/ride
+  /** «Закинуть снюс» / «Энергетик»: buff until tick, then «отходняк» until snus + BUFF.offFor (0 = never). */
+  snus: number;
+  /** «Бамб LOOP» / «Двойной эспрессо»: stun-immune and +20% damage until tick. */
+  loop: number;
+  /** админ «Курение убивает» is ready at this tick (0 = ready). */
+  pack: number;
 }
 export interface Vote {
   open: number; start: number; end: number; opts: number[]; focusPt: number;
@@ -59,12 +72,15 @@ export interface Aoe { s: Side; x: number; z: number; r: number; dmg: number; hq
 export interface Away { s: Side; t: number; hp: number; mhp: number; back: number; ld: number; f: number }
 /** World events: `next` tick and the active ones as «until» ticks. */
 export interface Ev { next: number; last: string; jam: number; black: number; sale: number; friday: number; flood: number }
+/** админ «Курение убивает»: a cigarette pack lying at x,z from tick `at` until `until`; s = admin's side, id = admin. */
+export interface Pack { s: Side; id: number; x: number; z: number; r: number; at: number; until: number }
 export interface State {
   v: 1; tick: number; era: number; seed: number; rng: number; nextId: number;
   units: U[]; proj: P[]; pts: Pt[]; sides: [SideState, SideState]; votes: [Vote, Vote];
   nextVote: number; nextMilitia: number; winner: -1 | 0 | 1; overAt: number;
   players: Record<string, Player>; diff: number; humanSide: -1 | 0 | 1; mp: number;
   aoe: Aoe[]; away: Away[]; ev: Ev;
+  packs: Pack[];
 }
 
 export type Cmd =
@@ -118,10 +134,21 @@ export type FxEv =
   /** Side s skipped its сход («Где наша обещанная четырёхдневка»). */
   | { e: 'voteSkip'; s: Side }
   /** A hit on side s was dodged («Шампунь +40 к удаче»). */
-  | { e: 'dodge'; x: number; z: number; s: Side };
+  | { e: 'dodge'; x: number; z: number; s: Side }
+  // ---- v3 ------------------------------------------------------------------------------
+  /** ersno moved n ₽ from side v's bank to side s. k: 'hit' (every melee hit) | 'card' («Списание с карты»). */
+  | { e: 'steal'; s: Side; v: Side; id: number; x: number; z: number; n: number; k: 'hit' | 'card' }
+  /** админ «Курение убивает»: a pack lies at x,z until tick; n enemies got scared on landing. s = admin's side. */
+  | { e: 'pack'; s: Side; id: number; x: number; z: number; r: number; until: number; n: number }
+  /** «Закинуть снюс» wore off for side s: «отходняк» (−20% speed) until tick. */
+  | { e: 'comedown'; s: Side; until: number };
 
 export const PT_ARGUN = 7;
 export const PT_DONER = 8;
+/** Capture places («место», kind 3): pts[9..12] in CAPTURE_PLACES order. */
+export const PT_PLACE0 = 9;
+export const PT_PLACES = [9, 10, 11, 12];
+export const PT_COUNT = 13;
 
 // ---- RNG (mulberry32, integer ops) -------------------------------------------
 function rnd(st: State): number {
@@ -133,6 +160,8 @@ function rnd(st: State): number {
 function rint(st: State, n: number): number { return Math.floor(rnd(st) * n); }
 
 const NT = UNITS.length;
+/** Flow fields per terrain (read-only once built; the point layout never changes). */
+const FLOWS = new WeakMap<Terrain, Flow[]>();
 const filled = (v: number) => { const a: number[] = []; for (let i = 0; i < NT; i++) a.push(v); return a; };
 
 export class Sim {
@@ -145,14 +174,20 @@ export class Sim {
   private nxt = new Int32Array(4096);
   private hw: number; private hh: number;
   private tmp = { x: 0, z: 0 };
+  private sc = { dmg: 0, range: 0, spd: 0, cd: 0, d: UNITS[0] };
   private donerSpot: { x: number; z: number };
 
   constructor(public terrain: Terrain) {
     this.hw = Math.ceil(terrain.W / 4); this.hh = Math.ceil(terrain.H / 4);
     this.head = new Int32Array(this.hw * this.hh).fill(-1);
     this.donerSpot = this.findDoner();
-    const pts = this.makePoints();
-    this.flows = pts.map(p => buildFlow(terrain, p.x, p.z, p.kind === 0 ? 4 : Math.min(p.r, 6)));
+    // flow fields depend only on the terrain and the fixed point layout: build once per terrain, share read-only
+    let flows = FLOWS.get(terrain);
+    if (!flows) {
+      flows = this.makePoints().map(p => buildFlow(terrain, p.x, p.z, p.kind === 0 ? 4 : Math.min(p.r, 6)));
+      FLOWS.set(terrain, flows);
+    }
+    this.flows = flows;
   }
 
   /** Донер Бей: the passable built-up nav cell closest to (30, 12), Grozny's eastern edge. */
@@ -185,6 +220,10 @@ export class Sim {
     });
     const d = this.donerSpot;
     pts.push({ key: 'doner', name: 'Донер Бей', x: d.x, z: d.z, r: DONER.r, kind: 2, side: -1, owner: -1, prog: 0 });
+    // places: start owned by their home side, after Донер Бей so older indices stay put
+    for (const c of CAPTURE_PLACES) {
+      pts.push({ key: c.key, name: c.name, x: c.x, z: c.z, r: PLACE.r, kind: 3, side: c.side, owner: c.side, prog: c.side === 0 ? -100 : 100, perk: c.perk });
+    }
     return pts;
   }
 
@@ -195,6 +234,7 @@ export class Sim {
       lastHuman: -100000, aiNext: 30 + s * 7, turretCd: 0, found4: 0, kills: 0, deployed: 0, income: 0,
       hero: filled(-1), heroCd: filled(0),
       hack: 0, poor: 0, weak: 0, sauce: 0, sauceM: 1, dodge: 0, immune: 0, skip: 0, aiWant: -1, aiWantUntil: 0,
+      snus: 0, loop: 0, pack: 0,
     };
   }
 
@@ -211,7 +251,7 @@ export class Sim {
       v: 1, tick: 0, era: 1, seed, rng: seed | 0, nextId: 1, units: [], proj: [],
       pts: this.makePoints(), sides: [this.freshSide(0), this.freshSide(1)], votes: [this.freshVote(), this.freshVote()],
       nextVote: FIRST_VOTE, nextMilitia: 60, winner: -1, overAt: 0, players: {}, diff: 1, humanSide: -1, mp: 0,
-      aoe: [], away: [], ev: this.freshEv(0),
+      aoe: [], away: [], ev: this.freshEv(0), packs: [],
     };
     this.reindex();
   }
@@ -221,18 +261,29 @@ export class Sim {
   reindex() { this.byId.clear(); for (const u of this.st.units) this.byId.set(u.id, u); this.head.fill(-1); }
   unit(id: number) { return this.byId.get(id); }
 
-  /** Saves from before the content update: fill in what is missing (same on every client). */
+  /**
+   * Saves from before the content updates: fill in what is missing (same on every client).
+   * v2 (d69dd41 and earlier) lacks packs, SideState snus/loop/pack, U.fr, unit types 16..17 in
+   * hero/heroCd and the capture places pts[9..12] (they come back owned by their home side).
+   */
   private migrate() {
     const st = this.st as State & Record<string, unknown>;
     if (!st.aoe) st.aoe = [];
     if (!st.away) st.away = [];
     if (!st.ev) st.ev = this.freshEv(st.tick);
-    if (st.pts.length < 9) st.pts.push(this.makePoints()[PT_DONER]);
+    if (!st.packs) st.packs = [];
+    if (st.pts.length < PT_COUNT) { const full = this.makePoints(); while (st.pts.length < full.length) st.pts.push(full[st.pts.length]); }
     for (const s of [0, 1] as Side[]) {
       const sd = st.sides[s] as unknown as Record<string, unknown>, fr = this.freshSide(s) as unknown as Record<string, unknown>;
       for (const k of Object.keys(fr)) if (sd[k] === undefined) sd[k] = fr[k];
+      const h = st.sides[s].hero, hc = st.sides[s].heroCd;
+      while (h.length < NT) h.push(-1);
+      while (hc.length < NT) hc.push(0);
     }
-    for (const u of st.units) if (u.psn === undefined) { u.psn = 0; u.tt = 0; u.tn = -1; u.ld = -1; u.f = 0; }
+    for (const u of st.units) {
+      if (u.psn === undefined) { u.psn = 0; u.tt = 0; u.tn = -1; u.ld = -1; u.f = 0; }
+      if (u.fr === undefined) u.fr = 0;
+    }
   }
 
   private emit(e: FxEv) { if (!this.quiet) this.fx.push(e); }
@@ -278,11 +329,22 @@ export class Sim {
     return false;
   }
 
-  /** Current price (world event «Пятница: штурм такси» halves the Атаги taxi). */
+  /** Current price (world event «Пятница: штурм такси» halves the Атаги taxi; the car wash place makes the Гелик −30%). */
   cost(s: Side, t: number): number {
     const c = UNITS[t].cost[s];
+    if (t === GELIK && this.ownsPerk(s, 'gelik')) return Math.floor(c * PLACE.gelikDisc);
     return t === RIDE && s === 0 && this.st.ev.friday > this.st.tick ? Math.floor(c / 2) : c;
   }
+
+  /** Side s owns a capture place with this perk right now. */
+  ownsPerk(s: Side, perk: Pt['perk']): boolean {
+    const pts = this.st.pts;
+    for (let i = PT_PLACE0; i < pts.length; i++) if (pts[i].perk === perk && pts[i].owner === s) return true;
+    return false;
+  }
+
+  /** Living units of type t on side s. */
+  countType(s: Side, t: number): number { let n = 0; for (const u of this.st.units) if (u.s === s && u.t === t && u.hp > 0) n++; return n; }
 
   /** For the buy panel: -1 hero on the field, -2 away «на парах», else seconds until it may be bought (0 = ready). */
   heroWait(s: Side, t: number): number {
@@ -306,6 +368,7 @@ export class Sim {
       if (sd.hero[u] === -2) return 'На парах. Завтра учимся';
       if (sd.heroCd[u] > st.tick) return 'Ещё не вернулся';
     }
+    if (d.max && this.countType(s, u) >= d.max) return u === GELIK ? 'Два гелика уже на районе' : 'Больше нельзя';
     if (sd.money < this.cost(s, u)) return 'Голда не на балике';
     if (this.count(s) + d.count + (d.carry ? d.carry[s] : 0) > ECON.unitCap) return 'В селе больше нет пацанов';
     if (!this.inZone(s, x, z)) return 'Ставь возле своего села';
@@ -328,14 +391,16 @@ export class Sim {
   spawn(s: Side, t: number, x: number, z: number, own: number): U {
     const st = this.st;
     const d = UNITS[t];
-    const hp = t === BOSS ? BOSS_HP[s] : d.hp;
+    let hp = t === BOSS ? BOSS_HP[s] : d.hp;
+    if ((t === 1 || t === SPORTIK) && this.ownsPerk(s, 'gym')) hp = Math.floor(hp * PLACE.gymHp); // качалка
     const u: U = {
       id: st.nextId++, s, t, x, z, hp, mhp: hp, cd: 0, tg: -1, g: -1, rt: 0, slow: 0, stun: 0,
-      own, mv: 0, ab: t === MOHMAD ? 1 : 60, hit: 99, born: st.tick, psn: 0, tt: 0, tn: -1, ld: -1, f: 0,
+      own, mv: 0, ab: t === MOHMAD ? 1 : 60, hit: 99, born: st.tick, psn: 0, tt: 0, tn: -1, ld: -1, f: 0, fr: 0,
     };
     st.units.push(u);
     this.byId.set(u.id, u);
     if (d.hero) st.sides[s].hero[t] = u.id;
+    if (t === ADMIN) st.sides[s].pack = Math.max(st.sides[s].pack, st.tick + HERO.packFirst);
     this.emit({ e: 'spawn', id: u.id, s, t, x, z, own });
     return u;
   }
@@ -366,11 +431,13 @@ export class Sim {
     this.votes();
     this.worldEvents();
     this.heroTimers();
+    if (st.tick % PLACE.sportikiEvery === PLACE.sportikiAt) this.placeSquads();
     this.ai(0); this.ai(1);
     this.hash();
     if (st.tick % 10 === 0) this.donerHeal();
     this.units();
     this.aoes();
+    this.packs();
     this.projectiles();
     this.turrets();
     if (st.tick % 5 === 0) this.capture();
@@ -385,6 +452,7 @@ export class Sim {
     for (const p of st.pts) if (p.kind === 1 && p.owner === s) { owned++; if (p.key === 'shali') shali = 1; }
     let inc = ECON.base + ECON.perVillage * owned + ECON.shaliBonus * shali + ECON.perFloor * sd.floors;
     if (st.pts[PT_DONER].owner === s) inc += DONER.income * (st.ev.sale > now ? 2 : 1);
+    if (this.ownsPerk(s, 'market')) inc += PLACE.market;
     if (sd.hero[WOU] >= 0) inc += HERO.wouIncome;
     if (sd.inc > now) inc *= 1.5;
     if (sd.poor > now) inc *= 0.5;
@@ -420,7 +488,7 @@ export class Sim {
     for (const s of [0, 1] as Side[]) {
       if (this.count(s) > ECON.unitCap - 6) continue;
       for (const p of st.pts) {
-        if (p.owner !== s) continue;
+        if (p.owner !== s || p.kind === 3) continue; // places bring спортики instead (placeSquads)
         const n = p.kind === 0 ? 2 : 1;
         for (let i = 0; i < n; i++) {
           const a = rnd(st) * 6.283185307179586;
@@ -430,6 +498,19 @@ export class Sim {
           if (passable(this.terrain, x, z)) this.spawn(s, 0, x, z, -1);
         }
       }
+    }
+  }
+
+  /** Place perk 'sportiki': its owner gets a free squad of спортики there every PLACE.sportikiEvery ticks. */
+  private placeSquads() {
+    const st = this.st, pts = st.pts, n = UNITS[SPORTIK].count;
+    for (let i = PT_PLACE0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.perk !== 'sportiki' || p.owner < 0) continue;
+      const s = p.owner as Side;
+      if (this.count(s) + n > ECON.unitCap) continue;
+      this.spawnGroup(s, SPORTIK, p.x, p.z, -1);
+      this.emit({ e: 'summon', s, t: SPORTIK, x: p.x, z: p.z, n });
     }
   }
 
@@ -468,10 +549,14 @@ export class Sim {
       && !(c.fx === Fx.FocusDoner && doner === s)
       && !(c.fx === Fx.Ersno && sd.hero[ERSNO] !== -1)
       && !(c.fx === Fx.Ult && !this.hasAbility(s))
-      && !(c.fx === Fx.SkipVote && en.skip));
+      && !(c.fx === Fx.SkipVote && en.skip)
+      && !(c.fx === Fx.Geliks && this.countType(s, GELIK) >= UNITS[GELIK].max!));
     const opts: number[] = [];
-    while (opts.length < 3 && pool.length) {
-      const i = rint(st, pool.length);
+    while (opts.length < 3 && pool.length) { // weighted draw without replacement (Card.w, default 2)
+      let tot = 0;
+      for (const c of pool) tot += c.w ?? 2;
+      let r = rint(st, tot), i = 0;
+      while (r >= (pool[i].w ?? 2)) { r -= pool[i].w ?? 2; i++; }
       opts.push(pool[i].id); pool.splice(i, 1);
     }
     let focusPt = -1;
@@ -509,7 +594,7 @@ export class Sim {
     this.emit({ e: 'voteResult', s, card: card.id, title: cardTitle(card, v.focusPt >= 0 ? st.pts[v.focusPt].name : '') });
   }
 
-  private applyCard(s: Side, c: typeof CARDS[number], focusPt: number) {
+  private applyCard(s: Side, c: Card, focusPt: number) {
     const st = this.st, sd = st.sides[s], en = st.sides[(1 - s) as Side], now = st.tick;
     switch (c.fx) {
       case Fx.Money: sd.money += c.v; break;
@@ -527,7 +612,7 @@ export class Sim {
       case Fx.Heal: for (const u of st.units) if (u.s === s) u.hp = Math.min(u.mhp, u.hp + (u.mhp * c.v) / 100); break;
       case Fx.Blackout: en.black = now + c.v; break;
       case Fx.FreeSquads:
-        for (const p of st.pts) if (p.owner === s) this.spawnGroup(s, 0, p.x + (s ? -2 : 2), p.z + 1.5, -1);
+        for (const p of st.pts) if (p.owner === s) this.spawnGroup(s, 0, p.x + (s ? -2 : 2), p.z + 1.5, -1); // places too
         break;
       case Fx.Income: sd.inc = now + c.v; break;
       case Fx.Regen: sd.regen = now + c.v; break;
@@ -563,6 +648,7 @@ export class Sim {
       case Fx.Shampoo: sd.dodge = now + c.v; break;
       case Fx.Ult:
         for (const u of st.units) if (u.s === s && (u.t === BOSS || UNITS[u.t].hero)) { u.ab = 0; u.f &= ~UF.LAGMAN; }
+        sd.pack = 0;
         break;
       case Fx.Poverty: en.poor = now + c.v; break;
       case Fx.Ersno:
@@ -571,6 +657,27 @@ export class Sim {
       case Fx.Changans:
         for (let i = 0; i < c.v; i++) { const p = this.hqSpot(s, i * 2); this.spawn(s, 3, p.x, p.z, -1); }
         break;
+      case Fx.Snus: sd.snus = now + c.v; break;
+      case Fx.Loop:
+        sd.loop = now + c.v;
+        for (const u of st.units) if (u.s === s && u.hp > 0) { u.stun = 0; u.hp = Math.max(1, u.hp - u.mhp * BUFF.loopHp); } // «сушняк»
+        break;
+      case Fx.Geliks: {
+        const n = Math.min(c.v, UNITS[GELIK].max! - this.countType(s, GELIK));
+        for (let i = 0; i < n; i++) { const p = this.hqSpot(s, i * 2 + 1); this.spawn(s, GELIK, p.x, p.z, -1); }
+        if (n > 0) { const p = st.pts[s]; this.emit({ e: 'summon', s, t: GELIK, x: p.x, z: p.z, n }); }
+        break;
+      }
+      case Fx.Sportiki: {
+        const k = UNITS[SPORTIK].count;
+        let n = 0;
+        for (let i = 0; i < c.v; i++) {
+          if (this.count(s) + k > ECON.unitCap) break;
+          const p = this.hqSpot(s, i * 3); this.spawnGroup(s, SPORTIK, p.x, p.z, -1); n += k;
+        }
+        if (n > 0) { const p = st.pts[s]; this.emit({ e: 'summon', s, t: SPORTIK, x: p.x, z: p.z, n }); }
+        break;
+      }
     }
   }
 
@@ -624,6 +731,7 @@ export class Sim {
   /** Heroes coming back from «пары» and respawn cooldowns running out. */
   private heroTimers() {
     const st = this.st, now = st.tick;
+    for (const s of [0, 1] as Side[]) if (st.sides[s].snus === now && now > 0) this.emit({ e: 'comedown', s, until: now + BUFF.offFor });
     if (st.away.length) {
       const keep: Away[] = [];
       for (const a of st.away) {
@@ -655,6 +763,7 @@ export class Sim {
   private heroOk(s: Side, t: number): boolean {
     const d = UNITS[t], sd = this.st.sides[s];
     if (!d.avail[s] || d.summon || t === BOSS) return false;
+    if (d.max && this.countType(s, t) >= d.max) return false;
     return !d.hero || (sd.hero[t] === -1 && sd.heroCd[t] <= this.st.tick);
   }
 
@@ -681,9 +790,11 @@ export class Sim {
       sd.aiWant = -1;
       const weights: number[] = [];
       let tot = 0;
-      const W = AI_W[s];
+      const W = AI_W[s], rich = st.sides[1 - s].money;
       for (let k = 0; k < NT; k++) {
-        const w = k === 4 ? (mine > 8 ? W[k] : 0) : k > 4 && (!W[k] || !this.heroOk(s, k) || (k === CHIMAEV && !this.pushing(s))) ? 0 : W[k];
+        let w = k === 4 ? (mine > 8 ? W[k] : 0) : k > 4 && (!W[k] || !this.heroOk(s, k) || (k === CHIMAEV && !this.pushing(s))) ? 0 : W[k];
+        if (k === ERSNO && w) w = rich >= 450 ? w * 4 : rich >= 250 ? w : 0; // карты соседей — только у богатых
+        else if (k === GELIK && w && this.ownsPerk(s, 'gelik')) w *= 2; // мойка своя — гелик со скидкой
         weights.push(w); tot += w;
       }
       let r = rint(st, tot);
@@ -726,7 +837,10 @@ export class Sim {
     return false;
   }
 
-  /** mode 0: anything; 1: villages and Донер Бей only (Адам); 2: the enemy high-rise only (Чимаев). */
+  /**
+   * mode 0: anything; 1: villages, places and Донер Бей only (Адам); 2: the enemy high-rise only (Чимаев);
+   * 3: like 0 but drawn to the enemy's money — its high-rise and whatever it owns (ersno).
+   */
   pickGoal(s: Side, x: number, z: number, mode = 0, avoid = -1): number {
     const st = this.st, sd = st.sides[s];
     if (mode === 2) return 1 - s;
@@ -737,8 +851,13 @@ export class Sim {
       const p = st.pts[i];
       let w: number;
       if (i === avoid) continue;
-      if (p.kind === 0) { if (p.side === s || mode === 1) continue; w = 1.3; }
-      else { if (p.owner === s) continue; w = p.kind === 2 ? DONER.aiWeight : p.owner === -1 ? 1.0 : 0.92; }
+      if (p.kind === 0) { if (p.side === s || mode === 1) continue; w = mode === 3 ? 1.0 : 1.3; }
+      else {
+        if (p.owner === s) continue;
+        // places: medium priority to win back our own, low priority for the enemy's
+        w = p.kind === 3 ? (p.side === s ? PLACE.aiOwn : PLACE.aiEnemy) : p.kind === 2 ? DONER.aiWeight : p.owner === -1 ? 1.0 : 0.92;
+        if (mode === 3) w *= p.owner === 1 - s ? 0.75 : 1.4;
+      }
       const d = this.flows[i].dist[cell];
       if (d >= 0x3fffffff) continue;
       const v = d * w;
@@ -772,6 +891,7 @@ export class Sim {
   }
 
   // ---- units -----------------------------------------------------------------------
+  /** Current combat stats of u. Returns a shared scratch object: valid until the next stats() call. */
   private stats(u: U) {
     const st = this.st, sd = st.sides[u.s], now = st.tick;
     const d = UNITS[u.t];
@@ -783,9 +903,12 @@ export class Sim {
     if (sd.dmgB > now) dmg *= 1.3;
     if (sd.sauce > now) dmg *= sd.sauceM;
     if (sd.weak > now) dmg *= 0.8;
+    if (sd.loop > now) dmg *= BUFF.loopDmg;
     if (sd.spd > now) spd *= 1.4;
+    if (sd.snus > now) { spd *= BUFF.snusSpd; cd = Math.max(1, Math.floor((cd * 10) / BUFF.snusAtk + 0.5)); }
+    else if (sd.snus > 0 && now < sd.snus + BUFF.offFor) spd *= BUFF.offSpd; // отходняк
     if (sd.cars > now && d.kind === Kind.Fast) { spd *= 1.5; dmg *= 1.5; }
-    if (sd.immune <= now) {
+    if (sd.immune <= now && !d.kra) {
       if (sd.n > now) spd *= 0.5;
       if (u.slow > now) spd *= 0.55;
     }
@@ -800,9 +923,13 @@ export class Sim {
       if (a) { const R = UNITS[ADMIN].aura!, dx = a.x - u.x, dz = a.z - u.z; if (dx * dx + dz * dz < R * R) spd *= HERO.adminSpeed; }
     }
     const ev = st.ev;
-    if (ev.jam > now) { const p = st.pts[PT_ARGUN], dx = p.x - u.x, dz = p.z - u.z; if (dx * dx + dz * dz < JAM_R * JAM_R) spd *= 0.3; }
-    if (ev.flood > now && lcAt(this.terrain, u.x, u.z) === LC.WATER) spd *= 0.5;
-    return { dmg, range, spd, cd, d };
+    if (!d.kra) { // КРА номера: пробки и потоп не про них
+      if (ev.jam > now) { const p = st.pts[PT_ARGUN], dx = p.x - u.x, dz = p.z - u.z; if (dx * dx + dz * dz < JAM_R * JAM_R) spd *= 0.3; }
+      if (ev.flood > now && lcAt(this.terrain, u.x, u.z) === LC.WATER) spd *= 0.5;
+    }
+    const S = this.sc;
+    S.dmg = dmg; S.range = range; S.spd = spd; S.cd = cd; S.d = d;
+    return S;
   }
 
   private units() {
@@ -826,6 +953,7 @@ export class Sim {
         this.emit({ e: 'ability', s: u.s, t: u.t, id: u.id, x: u.x, z: u.z, key: 'lagman', r: 0 });
       }
       if (u.stun > now) continue;
+      if (u.fr > now) { this.fearStep(u); continue; } // «Курение убивает»: бежим от пачки
       if (u.t === RIDE) { this.rideStep(u); continue; }
       if (u.t === ADAM) { this.adamStep(u); continue; }
       const S = this.stats(u), d = S.d;
@@ -843,7 +971,9 @@ export class Sim {
         else if (u.t === WOU) this.hack(u);
         else if (u.t === ADMIN) this.adminN(u);
         else if (u.t === MOHMAD) this.summonGolem(u);
+        else if (u.t === ERSNO) this.cardSteal(u);
       }
+      if (u.t === ADMIN && now >= sd.pack) this.packUlt(u);
       if (u.t === WOU && (now + u.id) % HERO.tauntEvery === 0) this.taunt(u);
       if (d.kind === Kind.Heal && u.cd === 0) this.healAround(u, d.heal![u.s], S.range);
       // engage
@@ -869,28 +999,33 @@ export class Sim {
       if (engage) {
         const dx = tx - u.x, dz = tz - u.z, l = Math.sqrt(dx * dx + dz * dz);
         if (l > 0.001) this.stepDir(u, dx / l, dz / l, S.spd);
-      } else this.goalMove(u, S.spd, d.bldg ? 2 : 0);
+      } else this.goalMove(u, S.spd, d.bldg ? 2 : d.steal ? 3 : 0);
     }
-    // separation
+    // separation (the near() walk inlined: same cells, same order, no closure per unit)
+    const hw = this.hw, hh = this.hh, head = this.head, nxt = this.nxt;
     for (let i = 0; i < us.length; i++) {
       const a = us[i];
       if (a.hp <= 0) continue;
       const ra = UNITS[a.t].radius, ma = MASS[a.t];
-      this.near(a.x, a.z, 3, k => {
-        if (k <= i) return;
-        const b = us[k];
-        if (b.hp <= 0) return;
-        const rb = UNITS[b.t].radius;
-        const dx = b.x - a.x, dz = b.z - a.z, d2 = dx * dx + dz * dz, m = (ra + rb) * 0.85;
-        if (d2 >= m * m) return;
-        let l = Math.sqrt(d2), nx: number, nz: number;
-        if (l < 0.0001) { nx = ((a.id * 7) % 3) - 1 || 1; nz = ((b.id * 5) % 3) - 1; l = 0; const q = Math.sqrt(nx * nx + nz * nz); nx /= q; nz /= q; }
-        else { nx = dx / l; nz = dz / l; }
-        const push = (m - l) * 0.35;
-        const mb = MASS[b.t], wa = ma === mb ? 0.5 : mb / (ma + mb);
-        this.moveTo(a, a.x - nx * push * wa * 2, a.z - nz * push * wa * 2, true);
-        this.moveTo(b, b.x + nx * push * (1 - wa) * 2, b.z + nz * push * (1 - wa) * 2, true);
-      });
+      const i0 = Math.max(0, Math.floor((a.x - 3) / 4)), i1 = Math.min(hw - 1, Math.floor((a.x + 3) / 4));
+      const j0 = Math.max(0, Math.floor((a.z - 3) / 4)), j1 = Math.min(hh - 1, Math.floor((a.z + 3) / 4));
+      for (let cj = j0; cj <= j1; cj++) for (let ci = i0; ci <= i1; ci++) {
+        for (let k = head[cj * hw + ci]; k !== -1; k = nxt[k]) {
+          if (k <= i) continue;
+          const b = us[k];
+          if (b.hp <= 0) continue;
+          const rb = UNITS[b.t].radius;
+          const dx = b.x - a.x, dz = b.z - a.z, d2 = dx * dx + dz * dz, m = (ra + rb) * 0.85;
+          if (d2 >= m * m) continue;
+          let l = Math.sqrt(d2), nx: number, nz: number;
+          if (l < 0.0001) { nx = ((a.id * 7) % 3) - 1 || 1; nz = ((b.id * 5) % 3) - 1; l = 0; const q = Math.sqrt(nx * nx + nz * nz); nx /= q; nz /= q; }
+          else { nx = dx / l; nz = dz / l; }
+          const push = (m - l) * 0.35;
+          const mb = MASS[b.t], wa = ma === mb ? 0.5 : mb / (ma + mb);
+          this.moveTo(a, a.x - nx * push * wa * 2, a.z - nz * push * wa * 2, true);
+          this.moveTo(b, b.x + nx * push * (1 - wa) * 2, b.z + nz * push * (1 - wa) * 2, true);
+        }
+      }
     }
   }
 
@@ -934,12 +1069,19 @@ export class Sim {
     }
     let best = -1, bd = aggro * aggro;
     if (u.t === BOSS) bd = 14 * 14;
-    this.near(u.x, u.z, Math.sqrt(bd), k => {
-      const o = us[k];
-      if (o.s === u.s || o.hp <= 0) return;
-      const dx = o.x - u.x, dz = o.z - u.z, d2 = dx * dx + dz * dz;
-      if (d2 < bd || (d2 === bd && best >= 0 && o.id < us[best].id)) { bd = d2; best = k; }
-    });
+    { // near() inlined
+      const r = Math.sqrt(bd), hw = this.hw, head = this.head, nxt = this.nxt, ux = u.x, uz = u.z, us_ = u.s;
+      const i0 = Math.max(0, Math.floor((ux - r) / 4)), i1 = Math.min(hw - 1, Math.floor((ux + r) / 4));
+      const j0 = Math.max(0, Math.floor((uz - r) / 4)), j1 = Math.min(this.hh - 1, Math.floor((uz + r) / 4));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        for (let k = head[j * hw + i]; k !== -1; k = nxt[k]) {
+          const o = us[k];
+          if (o.s === us_ || o.hp <= 0) continue;
+          const dx = o.x - ux, dz = o.z - uz, d2 = dx * dx + dz * dz;
+          if (d2 < bd || (d2 === bd && best >= 0 && o.id < us[best].id)) { bd = d2; best = k; }
+        }
+      }
+    }
     if (best >= 0) { u.tg = us[best].id; return; }
     const e = st.pts[1 - u.s];
     const dx = e.x - u.x, dz = e.z - u.z, r = aggro + HQ.radius[1 - u.s] + 3;
@@ -986,7 +1128,18 @@ export class Sim {
     }
     this.hurt(t, dmg);
     if (d.knock) this.knock(u, t, d.knock);
+    if (d.steal) this.steal(u, d.steal[0], 'hit');
     this.emit({ e: 'hit', x: t.x, z: t.z, s: t.s, big: d.kind === Kind.Fast || MASS[u.t] > 1 ? 1 : 0 });
+  }
+
+  /** ersno «Перевод по номеру карты»: moves up to `want` ₽ from the enemy bank (never below 0). Returns ₽ moved. */
+  private steal(u: U, want: number, k: 'hit' | 'card'): number {
+    const v = (1 - u.s) as Side, en = this.st.sides[v];
+    const n = Math.floor(Math.min(want, en.money));
+    if (n <= 0) return 0;
+    en.money -= n; this.st.sides[u.s].money += n;
+    this.emit({ e: 'steal', s: u.s, v, id: u.id, x: u.x, z: u.z, n, k });
+    return n;
   }
 
   private attackHq(u: U, s: Side, dmg: number, cd: number) {
@@ -1003,6 +1156,7 @@ export class Sim {
       return;
     }
     this.hurtHq(s, dmg * (u.t === BOSS ? 1.5 : 1));
+    if (d.steal) this.steal(u, d.steal[1], 'hit');
     this.emit({ e: 'hit', x: e.x + (u.x - e.x) * 0.3, z: e.z + (u.z - e.z) * 0.3, s, big: 1 });
   }
 
@@ -1014,6 +1168,10 @@ export class Sim {
   }
 
   private immune(s: Side) { return this.st.sides[s].immune > this.st.tick; }
+  /** Slows do not stick: «Н ма дилита» on the side, or КРА номера. */
+  private noSlow(o: U) { return this.immune(o.s) || !!UNITS[o.t].kra; }
+  /** Stuns do not stick: bosses, КРА номера, «Н ма дилита», «Бамб LOOP». */
+  private noStun(o: U) { return o.t === BOSS || this.noSlow(o) || this.st.sides[o.s].loop > this.st.tick; }
 
   private splash(s: Side, x: number, z: number, r: number, dmg: number, slow: number, knock: number, stun = 0) {
     const us = this.st.units;
@@ -1023,9 +1181,8 @@ export class Sim {
       const dx = o.x - x, dz = o.z - z, d2 = dx * dx + dz * dz;
       if (d2 > r * r) return;
       this.hurt(o, dmg);
-      const imm = this.immune(o.s);
-      if (slow && !imm) o.slow = this.st.tick + slow;
-      if (stun && o.t !== BOSS && !imm) o.stun = this.st.tick + stun;
+      if (slow && !this.noSlow(o)) o.slow = this.st.tick + slow;
+      if (stun && !this.noStun(o)) o.stun = this.st.tick + stun;
       if (knock && MASS[o.t] === 1) {
         const l = Math.sqrt(d2);
         if (l > 0.001) this.moveTo(o, o.x + (dx / l) * knock, o.z + (dz / l) * knock, true);
@@ -1092,7 +1249,7 @@ export class Sim {
       const o = us[k];
       if (o.s === u.s || o.hp <= 0 || o.t === BOSS) return;
       const od = UNITS[o.t];
-      if (od.noFight || od.bldg || od.kind === Kind.Heal) return;
+      if (od.noFight || od.bldg || od.kind === Kind.Heal || od.kra) return;
       const dx = o.x - u.x, dz = o.z - u.z;
       if (dx * dx + dz * dz > R * R) return;
       o.tg = u.id; o.tt = until; o.tn = u.id; n++;
@@ -1104,12 +1261,12 @@ export class Sim {
   private adminN(u: U) {
     const st = this.st, us = st.units, d = UNITS[u.t], R = d.abR!;
     const v = (1 - u.s) as Side;
-    if (this.immune(v) || this.enemiesIn(u, R, true) < 2) { u.ab = 10; return; }
+    if (this.immune(v) || st.sides[v].loop > st.tick || this.enemiesIn(u, R, true) < 2) { u.ab = 10; return; }
     const until = st.tick + HERO.nStun;
     let n = 0;
     this.near(u.x, u.z, R, k => {
       const o = us[k];
-      if (o.s === u.s || o.hp <= 0 || o.t === BOSS) return;
+      if (o.s === u.s || o.hp <= 0 || this.noStun(o)) return;
       const dx = o.x - u.x, dz = o.z - u.z;
       if (dx * dx + dz * dz > R * R) return;
       o.stun = Math.max(o.stun, until); n++;
@@ -1132,6 +1289,94 @@ export class Sim {
     u.ab = UNITS[u.t].abCd!;
     this.emit({ e: 'ability', s: u.s, t: u.t, id: u.id, x, z, key: 'golem', r: 0 });
     this.emit({ e: 'summon', s: u.s, t: GOLEM, x, z, n: 1 });
+  }
+
+  /** ersno «Списание с карты»: by the enemy high-rise or in a crowd, takes 10% of the enemy bank (≤ 150 ₽). */
+  private cardSteal(u: U) {
+    const st = this.st, d = UNITS[u.t], R = d.abR!;
+    const v = (1 - u.s) as Side, e = st.pts[v], dx = e.x - u.x, dz = e.z - u.z, hr = R + HQ.radius[v];
+    const nearHq = dx * dx + dz * dz <= hr * hr;
+    if (!nearHq && this.enemiesIn(u, R, false) < HERO.cardMin) { u.ab = 10; return; }
+    const n = this.steal(u, Math.min(st.sides[v].money * HERO.cardPct, HERO.cardMax), 'card');
+    if (n <= 0) { u.ab = 10; return; } // пустой счёт: попробуем позже
+    u.ab = d.abCd!;
+    this.emit({ e: 'ability', s: u.s, t: u.t, id: u.id, x: u.x, z: u.z, key: 'card', r: R });
+  }
+
+  /** админ «Курение убивает»: a pack lands in the middle of ≥ packMin enemies around him. */
+  private packUlt(u: U) {
+    const st = this.st, us = st.units, sd = st.sides[u.s], now = st.tick, R = HERO.packTrig;
+    let n = 0, sx = 0, sz = 0;
+    this.near(u.x, u.z, R, k => {
+      const o = us[k];
+      if (o.s === u.s || o.hp <= 0 || UNITS[o.t].kra || UNITS[o.t].noFight) return;
+      const dx = o.x - u.x, dz = o.z - u.z;
+      if (dx * dx + dz * dz > R * R) return;
+      n++; sx += o.x; sz += o.z;
+    });
+    if (n < HERO.packMin) { sd.pack = now + 10; return; }
+    const p: Pack = { s: u.s, id: u.id, x: sx / n, z: sz / n, r: HERO.packR, at: now, until: now + HERO.packFor };
+    st.packs.push(p);
+    const scared = this.scare(p);
+    sd.pack = now + HERO.packCd;
+    this.emit({ e: 'ability', s: u.s, t: u.t, id: u.id, x: p.x, z: p.z, key: 'pack', r: p.r });
+    this.emit({ e: 'pack', s: u.s, id: u.id, x: p.x, z: p.z, r: p.r, until: p.until, n: scared });
+  }
+
+  /** Enemies of the pack in its radius: poisoned (not cars); scared too, unless boss, car, Адам/ride or «Н ма дилита». */
+  private scare(p: Pack): number {
+    const st = this.st, us = st.units, now = st.tick, R = p.r, imm = this.immune((1 - p.s) as Side);
+    let n = 0;
+    this.near(p.x, p.z, R, k => {
+      const o = us[k];
+      if (o.s === p.s || o.hp <= 0) return;
+      const dx = o.x - p.x, dz = o.z - p.z;
+      if (dx * dx + dz * dz > R * R) return;
+      const d = UNITS[o.t];
+      if (d.kra) return;
+      o.psn = Math.max(o.psn, now + HERO.packPsn);
+      if (o.t === BOSS || d.noFight || imm) return;
+      if (o.fr <= now) n++;
+      o.fr = Math.max(o.fr, now + HERO.fearFor);
+      o.tg = -1;
+    });
+    return n;
+  }
+
+  /** Packs on the ground: scare whoever is inside once a second; gone after `until`. */
+  private packs() {
+    const st = this.st, now = st.tick;
+    if (!st.packs.length) return;
+    const keep: Pack[] = [];
+    for (const p of st.packs) {
+      if (now >= p.until) continue;
+      if (now > p.at && (now - p.at) % 10 === 0) this.scare(p);
+      keep.push(p);
+    }
+    st.packs = keep;
+  }
+
+  /** Scared: run away from the nearest enemy pack, or home if it is gone; no attacks. */
+  private fearStep(u: U) {
+    const st = this.st, S = this.stats(u);
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < st.packs.length; i++) {
+      const p = st.packs[i];
+      if (p.s === u.s) continue;
+      const dx = u.x - p.x, dz = u.z - p.z, d2 = dx * dx + dz * dz;
+      if (d2 < bd) { bd = d2; best = i; }
+    }
+    u.tg = -1;
+    if (best >= 0) {
+      const p = st.packs[best], R = p.r + 4;
+      if (bd < R * R) {
+        let dx = u.x - p.x, dz = u.z - p.z, l = Math.sqrt(bd);
+        if (l < 0.01) { dx = u.s === 0 ? -1 : 1; dz = 0; l = 1; } // прямо на пачке: домой
+        this.stepDir(u, dx / l, dz / l, S.spd);
+        return;
+      }
+    }
+    if (flowDir(this.terrain, this.flows[u.s], u.x, u.z, this.tmp)) this.stepDir(u, this.tmp.x, this.tmp.z, S.spd);
   }
 
   /** Такси / маршрутка: drives to its village, drops the пацаны, drives off. */
@@ -1256,7 +1501,7 @@ export class Sim {
         this.emit({ e: 'hit', x: p.tx, z: p.tz, s: (1 - p.s) as Side, big: p.k === 2 ? 2 : 1 });
       } else {
         const t = this.byId.get(p.tg);
-        if (t && t.hp > 0) { this.hurt(t, p.dmg); if (p.slow && !this.immune(t.s)) t.slow = st.tick + p.slow; this.emit({ e: 'hit', x: t.x, z: t.z, s: t.s, big: 0 }); }
+        if (t && t.hp > 0) { this.hurt(t, p.dmg); if (p.slow && !this.noSlow(t)) t.slow = st.tick + p.slow; this.emit({ e: 'hit', x: t.x, z: t.z, s: t.s, big: 0 }); }
       }
     }
     st.proj = keep;
@@ -1301,6 +1546,7 @@ export class Sim {
       if (a > 0 && k === 0) p.prog = Math.max(-100, p.prog - Math.min(a, 5));
       else if (k > 0 && a === 0) p.prog = Math.min(100, p.prog + Math.min(k, 5));
       else if (a === 0 && k === 0 && p.owner === -1) p.prog = p.prog > 0 ? Math.max(0, p.prog - 1) : Math.min(0, p.prog + 1);
+      else if (a === 0 && k === 0 && p.kind === 3) p.prog = p.owner === 0 ? Math.max(-100, p.prog - PLACE.regen) : Math.min(100, p.prog + PLACE.regen); // свои отбивают место
       if (p.prog <= -100) p.owner = 0;
       else if (p.prog >= 100) p.owner = 1;
       else if ((p.owner === 0 && p.prog > 0) || (p.owner === 1 && p.prog < 0)) p.owner = -1;
@@ -1377,7 +1623,7 @@ export class Sim {
     const st = this.st;
     const wins: [number, number] = [st.sides[0].wins, st.sides[1].wins];
     st.era++;
-    st.units = []; st.proj = []; st.aoe = []; st.away = [];
+    st.units = []; st.proj = []; st.aoe = []; st.away = []; st.packs = [];
     st.pts = this.makePoints();
     st.sides = [this.freshSide(0, wins[0]), this.freshSide(1, wins[1])];
     st.sides[0].aiNext = st.tick + 30; st.sides[1].aiNext = st.tick + 37;
@@ -1393,8 +1639,8 @@ export class Sim {
 }
 
 const DIRS = [[1, 0], [0.5, 0.866], [-0.5, 0.866], [-1, 0], [-0.5, -0.866], [0.5, -0.866]];
-// Heavy units push others around and are not knocked back.
-const MASS = UNITS.map((d, t) => (t === BOSS ? 9 : t === GOLEM || t === ERSNO ? 4 : 1));
+// Heavy units push others around and are not knocked back (ersno is no tank since v3; the Гелик is).
+const MASS = UNITS.map((d, t) => (t === BOSS ? 9 : t === GOLEM || t === GELIK ? 4 : 1));
 const CAPW = UNITS.map(d => (d.capW !== undefined ? d.capW : 1));
 
 export function cardTitle(c: typeof CARDS[number], village: string): string {

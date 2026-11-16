@@ -1,7 +1,7 @@
 // Balance sweep: 8 seeds of AI vs AI. `asym` = the real game, `sym` = both sides with Курчалой's numbers.
 // npx tsx tools/symtest.ts asym [minutes=45] [seeds=8]
 import { loadTerrain } from '../src/world/terrain';
-import { Sim, PT_DONER, type Cmd } from '../src/sim/sim';
+import { Sim, PT_DONER, PT_PLACE0, type Cmd } from '../src/sim/sim';
 import * as D from '../src/sim/defs';
 const mode = process.argv[2];
 const MIN = Number(process.argv[3] || 45);
@@ -25,6 +25,8 @@ for (const [k, f, v] of JSON.parse(process.env.TUNE || '[]') as [string, string,
 const terrain = await loadTerrain();
 const wins = [0, 0]; const caps = [0, 0]; const firsts: number[] = []; const firstWin = [0, 0]; const byWar: number[][] = [[0, 0], [0, 0], [0, 0]]; const warLen: number[] = [];
 const heroes = [0, 0], rides = [0, 0], donerMin = [0, 0];
+// v3: гелики / спортики bought, ₽ stolen by ersno, packs, minutes the enemy held a side's places, enemy captures of them
+const geliks = [0, 0], sportiki = [0, 0], stolen = [0, 0], packs = [0, 0], placeLost = [0, 0], placeTaken = [0, 0];
 let maxBytes = 0, errors = 0;
 const ev: Record<string, number> = {};
 const t0 = performance.now();
@@ -41,10 +43,15 @@ for (let seed = FROM; seed < FROM + SEEDS; seed++) {
         if (e.e === 'event') ev[e.key] = (ev[e.key] || 0) + 1;
         if (e.e === 'ability') ev['ab:' + e.key] = (ev['ab:' + e.key] || 0) + 1;
         if (e.e === 'spawn' && e.own === -2) { if (D.UNITS[e.t].hero) heroes[e.s]++; if (e.t === D.RIDE) rides[e.s]++; }
-        if (e.e === 'unload' || e.e === 'poison' || e.e === 'voteSkip' || e.e === 'summon' || e.e === 'hack' || e.e === 'stunN') ev[e.e] = (ev[e.e] || 0) + 1;
+        if (e.e === 'unload' || e.e === 'poison' || e.e === 'voteSkip' || e.e === 'summon' || e.e === 'hack' || e.e === 'stunN' || e.e === 'comedown') ev[e.e] = (ev[e.e] || 0) + 1;
+        if (e.e === 'spawn' && e.own === -2) { if (e.t === D.GELIK) geliks[e.s]++; if (e.t === D.SPORTIK) sportiki[e.s]++; }
+        if (e.e === 'steal') stolen[e.s] += e.n;
+        if (e.e === 'pack') packs[e.s]++;
+        if (e.e === 'capture' && e.p >= PT_PLACE0 && e.s >= 0 && e.s !== sim.st.pts[e.p].side) placeTaken[sim.st.pts[e.p].side]++;
       }
       sim.fx.length = 0;
       if (i % 600 === 0) {
+        for (let k = PT_PLACE0; k < sim.st.pts.length; k++) { const p = sim.st.pts[k]; if (p.owner >= 0 && p.owner !== p.side) placeLost[p.side]++; }
         for (const p of sim.st.pts) if (p.kind === 1 && p.owner >= 0) caps[p.owner]++;
         if (sim.st.pts[PT_DONER].owner >= 0) donerMin[sim.st.pts[PT_DONER].owner]++;
       }
@@ -61,5 +68,6 @@ firsts.sort((a, b) => a - b);
 console.log('wins by war #1 / #2 / #3+:', byWar.map(w => w.join('-')).join(' / '), ' all war lengths median', [...warLen].sort((a, b) => a - b)[warLen.length >> 1]?.toFixed(1));
 console.log('first war length (min): median', firsts[firsts.length >> 1]?.toFixed(1), 'range', firsts[0]?.toFixed(1), '–', firsts[firsts.length - 1]?.toFixed(1));
 console.log('AI bought heroes', heroes, 'rides', rides, 'events', JSON.stringify(ev));
+console.log('гелики', geliks, 'спортики', sportiki, '₽ stolen by ersno', stolen, 'packs', packs, 'places held by the enemy (min) [Атаги, Курчалой]', placeLost, 'enemy captures', placeTaken);
 console.log(`state JSON peak ${(maxBytes / 1024).toFixed(1)} KB; exceptions ${errors}; ${(SEEDS * MIN * 600 / ms * 1000).toFixed(0)} ticks/s overall`);
 if (errors) process.exitCode = 1;

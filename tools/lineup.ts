@@ -1,22 +1,32 @@
 // Dev-only lineup of every unit model and the street-food buildings, lit like the game.
 // `npm run dev`, then open /tools/lineup.html?view=…
-//   all · heroes · units[&half=2] (old next to new) · hero&t=6..15[&side=0|1] (four angles)
+//   all · heroes · units[&half=2] (old next to new) · hero&t=6..17[&side=0|1] (four angles)
 //   bld · doner · decor · game[&dist=38] (in-game camera) · portraits (same framing as the HUD cards)
+//   v3 (reworked heroes vs the old Чимаев height) · plate (КРА 95 close-up) · crowd (спортики + гелик)
+//   pack (pack face textures) · pack3d · lm[&crowd=4] (all landmarks) · lm1&k=stadium · game2[&dist=38]
 // Extras: &yaw= &pitch= (camera), &spicy (18+ sign), &anim (spin the doner), &noshadow.
 import * as THREE from 'three';
 import { unitGeometry, unitScale, islamRig, zurabRig } from '../src/render/models';
 import { heroGeometry, heroScale, donerBey, fudzi, gym, taxiStand, HERO_TYPES } from '../src/render/heroes';
+import { propUnitGeometry, propUnitScale, gelikProp, sportikiCrowd, cigPackTexture, cigPack, landmark, LANDMARK_KINDS, PROP_TYPES } from '../src/render/props';
 import { mosque, HqBuilding } from '../src/render/world';
 
 const US = 1.7; // renderer's unit scale (units.ts)
 const BS = 1.45; // boss scale
 const q = new URLSearchParams(location.search);
 const view = q.get('view') ?? 'all';
+/** World height of the old «Чимаев 5.5» (model top 1.006 × heroScale 1.05 × 1.7) for the v3 comparison. */
+const OLD_CHIMAEV = 1.006 * 1.05 * US;
 
 const NAMES: Record<number, [string, string]> = {
   0: ['Пацаны', 'Пацаны'], 1: ['Борец', 'Борец 115 кг'], 2: ['Снайпер', 'Метатель гантелей'], 3: ['Баран', 'Камри без прав'], 4: ['Бежни лор', 'Шаурмист'],
-  6: ['Чимаев 5.5', 'Чимаев 5.5'], 7: ['WOU', 'WOU'], 8: ['админ', 'админ'], 9: ['ersno', 'ersno'], 10: ['Бекхан', 'Бекхан'],
+  6: ['Чимаев', 'Чимаев'], 7: ['Амин', 'Амин'], 8: ['админ', 'админ'], 9: ['ersno', 'ersno'], 10: ['Бекхан', 'Бекхан'],
   11: ['Адам', 'Адам'], 12: ['Мохьмад', 'Мохьмад'], 13: ['Голем', 'Голем'], 14: ['Такси по 100', 'Маршрутка 150 ₽'], 15: ['Курица', 'Курица'],
+  16: ['Гелик КРА 95', 'Гелик КРА 95'], 17: ['Спортик', 'Спортик'],
+};
+const LM_LABEL: Record<string, string> = {
+  stadium: 'Стадион', school: 'Школа', shop: 'Продукты', market: 'Рынок', cafe: 'Кафе', busstop: 'Остановка',
+  carwash: 'Автомойка', parking: 'Парковка', fuel: 'АЗС', clinic: 'Поликлиника', park: 'Парк', gym: 'Спортзал',
 };
 
 // ---- renderer, lights: same as src/render/scene.ts ----------------------------------------
@@ -47,8 +57,8 @@ const placed: THREE.Object3D[] = [];
 interface Lbl { text: string; sub: string; at: THREE.Vector3; side: number }
 const labels: Lbl[] = [];
 
-function geoFor(type: number, side: 0 | 1) { return type < 6 ? unitGeometry(type, side) : heroGeometry(type, side); }
-function scaleFor(type: number, side: 0 | 1) { return US * (type < 6 ? unitScale(type, side) : heroScale(type, side)); }
+function geoFor(type: number, side: 0 | 1) { return type >= 16 ? propUnitGeometry(type, side) : type < 6 ? unitGeometry(type, side) : heroGeometry(type, side); }
+function scaleFor(type: number, side: 0 | 1) { return US * (type >= 16 ? propUnitScale(type, side) : type < 6 ? unitScale(type, side) : heroScale(type, side)); }
 
 /** Put one unit on the ground, as the renderer would scale it. */
 function unit(type: number, side: 0 | 1, x: number, z: number, yaw = 0, label = true) {
@@ -62,7 +72,43 @@ function unit(type: number, side: 0 | 1, x: number, z: number, yaw = 0, label = 
   scene.add(m); placed.push(m);
   g.computeBoundingBox();
   const bb = g.boundingBox!;
-  if (label) labels.push({ text: NAMES[type]?.[side] ?? `#${type}`, sub: `${g.attributes.position.count / 3} тр · ×${(s / US).toFixed(2)}`, at: new THREE.Vector3(x, bb.max.y * s + 0.25, z), side });
+  if (label) labels.push({ text: NAMES[type]?.[side] ?? `#${type}`, sub: `${g.attributes.position.count / 3} тр · ×${(s / US).toFixed(2)} · h ${(bb.max.y * s).toFixed(2)}`, at: new THREE.Vector3(x, bb.max.y * s + 0.25, z), side });
+}
+
+function addObj(o: THREE.Object3D, x: number, z: number, ry = 0) {
+  o.position.set(x, 0, z);
+  o.rotation.y = ry;
+  o.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+  scene.add(o); placed.push(o);
+  return o;
+}
+function trisOf(o: THREE.Object3D) {
+  let t = 0;
+  o.traverse(c => { const g = (c as THREE.Mesh).geometry; if (g) t += (g.index ? g.index.count : g.attributes.position.count) / 3; });
+  return t;
+}
+
+/** Transparent head-and-shoulders render of the admin hero, for the pack face. */
+function adminPortrait(side: 0 | 1 = 0): HTMLCanvasElement {
+  const pc = document.createElement('canvas');
+  const r = new THREE.WebGLRenderer({ canvas: pc, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  r.setPixelRatio(1); r.setSize(420, 460, false);
+  r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping;
+  const ps = new THREE.Scene();
+  ps.add(new THREE.HemisphereLight('#fff6e6', '#6b6450', 1.7));
+  const ls = new THREE.DirectionalLight('#ffe7c4', 2.0); ls.position.set(-2, 4, 3); ps.add(ls);
+  const g = heroGeometry(8, side); g.computeBoundingBox();
+  const top = g.boundingBox!.max.y;
+  ps.add(new THREE.Mesh(g, unitMat));
+  const cam = new THREE.PerspectiveCamera(30, 420 / 460, 0.05, 20);
+  cam.position.set(0.22, top - 0.24, 1.55); cam.lookAt(0, top - 0.3, 0);
+  r.setClearColor(0x000000, 0);
+  r.render(ps, cam);
+  const out = document.createElement('canvas');
+  out.width = 420; out.height = 460;
+  out.getContext('2d')!.drawImage(pc, 0, 0);
+  r.dispose(); r.forceContextLoss();
+  return out;
 }
 
 function boss(side: 0 | 1, x: number, z: number) {
@@ -178,11 +224,93 @@ if (view === 'all') {
 } else if (view === 'game') {
   // how it reads at the in-game default zoom (dist 38, stage pitch formula)
   let x = 0;
-  for (const t of [0, 1, 4, ...HEROES]) {
+  for (const t of [0, 1, 4, ...HEROES, ...PROP_TYPES]) {
     for (const side of [0, 1] as const) unit(t, side, x, side === 0 ? 1.4 : -1.4, side === 0 ? 1.2 : -1.6, false);
-    x += t === 14 || t === 13 ? 3.6 : 2.3;
+    x += t === 14 || t === 13 || t === 16 ? 3.6 : 2.3;
   }
   gameCam = { x: x / 2, z: 0, dist: Number(q.get('dist') ?? 38) };
+} else if (view === 'v3') {
+  // reworked heroes in both villages, against the height of the old «Чимаев 5.5» (red bar behind each row)
+  const list = [0, 6, 7, 8, 9, 17];
+  let x1 = 0;
+  for (const [side, z] of [[0, 1.6], [1, -1.6]] as const) {
+    x1 = row(list, side, z, 0, 0.75);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(x1 + 0.4, 0.03, 0.03), new THREE.MeshBasicMaterial({ color: '#d8361f' }));
+    bar.position.set(x1 / 2 - 0.2, OLD_CHIMAEV, z - 0.45);
+    scene.add(bar); placed.push(bar);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, OLD_CHIMAEV, 0.05), new THREE.MeshBasicMaterial({ color: '#d8361f' }));
+    post.position.set(x1 + 0.25, OLD_CHIMAEV / 2, z - 0.45);
+    scene.add(post); placed.push(post);
+  }
+  labels.push({ text: 'старый «Чимаев 5.5»', sub: `h ${OLD_CHIMAEV.toFixed(2)}`, at: new THREE.Vector3(x1 + 0.25, OLD_CHIMAEV + 0.3, 1.15), side: 1 });
+  pitch = Number(q.get('pitch') ?? 0.3);
+} else if (view === 'plate') {
+  // «КРА 95» close-up: one гелик nose to the camera, one tail to the camera
+  for (const [side, x, ry, txt] of [[1, -1.0, 0, 'перед'], [0, 1.0, Math.PI, 'зад']] as const) {
+    const m = new THREE.Mesh(propUnitGeometry(16, side), unitMat);
+    m.scale.setScalar(US); m.position.set(x, 0, 0); m.rotation.y = ry;
+    m.castShadow = true; m.receiveShadow = true;
+    scene.add(m);
+    labels.push({ text: txt, sub: side ? 'Курчалой' : 'Атаги', at: new THREE.Vector3(x, 1.05, 1.7), side });
+  }
+  const fit = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.95, 0.3), new THREE.MeshBasicMaterial({ visible: false }));
+  fit.position.set(0, 0.55, 1.62);
+  scene.add(fit); placed.push(fit);
+  pitch = Number(q.get('pitch') ?? 0.16);
+} else if (view === 'crowd') {
+  // decor at building scale (×1.0) next to the unit versions (×1.7)
+  const a = addObj(sportikiCrowd(5, 0), -3.2, 0, 0.15);
+  const c = addObj(sportikiCrowd(4, 1), 2.4, 0, -0.15);
+  labels.push({ text: 'спортики ×5 (Атаги)', sub: `${trisOf(a)} тр · декор ×1.0`, at: new THREE.Vector3(-3.2, 2.0, 0), side: 0 });
+  labels.push({ text: 'спортики ×4 (Курчалой)', sub: `${trisOf(c)} тр · декор ×1.0`, at: new THREE.Vector3(2.4, 2.0, 0), side: 1 });
+  const gp = addObj(gelikProp(0), 6.2, 0.4, -0.5);
+  labels.push({ text: 'gelikProp', sub: `${trisOf(gp)} тр · ×1.0`, at: new THREE.Vector3(6.2, 1.6, 0.4), side: 0 });
+  unit(17, 0, -6.8, 1.4, 0.4);
+  unit(17, 1, 8.4, 1.6, -0.4);
+  unit(16, 1, 10.8, 0.2, -0.6);
+  pitch = Number(q.get('pitch') ?? 0.42);
+} else if (view === 'pack3d') {
+  const portrait = adminPortrait(0);
+  const items: [boolean, HTMLCanvasElement | null, string][] = [[false, null, 'чистый'], [true, null, '18+'], [true, portrait, '18+ · портрет-рендер']];
+  items.forEach(([spicy, por, txt], i) => {
+    const p = cigPack({ spicy, portrait: por });
+    addObj(p.group, -3.2 + i * 3.2, 0, (1 - i) * 0.3);
+    labels.push({ text: `пачка: ${txt}`, sub: `${trisOf(p.group)} тр · h ${p.height}`, at: new THREE.Vector3(-3.2 + i * 3.2, p.height + 0.5, 0), side: -1 });
+  });
+  // как ульта: выскакивает над врагами
+  const pop = cigPack({ spicy: true });
+  pop.group.position.set(7.0, 1.3, 0.2); pop.group.rotation.set(0.22, -0.45, 0.12);
+  pop.group.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+  scene.add(pop.group); placed.push(pop.group);
+  unit(8, 0, -1.6, 1.9, 0.4);
+  unit(0, 1, 6.4, 0.9, 0.3, false); unit(1, 1, 7.6, 1.2, -0.4, false); unit(17, 1, 8.4, 0.2, -0.8, false);
+  pitch = Number(q.get('pitch') ?? 0.28);
+} else if (view === 'lm' || view === 'lm1') {
+  const crowd = Number(q.get('crowd') ?? 0);
+  const kinds = view === 'lm1' ? [q.get('k') ?? 'stadium'] : LANDMARK_KINDS;
+  kinds.forEach((k, i) => {
+    const o = landmark(k, { side: (i % 2) as 0 | 1, crowd });
+    const x = (i % 4) * 11.5, z = -Math.floor(i / 4) * 10;
+    addObj(o, x, z);
+    const bb = new THREE.Box3().setFromObject(o), sz = bb.getSize(new THREE.Vector3());
+    const [fw, fd] = o.userData.footprint as [number, number];
+    labels.push({ text: LM_LABEL[k] ?? k, sub: `${o.userData.tris} тр · ${fw}×${fd} (bbox ${sz.x.toFixed(1)}×${sz.z.toFixed(1)}, h ${sz.y.toFixed(1)})`, at: new THREE.Vector3(x, sz.y + 0.5, z), side: -1 });
+  });
+  if (view === 'lm1') { unit(0, 0, 3.4, 4.2, 0.3, false); unit(17, 1, 4.4, 4.0, -0.3, false); }
+  pitch = Number(q.get('pitch') ?? (view === 'lm1' ? 0.5 : 0.62));
+  tight = view === 'lm1' ? 0.95 : 1.0;
+} else if (view === 'game2') {
+  // a village corner at the in-game camera: stadium, gym, carwash, park, гелики and спортики around
+  addObj(landmark('stadium', { side: 1, name: 'СТАДИОН', crowd: 4 }), 0, -2);
+  addObj(landmark('gym', { side: 1 }), -9.5, 1.5, 0.3);
+  addObj(landmark('carwash', { side: 1 }), 9.5, 1.0, -0.25);
+  addObj(landmark('shop', { side: 0 }), -8.0, 8.5, 0.2);
+  addObj(landmark('busstop', { side: 0 }), 1.0, 6.8);
+  addObj(landmark('park'), 9.0, 9.0);
+  unit(16, 1, -3.5, 6.0, 0.9, false); unit(16, 0, 4.2, 8.4, -2.4, false);
+  for (let k = 0; k < 4; k++) unit(17, (k % 2) as 0 | 1, -2 + k * 1.3, 9.5 - (k % 2) * 0.8, 1.2 * (k % 2 ? -1 : 1), false);
+  unit(6, 1, 2.8, 4.2, 0.5, false); unit(7, 0, 4.4, 4.6, -0.3, false); unit(8, 0, -0.8, 4.0, 0.2, false); unit(9, 1, -1.9, 4.6, 0.8, false);
+  gameCam = { x: 0, z: 3, dist: Number(q.get('dist') ?? 38) };
 }
 
 // ---- camera ---------------------------------------------------------------------------------
@@ -247,17 +375,24 @@ sun.target.position.copy(target);
 
 // ---- DOM labels + nav -----------------------------------------------------------------------
 const nav = document.getElementById('bar')!;
-for (const [v, txt] of [['all', 'всё'], ['heroes', 'новые'], ['units', 'сравнение 1'], ['units&half=2', 'сравнение 2'], ['hero&t=6', 'крупно'], ['bld', 'здания'], ['doner', 'донер'], ['decor', 'декор'], ['game', 'как в игре'], ['portraits', 'портреты']]) {
+for (const [v, txt] of [['all', 'всё'], ['heroes', 'новые'], ['units', 'сравнение 1'], ['units&half=2', 'сравнение 2'], ['hero&t=6', 'крупно'], ['bld', 'здания'], ['doner', 'донер'], ['decor', 'декор'], ['game', 'как в игре'], ['portraits', 'портреты'],
+  ['v3', 'v3 герои'], ['plate', 'КРА 95'], ['crowd', 'спортики'], ['pack', 'пачка 2D'], ['pack3d', 'пачка 3D'], ['lm', 'места'], ['game2', 'места в игре']]) {
   const a = document.createElement('a');
   a.href = `?view=${v}`; a.textContent = txt;
   const lq = new URLSearchParams(`view=${v}`);
   if ([...lq].every(([k, val]) => (k === 'view' ? view : q.get(k)) === val) && lq.has('half') === q.has('half')) a.className = 'on';
   nav.append(a);
 }
-if (view === 'hero') for (const t of HEROES) {
+if (view === 'hero') for (const t of [...HEROES, ...PROP_TYPES]) {
   const a = document.createElement('a');
   a.href = `?view=hero&t=${t}`; a.textContent = NAMES[t][0];
   if (Number(q.get('t') ?? 6) === t) a.className = 'on';
+  nav.append(a);
+}
+if (view === 'lm' || view === 'lm1') for (const k of LANDMARK_KINDS) {
+  const a = document.createElement('a');
+  a.href = `?view=lm1&k=${k}`; a.textContent = LM_LABEL[k];
+  if (view === 'lm1' && q.get('k') === k) a.className = 'on';
   nav.append(a);
 }
 function drawLabels() {
@@ -309,15 +444,38 @@ function portraits() {
     ps.remove(obj);
     return url;
   };
-  for (const side of [0, 1] as const) for (const t of [...OLD, ...HEROES]) {
+  for (const side of [0, 1] as const) for (const t of [...OLD, ...HEROES, ...PROP_TYPES]) {
     const m = new THREE.Mesh(geoFor(t, side), unitMat);
     const fig = document.createElement('figure');
     const img = new Image();
-    img.src = shot(m, 172, 144, 1, t === 3 || t === 14 ? 0.9 : 0.5);
+    img.src = shot(m, 172, 144, 1, t === 3 || t === 14 || t === 16 ? 0.9 : 0.5);
     fig.append(img, NAMES[t][side]);
     fig.style.borderBottom = `3px solid ${side ? '#d8361f' : '#2a52d1'}`;
     grid.append(fig);
   }
+}
+
+// ---- pack faces (2D): clean / 18+, drawn caricature / model render ---------------------------------
+function packFaces() {
+  canvas.style.display = 'none';
+  const grid = document.getElementById('grid')!;
+  grid.style.display = 'flex';
+  const portrait = adminPortrait(0);
+  const items: [boolean, HTMLCanvasElement | null, string][] = [
+    [false, null, 'чистый · рисованный админ'], [true, null, '18+ · рисованный админ'],
+    [false, portrait, 'чистый · рендер модели'], [true, portrait, '18+ · рендер модели'],
+  ];
+  for (const [spicy, por, cap] of items) {
+    const c = cigPackTexture({ spicy, portrait: por });
+    c.style.width = '264px'; c.style.height = '422px'; c.style.display = 'block';
+    const fig = document.createElement('figure');
+    fig.append(c, cap);
+    grid.append(fig);
+  }
+  const fig = document.createElement('figure');
+  fig.append(portrait, 'portrait (рендер)');
+  portrait.style.width = '210px'; portrait.style.display = 'block'; portrait.style.background = '#cfc6b3';
+  grid.append(fig);
 }
 
 // ---- go ---------------------------------------------------------------------------------------
@@ -325,6 +483,13 @@ const w = window as Window & { __lineupReady?: boolean; __spin?: (a: number) => 
 w.__spin = (a: number) => { for (const s of spinners) s.rotation.y = a; renderer.render(scene, camera); };
 async function go() {
   if (view === 'portraits') { portraits(); w.__lineupReady = true; return; }
+  if (view === 'pack') {
+    packFaces();
+    try { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 3000))]); } catch { /* no fonts api */ }
+    await new Promise(r => setTimeout(r, 600));
+    w.__lineupReady = true;
+    return;
+  }
   try { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 3000))]); } catch { /* no fonts api */ }
   await new Promise(r => setTimeout(r, 300));
   renderer.render(scene, camera);

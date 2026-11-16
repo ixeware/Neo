@@ -259,7 +259,7 @@ function buzz(b: Builder, f: BodyOut, c = col('#3b2e26')) {
 // ---- palette -------------------------------------------------------------------------------------
 const K = {
   paint: col('#232429'), paint2: col('#34363e'), roof: col('#2b2d33'), glass: col('#3a4c61'), glassF: col('#557089'),
-  trim: col('#141518'), grille: col('#0d0e11'), mesh: col('#0a0b0d'), seam: col('#0b0b0d'), lens: col('#2a2f37'),
+  rail: col('#5a5e67'), trim: col('#141518'), grille: col('#0d0e11'), mesh: col('#0a0b0d'), seam: col('#0b0b0d'), lens: col('#2a2f37'),
   chrome: col('#d3d8de'), chromeD: col('#80868e'), tyre: col('#141416'), rim: col('#3a3d44'),
   plate: col('#f4f3ee'), ink: col('#111111'), lamp: glow(2.2, 2.1, 1.8), amber: col('#f29a1f'), tail: col('#b3241a'),
   flagW: col('#f5f5f5'), flagB: col('#2457c5'), flagR: col('#d22f27'),
@@ -392,8 +392,11 @@ function gelik(b: Builder, team: Col) {
   prismX(b, P, [[ZR, SILL], [ZR, BELT], [WS0, BELT], [ZF, NOSE], [ZF, SILL]], -BW, BW, [true, true], [4]);
   prismX(b, P, [[ZR + 0.004, BELT - 0.01], [ZR + 0.004, ROOF], [WS1, ROOF], [WS0, BELT - 0.01]], -CW, CW, [true, true], [1, 3]);
   prismX(b, K.roof, [[ZR - 0.01, ROOF], [ZR - 0.01, ROOF + 0.03], [WS1 + 0.008, ROOF + 0.03], [WS1 + 0.018, ROOF]], -CW - 0.014, CW + 0.014, [true, true], [3]);
+  // drip rails catching the light along the roof edges: they outline the box from the game camera
+  const RL = ROOF + 0.031, rz = (ZR - 0.01 + WS1 + 0.01) / 2, rlen = WS1 - ZR + 0.01;
+  for (const s of sides) flat(b, K.rail, [s * (CW + 0.002), RL, rz], '+y', 0.022, rlen, 0.001);
   // bonnet panel between the wings
-  prismX(b, P2, [[WS0 + 0.012, BELT - 0.002], [ZF - 0.006, NOSE - 0.002], [ZF - 0.006, NOSE + 0.01], [WS0 + 0.012, BELT + 0.01]], -0.27, 0.27, [true, true], [0]);
+  prismX(b, P2,[[WS0 + 0.012, BELT - 0.002], [ZF - 0.006, NOSE - 0.002], [ZF - 0.006, NOSE + 0.01], [WS0 + 0.012, BELT + 0.01]], -0.27, 0.27, [true, true], [0]);
   // ---- glass: raked windscreen, three side windows (B and C pillars in paint), rear window over the spare
   const ws = (t: number): [number, number] => [WS0 + (WS1 - WS0) * t, BELT + (ROOF - BELT) * t];
   const wl = Math.hypot(ROOF - BELT, WS0 - WS1), wn: V3 = [0, (WS0 - WS1) / wl, (ROOF - BELT) / wl];

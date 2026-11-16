@@ -209,7 +209,7 @@ export function buildBridges(t: Terrain, parent: THREE.Object3D) {
 // with a green spire) and the Ottoman-style Курчалой central mosque (cream stone, lead-grey domes,
 // pencil minarets with red rings). Front (entrance) is +z; one vertex-coloured mesh each.
 const MC = {
-  marble: new THREE.Color('#f4f1ea'), marble2: new THREE.Color('#e4dfd4'), domeW: new THREE.Color('#d6e5ec'),
+  marble: new THREE.Color('#f4f1ea'), marble2: new THREE.Color('#e4dfd4'), domeW: new THREE.Color('#cfe2ec'),
   gold: new THREE.Color('#d9b24a'), win: new THREE.Color('#41556a'), niche: new THREE.Color('#e9dcb8'), door: new THREE.Color('#5a4632'),
   brick: new THREE.Color('#c88a57'), brick2: new THREE.Color('#b57849'), trim: new THREE.Color('#efe8da'), green: new THREE.Color('#2f7f63'),
   stone: new THREE.Color('#e8dcc3'), lead: new THREE.Color('#7c8794'), ring: new THREE.Color('#b8342a'), pave: new THREE.Color('#d9d3c6'),

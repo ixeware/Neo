@@ -299,15 +299,19 @@ export interface HouseKit { kind: 'plain' | 'gate' | 'gateL'; body: THREE.Buffer
 
 class Flat {
   pos: number[] = []; nor: number[] = []; col: number[] = [];
-  tri(a: V3, b: V3, c: V3, out: V3, k = 1) {
+  /** `k` is a grey multiplier per vertex (a number, or a function of the vertex for gradients). */
+  tri(a: V3, b: V3, c: V3, out: V3, k: number | ((p: V3) => number) = 1) {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const l = Math.hypot(nx, ny, nz) || 1;
     nx /= l; ny /= l; nz /= l;
     if (nx * out[0] + ny * out[1] + nz * out[2] < 0) { [b, c] = [c, b]; nx = -nx; ny = -ny; nz = -nz; }
-    for (const p of [a, b, c]) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nx, ny, nz); this.col.push(k, k, k); }
+    for (const p of [a, b, c]) {
+      const v = typeof k === 'number' ? k : k(p);
+      this.pos.push(p[0], p[1], p[2]); this.nor.push(nx, ny, nz); this.col.push(v, v, v);
+    }
   }
-  quad(a: V3, b: V3, c: V3, d: V3, out: V3, k = 1) { this.tri(a, b, c, out, k); this.tri(a, c, d, out, k); }
+  quad(a: V3, b: V3, c: V3, d: V3, out: V3, k: number | ((p: V3) => number) = 1) { this.tri(a, b, c, out, k); this.tri(a, c, d, out, k); }
   build() {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
@@ -320,15 +324,14 @@ class Flat {
 }
 
 const WALL0 = -0.25; // walls reach a little below the ground so slopes never show a gap
-/** Four walls of the unit box (8 tris); the lower triangle of each wall is a shade darker (plinth). */
+/** Four walls of the unit box (8 tris), shading down towards the ground (plinth) when vertexColors is on. */
 function walls(f: Flat) {
   const lo = WALL0, sides: [V3, V3, V3][] = [
     [[-0.5, 0, 0.5], [0.5, 0, 0.5], [0, 0, 1]], [[0.5, 0, -0.5], [-0.5, 0, -0.5], [0, 0, -1]],
     [[0.5, 0, 0.5], [0.5, 0, -0.5], [1, 0, 0]], [[-0.5, 0, -0.5], [-0.5, 0, 0.5], [-1, 0, 0]],
   ];
   for (const [a, b, n] of sides) {
-    f.tri([a[0], lo, a[2]], [b[0], lo, b[2]], [b[0], 1, b[2]], n, 0.9);
-    f.tri([a[0], lo, a[2]], [b[0], 1, b[2]], [a[0], 1, a[2]], n, 0.96);
+    f.quad([a[0], lo, a[2]], [b[0], lo, b[2]], [b[0], 1, b[2]], [a[0], 1, a[2]], n, p => (p[1] < 0.5 ? 0.8 : 1));
   }
 }
 /** Low hip roof with a short ridge along x and a small overhang (6 tris). */
@@ -347,7 +350,7 @@ function hipRoof(f: Flat, h = 0.42, eave = 0.56, ridge = 0.2) {
  */
 function fenceGate(body: Flat, roof: Flat, gx: number) {
   const z = 0.98, x0 = -0.78, x1 = 0.78, top = 0.6;
-  for (const n of [1, -1]) body.quad([x0, WALL0, z], [x1, WALL0, z], [x1, top, z], [x0, top, z], [0, 0, n], n > 0 ? 0.86 : 0.8);
+  for (const n of [1, -1]) body.quad([x0, WALL0, z], [x1, WALL0, z], [x1, top, z], [x0, top, z], [0, 0, n], p => (p[1] < 0.3 ? 0.78 : 0.9));
   const g0 = gx - 0.27, g1 = gx + 0.27, gz = z + 0.012;
   roof.quad([g0, WALL0, gz], [g1, WALL0, gz], [g1, top + 0.08, gz], [g0, top + 0.08, gz], [0, 0, 1], 0.92);
 }

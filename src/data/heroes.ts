@@ -573,7 +573,7 @@ export const EVENTS: Record<EventId, EventLore> = {
     ],
   },
   blackout: {
-    title: 'Свет яц',
+    title: 'Свет яц по всей республике',
     quote: { t: 'Свет яц. Связь яц. Генератор яйш', who: 'Чимаев' },
     reactions: [
       { t: 'Я выживаю как могу. Помогите мне, пожалуйста', who: 'Чимаев' },
@@ -585,7 +585,7 @@ export const EVENTS: Record<EventId, EventLore> = {
     ],
   },
   classes: {
-    title: 'Завтра учимся',
+    title: 'Внимание! Завтра учимся',
     quote: { t: 'Внимание❗ Завтра учимся ❗', who: 'админ' },
     reactions: [
       { t: 'МЫ ЗАВТРА УЧИМСЯЯ', who: 'Ислам' },
@@ -597,7 +597,7 @@ export const EVENTS: Record<EventId, EventLore> = {
     ],
   },
   sale: {
-    title: 'Скидка в Донер Бее',
+    title: 'В Донер Бее скидка?',
     quote: { t: 'В Донер Бее скидка? 150 же было', who: 'Ислам' },
     reactions: [
       { t: 'Донер Бей похорошел', who: 'Ислам' },
@@ -621,7 +621,7 @@ export const EVENTS: Record<EventId, EventLore> = {
     ],
   },
   friday: {
-    title: 'Пятница. Такси штурмуют',
+    title: 'Пятница: штурм такси',
     quote: { t: 'В пятницу после 4 пар таксиш штурмовать йаьш', who: 'Ислам' },
     reactions: [
       { t: 'Хотя бы одну неделю дайте пятницу выходной. Где наша обещанная четырёхдневка', who: 'Ислам' },
@@ -633,7 +633,7 @@ export const EVENTS: Record<EventId, EventLore> = {
     ],
   },
   flood: {
-    title: 'Ливень',
+    title: 'Аргун разлился',
     quote: { t: 'Баля, завтра дождик', who: 'Ислам' },
     reactions: [
       { t: 'На мойке воск нанёс — водонепроницаемый буду', who: 'Ислам' },

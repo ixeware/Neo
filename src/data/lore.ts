@@ -175,13 +175,26 @@ const FLOOR_LOST: [Pair, Pair] = [
 ];
 const DENY: Record<string, Pair> = {
   'Не так быстро': { clean: ['Не так быстро', 'Полегче, воин'], spicy: ['Полегче, воин. Недотрах?'] },
+  'Голда не на балике': { clean: ['Голда не на балике', 'Скиньте мне кто-нибудь 30 ₽'], spicy: [] },
+  'Это не наш пацан': { clean: ['Это не наш пацан', 'Он за других играет'], spicy: [] },
+  'Ещё не вернулся': { clean: ['Ещё не вернулся. Жди', 'Ещё не вернулся. Скиньте ему 30 ₽ на маршрутку'], spicy: [] },
+  'На парах. Завтра учимся': { clean: ['На парах. Завтра учимся', 'Админ с пары не отпускает'], spicy: [] },
+  'Голем приходит только с Мохьмадом': { clean: ['Голем приходит только с Мохьмадом'], spicy: [] },
+  'Только через чикенган': { clean: ['Только через чикенган. Каждый должен скачать'], spicy: [] },
+  'Босс приходит сам': { clean: ['Босс приходит сам, когда остаётся последний этаж'], spicy: [] },
+};
+const ON_FIELD: Pair = { clean: ['{N} уже на поле. Второго нет', '{N} уже на поле. Он такой один'], spicy: [] };
+const denyLine = (why: string, sp: boolean): string => {
+  if (DENY[why]) return pick(DENY[why], sp);
+  const m = /^(.+) уже на поле$/.exec(why);
+  return m ? pick(ON_FIELD, sp).replace('{N}', m[1]) : why;
 };
 
 export const lore = {
   win: (sp: boolean) => pick(WIN, sp),
   lose: (sp: boolean) => pick(LOSE, sp),
   floorLost: (s: 0 | 1, sp: boolean) => pick(FLOOR_LOST[s], sp),
-  deny: (why: string, sp: boolean) => (DENY[why] ? pick(DENY[why], sp) : why),
+  deny: denyLine,
   bossShout: (s: 0 | 1, sp: boolean) => pick(s === 0
     ? { clean: ['Я копил ульту. Теперь отдыхайте, ребята', 'Потрогайте траву', '+10000 aura'], spicy: ['Соси', 'Это не жопой делается'] }
     : { clean: ['Баля ма зверь йу со', 'Ас та1 во и', 'Ходи оглядывайся', 'Ай лев'], spicy: ['Соси баля', 'В ноль выебал'] }, sp),

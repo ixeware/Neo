@@ -1,8 +1,8 @@
 import './ui/style.css';
 import * as THREE from 'three';
 import { loadTerrain, heightY, setRenderSurface } from './world/terrain';
-import { Sim, cardTitle, type FxEv } from './sim/sim';
-import { TICK_MS, HQ, CARDS, UNITS, SIDE_NAME, Fx, type Side } from './sim/defs';
+import { Sim, cardTitle, PT_DONER, type FxEv } from './sim/sim';
+import { TICK_MS, HQ, CARDS, UNITS, SIDE_NAME, Fx, HEROES as HERO_TYPES, RIDE, GOLEM, CHICKEN, WOU, ADMIN, type Side } from './sim/defs';
 import { Stage, bindInput } from './render/scene';
 import { terrainMesh, waterMesh } from './render/terrainMesh';
 import { buildTin, tinHeight, paintTin } from './render/lowpoly';
@@ -18,7 +18,10 @@ import { renderMenu, type MenuState } from './ui/menu';
 import { Sound } from './audio/sound';
 import { Session, LocalBackend, loadLocal, clearLocal } from './net/session';
 import { connectShared, type Shared } from './net/shared';
-import { TICKER, lore } from './data/lore';
+import { TICKER, HINTS, lore, type Line } from './data/lore';
+import { HEROES, EVENTS as EVENT_LORE, DONER, FUJI, SUMMON_LINES, heroForUnit, heroLine, pickLine, type HeroId, type LineBucket, type EventId } from './data/heroes';
+import { Achievements, AchToasts, achievedIds } from './ui/achievements';
+import { DECK_KEYS } from './ui/hud';
 
 const $ = (id: string) => document.getElementById(id)!;
 const bootMsg = (s: string) => { $('boot-msg').textContent = s; };
@@ -31,14 +34,27 @@ function loadPrefs(): Prefs {
 }
 function savePrefs(p: Prefs) { try { localStorage.setItem('vysotka.prefs', JSON.stringify(p)); } catch { /* blocked storage */ } }
 
+/** Feed speakers: display name and pen colour (-1 = pencil, mercs take the colour of whoever fields them). */
 const WHO: Record<string, { name: string; side: number }> = {
   islam: { name: 'Ислам #1 ranked chad', side: 0 },
   zurab: { name: 'Зураб легенда', side: 1 },
   chimaev: { name: 'Чимаев 5.5', side: 1 },
+  bekhan: { name: 'Бекхан', side: 0 },
   wou: { name: 'WOU', side: -1 },
   admin: { name: 'админ', side: -1 },
+  ersno: { name: 'ersno', side: -1 },
+  adam: { name: 'Адам', side: -1 },
+  mohmad: { name: 'Мохьмад', side: -1 },
 };
+const WHO_RE: [RegExp, string][] = [
+  [/^Ислам/, 'islam'], [/^(Качок )?Зураб/, 'zurab'], [/^Чимаев/, 'chimaev'], [/^Бекхан/, 'bekhan'], [/^WOU/, 'wou'],
+  [/^админ/i, 'admin'], [/^ersno/, 'ersno'], [/^Адам/, 'adam'], [/^Мохьмад/, 'mohmad'],
+];
 const pickOne = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+/** Feed priority: 0 chatter, 1 the other side, 2 our side, 3 must-see (events, bosses, wars). */
+type Prio = 0 | 1 | 2 | 3;
+interface FeedLine { who: string; text: string; side: number; prio: Prio; at: number; until: number }
+const FEED_GAP = 1500, FEED_MAX = 6;
 
 async function boot() {
   const prefs = loadPrefs();
@@ -109,12 +125,22 @@ async function boot() {
   let lastSave = 0;
   let lastTap = { x: innerWidth / 2, y: innerHeight / 2 };
   let nextChatter = performance.now() + 9000;
+  let nextHint = performance.now() + 20000;
   let overEra = 0;
-  const menuState: MenuState = { canContinue: null, diff: prefs.diff, spicy: prefs.spicy, shared: null };
+  const menuState: MenuState = { canContinue: null, diff: prefs.diff, spicy: prefs.spicy, shared: null, tab: 'play' };
 
+  /** Card tap or key: select, or say why it can't be used now. */
+  const pickCard = (t: number) => {
+    sound.unlock();
+    const why = hud.cardBlocked(t);
+    if (why) { sound.deny(); hud.note(lore.deny(why, prefs.spicy)); return; }
+    sound.click();
+    hud.select(hud.selected === t ? -1 : t);
+  };
   const hud = new Hud($('hud'), {
     portraits,
-    onCard: i => { sound.unlock(); sound.click(); hud.select(hud.selected === i ? -1 : i); },
+    onCard: t => pickCard(t),
+    onTab: () => { sound.unlock(); sound.click(); },
     onVote: o => {
       sound.unlock();
       if (!session || !sim.st.votes[side].open) return;
@@ -128,21 +154,86 @@ async function boot() {
   });
   const labels = new Labels($('labels'), terrain, sim, stage, hqs, units);
   const minimap = new Minimap(hud.miniCanvas, (g, w, h) => paintTin(tin, g, w, h), terrain, sim, stage);
-
-  const say = (who: keyof typeof WHO | string, text: string) => {
-    const key = WHO[who] ? who : /^Ислам/.test(who) ? 'islam' : /^Зураб/.test(who) ? 'zurab' : /^Чимаев/.test(who) ? 'chimaev' : /^WOU/.test(who) ? 'wou' : '';
-    const w = key ? WHO[key] : { name: who === 'Бекхан' ? 'Бекхан' : 'беседа', side: -1 };
-    hud.feedMsg(w.name, text, w.side);
+  const toasts = new AchToasts($('hud'), () => prefs.spicy, () => sound.achievement());
+  const ach = new Achievements(a => toasts.push(a));
+  /** Everything that follows the 18+ toggle. */
+  const applySpicy = () => {
+    labels.setSpicy(prefs.spicy);
   };
+  applySpicy();
 
-  function beginSession(s: Side, sess: Session) {
+  // ---- беседа: a queue, at most one line every 1.5 s, our side first ------------------------
+  const feedQ: FeedLine[] = [];
+  let feedNext = 0;
+  const speaker = (who: string) => { if (WHO[who]) return who; for (const [re, k] of WHO_RE) if (re.test(who)) return k; return ''; };
+  const say = (who: string, text: string, prio: Prio = 2, sideOf?: number, delayMs = 0) => {
+    const key = speaker(who), w = key ? WHO[key] : null;
+    const now = performance.now();
+    feedQ.push({ who: WHO[who] ? WHO[who].name : who || 'беседа', text, side: sideOf ?? w?.side ?? -1, prio, at: now + delayMs, until: now + delayMs + (prio >= 3 ? 14000 : 7000) });
+    if (feedQ.length > FEED_MAX) { // drop the least important (oldest among equals)
+      let k = 0;
+      for (let i = 1; i < feedQ.length; i++) if (feedQ[i].prio < feedQ[k].prio) k = i;
+      feedQ.splice(k, 1);
+    }
+  };
+  /** A lore line; mercSide colours a mercenary speaker (Мохьмад about his Голем) by the side he plays for. */
+  const sayLine = (l: Line | null, prio: Prio = 2, mercSide?: number, delayMs = 0) => {
+    if (!l) return;
+    const key = speaker(l.who ?? '');
+    say(l.who ?? 'беседа', l.t, prio, key && WHO[key].side === -1 ? mercSide : undefined, delayMs);
+  };
+  function pumpFeed(now: number) {
+    if (now < feedNext || !feedQ.length) return;
+    for (let i = feedQ.length - 1; i >= 0; i--) if (feedQ[i].until < now) feedQ.splice(i, 1);
+    let k = -1;
+    for (let i = 0; i < feedQ.length; i++) if (feedQ[i].at <= now && (k < 0 || feedQ[i].prio > feedQ[k].prio)) k = i;
+    if (k < 0) return;
+    const q = feedQ.splice(k, 1)[0];
+    hud.feedMsg(q.who, q.text, q.side);
+    feedNext = now + FEED_GAP;
+  }
+  const pr = (s: number): Prio => (s === side ? 2 : 1);
+  const cds = new Map<string, number>();
+  /** true at most once per `ms` for this key (chatter throttling). */
+  const cool = (key: string, ms: number) => { const now = performance.now(); if ((cds.get(key) ?? 0) > now) return false; cds.set(key, now + ms); return true; };
+  /** A hero's line from src/data/heroes.ts; the hero's own lines take the pen of the side that fielded them. */
+  const heroSay = (t: number, s: Side, bucket: LineBucket, prio: Prio = pr(s), delayMs = 0) => {
+    const id: HeroId | null = heroForUnit(t, s);
+    if (!id) return;
+    const l = heroLine(id, bucket, prefs.spicy);
+    say(l.who!, l.t, prio, l.who === HEROES[id].name ? s : undefined, delayMs);
+  };
+  /** Somebody on the field says an idle line now and then (our side more often). */
+  const heroIdle = () => {
+    const mine: [number, Side][] = [], theirs: [number, Side][] = [];
+    for (const s of [0, 1] as Side[]) {
+      const sd = sim.st.sides[s], to = s === side ? mine : theirs;
+      for (const t of HERO_TYPES) if (sd.hero[t] >= 0) to.push([t, s]);
+      if (sd.boss >= 0) to.push([5, s]);
+    }
+    const pool = mine.length && (Math.random() < 0.7 || !theirs.length) ? mine : theirs;
+    if (!pool.length) return false;
+    const [t, s] = pickOne(pool);
+    heroSay(t, s, 'idle', 0);
+    return true;
+  };
+  const donerName = () => (prefs.spicy ? DONER.spicy : DONER.clean);
+  // tips: the new ones (heroes, Донер Бей, rides) first, then everything in a shuffled loop
+  const shuffle = <T,>(a: T[]) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  let hintQ = [...shuffle(HINTS.slice(7)), ...shuffle(HINTS.slice(0, 7))];
+  const nextTip = () => { if (!hintQ.length) hintQ = shuffle([...HINTS]); return hintQ.shift()!; };
+
+  function beginSession(s: Side, sess: Session, fresh = false) {
     session = sess;
     side = s;
     hud.setSide(s);
     hud.hideOver();
     units.resetVis();
+    labels.side = s; labels.reset();
+    feedQ.length = 0; nextHint = performance.now() + 20000;
     hqs.forEach((b, i) => b.setFloors(sim.st.sides[i].floors, false));
-    session.onStep = () => units.capture(performance.now());
+    ach.begin(sim, s, fresh);
+    session.onStep = () => { units.capture(performance.now()); ach.step(); };
     playing = true;
     $('menu').hidden = true;
     $('hud').hidden = false;
@@ -157,10 +248,10 @@ async function boot() {
     sim.init((Math.random() * 2 ** 31) | 0);
     const sess = new Session(sim, new LocalBackend(prefs.pid, s), prefs.pid);
     sess.setClock(0, Date.now());
-    beginSession(s, sess);
+    beginSession(s, sess, true);
     sess.submit({ k: 'cfg', d: diff, hs: s, mp: 0 });
     sess.submit({ k: 'join', s });
-    say('admin', 'Война №1. Чу вала!');
+    say('admin', 'Война №1. Чу вала!', 3);
   }
 
   function resumeLocal() {
@@ -172,7 +263,7 @@ async function boot() {
     sess.setClock(save.st.tick, Date.now());
     beginSession(save.side, sess);
     if (!sim.st.players[prefs.pid]) sess.submit({ k: 'join', s: save.side });
-    say('admin', 'Мир спал, пока тебя не было. Продолжаем');
+    say('admin', 'Мир спал, пока тебя не было. Продолжаем', 3);
   }
 
   async function startShared(s: Side) {
@@ -181,7 +272,7 @@ async function boot() {
     const sess = await shared.join(sim, s);
     if (!sess) { hud.banner('Общая война недоступна', 'Играем против ИИ', -1); return; }
     beginSession(s, sess);
-    say('admin', `Ты в общей войне за ${SIDE_NAME[s]}. Чу вала!`);
+    say('admin', `Ты в общей войне за ${SIDE_NAME[s]}. Чу вала!`, 3);
   }
 
   function openMenu() {
@@ -190,13 +281,14 @@ async function boot() {
     const save = loadLocal();
     menuState.canContinue = save ? { era: save.st.era, side: save.side, wins: [save.st.sides[0].wins, save.st.sides[1].wins] } : null;
     menuState.shared = shared ? shared.menuInfo() : { available: false, online: [0, 0], era: 1, wins: [0, 0] };
+    menuState.achieved = achievedIds();
     $('hud').hidden = true;
     renderMenu($('menu'), portraits, menuState, {
       start: (s, d) => { sound.unlock(); startLocal(s, d); },
       resume: () => { sound.unlock(); if (session && session.backend.kind === 'local' && session.paused) { session.pause(false); playing = true; $('menu').hidden = true; $('hud').hidden = false; } else resumeLocal(); },
       shared: s => { sound.unlock(); void startShared(s); },
       setDiff: d => { prefs.diff = d; savePrefs(prefs); },
-      setSpicy: on => { prefs.spicy = on; savePrefs(prefs); },
+      setSpicy: on => { prefs.spicy = on; savePrefs(prefs); applySpicy(); },
     });
   }
 
@@ -205,19 +297,22 @@ async function boot() {
     sound.unlock();
     if (!playing || !session) return;
     lastTap = { x, y };
-    if (hud.selected < 0) { hud.hint('Сначала выбери юнита внизу'); return; }
+    const t = hud.selected;
+    if (t < 0) { hud.note('Сначала выбери юнита внизу'); return; }
     const p = stage.pick(x, y);
     if (!p) return;
-    const why = sim.canDeploy(side, hud.selected, p.x, p.z, sim.st.players[prefs.pid]);
+    const why = sim.canDeploy(side, t, p.x, p.z, sim.st.players[prefs.pid]);
     if (why) { sound.deny(); hud.tip(x, y, lore.deny(why, prefs.spicy)); return; }
-    session.submit({ k: 'dep', s: side, u: hud.selected, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 });
+    const cost = sim.cost(side, t);
+    session.submit({ k: 'dep', s: side, u: t, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 });
     sound.deploy();
-    hud.tip(x, y, `−${UNITS[hud.selected].cost[side]} ₽`);
+    hud.tip(x, y, `−${cost} ₽`);
+    if (UNITS[t].hero) hud.select(-1); // one per side: the card goes «на поле»
   }, () => { /* hover preview could go here */ });
   addEventListener('keydown', e => {
     if (!playing) return;
-    const n = Number(e.key);
-    if (n >= 1 && n <= 5) { sound.unlock(); hud.select(hud.selected === n - 1 ? -1 : n - 1); }
+    const k = e.ctrlKey || e.metaKey || e.altKey ? -1 : DECK_KEYS.indexOf(e.key);
+    if (k >= 0 && hud.typeAt(k) >= 0) pickCard(hud.typeAt(k));
     if (e.key === 'Escape') hud.select(-1);
     if (e.code === 'Space') { const p = sim.st.pts[side]; stage.flyTo(p.x, p.z, 38); e.preventDefault(); }
   });
@@ -229,13 +324,22 @@ async function boot() {
 
   // ---- sim events → effects, sound, chat -------------------------------------------------------
   const near = (x: number, z: number, r = 90) => { const t = stage.target; return (t.x - x) ** 2 + (t.z - z) ** 2 < r * r && stage.dist < 200; };
+  const projTmp = { x: 0, y: 0, vis: false };
   function handleFx(list: FxEv[]) {
     const now = performance.now();
+    let back: Set<number> | null = null; // heroes coming back from «пары» this frame (their spawn is not news)
     for (const e of list) {
+      ach.fx(e);
       switch (e.e) {
         case 'spawn': {
           const y = heightY(terrain, e.x, e.z);
           if (near(e.x, e.z)) particles.emit(e.x, y + 0.1, e.z, { n: e.t === 5 ? 40 : 6, color: '#d9cdb4', size: e.t === 5 ? 0.9 : 0.45, life: 0.7, spread: 1.4, up: 0.6, grav: 0.4, grow: 0.8 });
+          if (UNITS[e.t].hero) {
+            back ??= new Set(list.flatMap(x => (x.e === 'heroBack' && x.id > 0 ? [x.id] : [])));
+            if (back.has(e.id)) break;
+            if (e.s === side || near(e.x, e.z)) sound.heroIn(e.s);
+            heroSay(e.t, e.s, 'spawn');
+          } else if (e.t === RIDE && (e.s === side || near(e.x, e.z, 60))) sound.horn(e.s);
           break;
         }
         case 'hit': {
@@ -246,10 +350,19 @@ async function boot() {
           break;
         }
         case 'die': {
+          if (Math.random() < 0.3 && cool('kill', 14000)) { // a hero or boss next to the kill gloats
+            const k = (1 - e.s) as Side, ks = sim.st.sides[k];
+            for (const id of [...HERO_TYPES.map(t => ks.hero[t]), ks.boss]) {
+              const u = id >= 0 ? sim.unit(id) : undefined;
+              if (u && (u.x - e.x) ** 2 + (u.z - e.z) ** 2 < 20) { heroSay(u.t, k, 'kill', k === side ? 1 : 0); break; }
+            }
+          }
           if (!near(e.x, e.z)) break;
           const y = heightY(terrain, e.x, e.z) + 0.4;
           particles.emit(e.x, y, e.z, { n: 8, color: '#bdb3a2', size: 0.55, life: 0.8, spread: 1, up: 0.8, grav: 0.3, grow: 0.9 });
           particles.emit(e.x, y + 0.3, e.z, { n: 6, color: PAL.side[e.s], size: 0.18, life: 0.9, spread: 2, up: 2.4, grav: 6 });
+          if (e.t === CHICKEN && cool('chickdie', 20000)) sayLine(pickLine(SUMMON_LINES.chicken.death, prefs.spicy), 0, e.s);
+          if (e.t === GOLEM) sayLine(pickLine(SUMMON_LINES.golem.death, prefs.spicy), pr(e.s), e.s);
           break;
         }
         case 'shot': {
@@ -267,8 +380,8 @@ async function boot() {
           particles.emit(p.x, y, p.z, { n: 70, color: '#cfc4ae', size: 1.6, life: 2.2, spread: 3.5, up: 0.9, grav: 0.25, grow: 1.4, jitter: 3 });
           if (near(p.x, p.z, 70)) stage.shake = 1;
           sound.collapse();
-          if (e.s === 0) say('chimaev', e.floors > 0 ? (prefs.spicy && Math.random() < 0.4 ? 'Бля, у меня член больше' : `${e.floors} ${e.floors === 1 ? 'этаж' : 'этажа'}`) : 'Куда лезет букашка');
-          else say('islam', prefs.spicy && Math.random() < 0.3 ? 'Выебали тебя, да' : pickOne(['Бурдж-Халифа просела', 'Для тебя это как небоскрёб… был', `Пятиэтажка уже ${e.floors}-этажка`]));
+          if (e.s === 0) say('chimaev', e.floors > 0 ? (prefs.spicy && Math.random() < 0.4 ? 'Бля, у меня член больше' : `${e.floors} ${e.floors === 1 ? 'этаж' : 'этажа'}`) : 'Куда лезет букашка', 2);
+          else say('islam', prefs.spicy && Math.random() < 0.3 ? 'Выебали тебя, да' : pickOne(['Бурдж-Халифа просела', 'Для тебя это как небоскрёб… был', `Пятиэтажка уже ${e.floors}-этажка`]), 2);
           if (e.floors === 1) hud.banner(`${SIDE_NAME[e.s]}: последний этаж`, e.s === 0 ? 'Нам сельским не впервой' : 'Местный Бурдж-Халифа шатается', e.s);
           break;
         }
@@ -279,23 +392,26 @@ async function boot() {
         }
         case 'found4': {
           hud.banner('Ислам нашёл 4-й этаж', 'Я СДЕЛАЛ ЭТО', 0, 3600);
-          say('islam', 'Я СДЕЛАЛ ЭТО');
-          setTimeout(() => say('chimaev', 'Ладно, перегнул'), 1800);
+          say('islam', 'Я СДЕЛАЛ ЭТО', 3);
+          say('chimaev', 'Ладно, перегнул', 3, undefined, 1800);
           break;
         }
         case 'capture': {
-          const p = sim.st.pts[e.p];
-          if (e.s < 0) { say('admin', `${p.name} теперь ничьё`); break; }
+          const p = sim.st.pts[e.p], doner = e.p === PT_DONER, name = doner ? donerName() : p.name;
+          if (e.s < 0) { say('admin', `${name} теперь ничьё`, 1); break; }
           sound.capture(e.s === side);
           const y = heightY(terrain, p.x, p.z) + 1;
           particles.emit(p.x, y, p.z, { n: 30, color: PAL.side[e.s], size: 0.3, life: 1.2, spread: 4, up: 3, grav: 5, jitter: 2 });
-          if (p.key === 'shali') say(e.s === 1 ? 'zurab' : 'islam', e.s === 1 ? 'У нас знаешь их сколько?' : 'Курчалой, ну как там, завидуете?');
-          else if (e.s === 0) say('islam', pickOne([`${p.name} наш. Тактика`, 'Мы в плюсе', 'Спасибо Исламу', 'Йоккха Атаг1а — центр мира']));
-          else say('chimaev', pickOne([`${p.name} наш. Я соло за Курчалой тащу`, 'Исход очевиден', 'Куда лезет букашка', 'Факты ☝🏿']));
+          if (doner) {
+            if (e.s === side) hud.banner(`${name} наш`, 'Плюс 5 ₽ в секунду, свои рядом лечатся', e.s, 2400);
+            sayLine(pickLine(DONER.lines, prefs.spicy), pr(e.s), e.s);
+          } else if (p.key === 'shali') say(e.s === 1 ? 'zurab' : 'islam', e.s === 1 ? 'У нас знаешь их сколько?' : 'Курчалой, ну как там, завидуете?', pr(e.s));
+          else if (e.s === 0) say('islam', pickOne([`${p.name} наш. Тактика`, 'Мы в плюсе', 'Спасибо Исламу', 'Йоккха Атаг1а — центр мира']), pr(0));
+          else say('chimaev', pickOne([`${p.name} наш. Я соло за Курчалой тащу`, 'Исход очевиден', 'Куда лезет букашка', 'Факты ☝🏿']), pr(1));
           break;
         }
         case 'vote':
-          if (e.s === side) { sound.gavel(); say('admin', 'Админ издал указ: сход. Голосуем'); }
+          if (e.s === side) { sound.gavel(); say('admin', 'Админ издал указ: сход. Голосуем', 3); }
           break;
         case 'voteResult': {
           const card = CARDS[e.card];
@@ -303,24 +419,25 @@ async function boot() {
             sound.gavel();
             hud.banner(`Сход решил: ${e.title}`, card.quote, e.s, 2800);
             if (card.fx === Fx.Focus) { const v = sim.st.votes[e.s]; if (v.focusPt >= 0) { const p = sim.st.pts[v.focusPt]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); } }
+            if (card.fx === Fx.FocusDoner) { const p = sim.st.pts[PT_DONER]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); }
           } else {
-            say('admin', `${SIDE_NAME[e.s]} решил: ${cardTitle(card, e.title.replace(/^Все на |!$/g, ''))}`);
+            say('admin', `${SIDE_NAME[e.s]} решил: ${cardTitle(card, e.title.replace(/^Все на |!$/g, ''))}`, 1);
           }
-          if (card.fx === Fx.Blackout && e.s !== side) say('chimaev', 'Свет яц. Я тут долго не протяну');
-          if (card.fx === Fx.EnemyN && e.s === side) say('admin', 'Всем Н. Страйк нельзя прерывать');
-          if (card.fx === Fx.Floor && e.s === 1) say('wou', 'Местный Бурдж-Халифа');
+          if (card.fx === Fx.Blackout && e.s !== side) say('chimaev', 'Свет яц. Я тут долго не протяну', 1);
+          if (card.fx === Fx.EnemyN && e.s === side) say('admin', 'Всем Н. Страйк нельзя прерывать', 2);
+          if (card.fx === Fx.Floor && e.s === 1) say('wou', 'Местный Бурдж-Халифа', 1);
           break;
         }
         case 'boss': {
           sound.boss(e.s);
           stage.shake = 0.6;
           hud.banner(e.s === 1 ? 'Финальный босс: Качок Зураб' : 'Выходит Ислам #1 ranked chad', e.s === 1 ? 'Баля ма зверь йу со' : 'Высокий. Барсетка. Перхоть', e.s, 3400);
-          if (e.s === 1) say('zurab', lore.bossShout(1, prefs.spicy)); else { say('islam', 'Я копил ульту. Теперь отдыхайте, ребята'); setTimeout(() => say('wou', '+10000000000000000 aura'), 1500); }
+          if (e.s === 1) say('zurab', lore.bossShout(1, prefs.spicy), 3); else { say('islam', 'Я копил ульту. Теперь отдыхайте, ребята', 3); say('wou', '+10000000000000000 aura', 2, undefined, 1500); }
           break;
         }
         case 'bossDown':
           hud.banner(e.s === 1 ? 'Зураб лёг' : 'Ислам лёг', e.s === 1 ? 'Счёт 1:0, вернётся сильнее' : 'Сегодня Ислама не трогаем', e.s === 1 ? 0 : 1);
-          if (e.s === 1) say('chimaev', 'Тише.. Зураб.. успокойся.. я рядом..'); else say('zurab', 'Немощь');
+          if (e.s === 1) say('chimaev', 'Тише.. Зураб.. успокойся.. я рядом..', 3); else say('zurab', 'Немощь', 3);
           break;
         case 'ult': {
           sound.ult();
@@ -330,7 +447,7 @@ async function boot() {
             const a = (k / 28) * Math.PI * 2;
             particles.emit(e.x + Math.cos(a) * e.r * 0.5, y, e.z + Math.sin(a) * e.r * 0.5, { n: 2, color: e.s === 0 ? '#ffffff' : '#d9c9a5', size: 0.7, life: 0.8, spread: 3.5, up: 0.8, grav: 1, grow: 1 });
           }
-          if (Math.random() < 0.5) say(e.s === 0 ? 'islam' : 'zurab', lore.bossShout(e.s, prefs.spicy));
+          if (Math.random() < 0.5) say(e.s === 0 ? 'islam' : 'zurab', lore.bossShout(e.s, prefs.spicy), 1);
           break;
         }
         case 'victory': {
@@ -339,21 +456,95 @@ async function boot() {
           const taunt = win ? lore.win(prefs.spicy) : lore.lose(prefs.spicy);
           hud.showOver(sim, win, taunt);
           overEra = sim.st.era;
-          say(e.s === 0 ? 'islam' : 'zurab', lore.win(prefs.spicy));
-          setTimeout(() => say(e.s === 0 ? 'zurab' : 'islam', lore.lose(prefs.spicy)), 1600);
+          say(e.s === 0 ? 'islam' : 'zurab', lore.win(prefs.spicy), 3);
+          say(e.s === 0 ? 'zurab' : 'islam', lore.lose(prefs.spicy), 3, undefined, 1600);
           break;
         }
         case 'newWar':
           hud.hideOver();
           hqs.forEach((b, i) => b.setFloors(sim.st.sides[i].floors, false));
           units.resetVis();
+          labels.reset();
           hud.banner(`Война №${e.era}`, 'Чу вала!', -1, 2400);
-          say('admin', `Война №${e.era}. Счёт ${sim.st.sides[0].wins}:${sim.st.sides[1].wins}`);
+          say('admin', `Война №${e.era}. Счёт ${sim.st.sides[0].wins}:${sim.st.sides[1].wins}`, 3);
           break;
         case 'deny':
           if (e.p === prefs.pid) { sound.deny(); hud.tip(lastTap.x, lastTap.y, lore.deny(e.why, prefs.spicy)); }
           break;
         case 'deployed':
+          break;
+        // ---- heroes, rides, summons, world events ------------------------------------------
+        case 'ability': {
+          const close = e.s === side || near(e.x, e.z);
+          if (e.key === 'quake') { if (close) sound.quake(); if (cool('quake' + e.s, 12000)) heroSay(e.t, e.s, 'ability'); }
+          else if (e.key === 'lagman') { if (close) sound.slurp(); heroSay(e.t, e.s, 'ability'); }
+          else if (e.key === 'bolt') { if (close) sound.whoosh(); if (cool('bolt' + e.s, 25000)) heroSay(e.t, e.s, 'ability', e.s === side ? 1 : 0); }
+          // golem → 'summon', hack → 'hack', n → 'stunN' follow with the details
+          break;
+        }
+        case 'event': {
+          const L = EVENT_LORE[e.key as EventId];
+          sound.jingle();
+          hud.banner(e.title, e.quote, -1, 3400);
+          if (L) { sayLine(L.quote, 3); sayLine(pickLine(L.reactions, prefs.spicy), 2, undefined, 2600); }
+          break;
+        }
+        case 'unload':
+          if (near(e.x, e.z, 70)) sound.door();
+          if (cool('ride' + e.s, 20000)) sayLine(pickLine(SUMMON_LINES.ride[e.s], prefs.spicy), e.s === side ? 1 : 0, e.s);
+          break;
+        case 'summon': {
+          const close = e.s === side || near(e.x, e.z);
+          if (e.t === GOLEM) { if (close) sound.golem(); sayLine(pickLine(SUMMON_LINES.golem.spawn, prefs.spicy), pr(e.s), e.s); }
+          else if (e.t === CHICKEN) { if (close) sound.cluck(5); sayLine(pickLine(SUMMON_LINES.chicken.spawn, prefs.spicy), pr(e.s), e.s); }
+          break;
+        }
+        case 'heroDown': {
+          heroSay(e.t, e.s, 'death');
+          const k = (1 - e.s) as Side, ks = sim.st.sides[k];
+          const alive = HERO_TYPES.filter(t => ks.hero[t] >= 0);
+          if (alive.length && Math.random() < 0.45) heroSay(pickOne(alive), k, 'kill', k === side ? 1 : 0, 1400);
+          break;
+        }
+        case 'heroBack':
+          if (e.id < 0) { if (e.s === side) { hud.flash(e.t); sound.coin(); } }
+          else if (cool('back' + e.s, 8000)) heroSay(e.t, e.s, 'spawn', e.s === side ? 1 : 0);
+          break;
+        case 'poison':
+          if (e.n <= 0) break;
+          if (e.s === side) sound.sick();
+          sayLine(pickLine(FUJI.lines, prefs.spicy), pr(e.s));
+          break;
+        case 'taunt':
+          if (near(e.x, e.z, 60)) sound.jeer();
+          if (e.n >= 3 && cool('taunt', 40000)) heroSay(WOU, e.s, 'ability', e.s === side ? 1 : 0);
+          break;
+        case 'hack':
+          sound.hack();
+          if (e.v === side) hud.banner('Пентагон взломан', 'Турель и доход выключены на 8 секунд', e.s, 2600);
+          heroSay(WOU, e.s, 'ability', e.v === side ? 3 : pr(e.s));
+          break;
+        case 'stunN':
+          if (e.s === side || near(e.x, e.z)) sound.stamp();
+          if (e.n > 0) {
+            if (near(e.x, e.z, 70)) { stage.project(e.x, heightY(terrain, e.x, e.z) + 2.6, e.z, projTmp); if (projTmp.vis) hud.tip(projTmp.x, projTmp.y, `Н ×${e.n}`, 'tip-n'); }
+            if (cool('n' + e.s, 9000)) heroSay(ADMIN, e.s, 'ability');
+          }
+          break;
+        case 'pulse':
+          if (!near(e.x, e.z, 70)) break;
+          if (e.key === 'quake') sound.rumble(); else if (e.key === 'golem') sound.golem(); else sound.pop();
+          break;
+        case 'gone':
+          if (e.t === RIDE && near(e.x, e.z, 60)) sound.horn(e.s);
+          break;
+        case 'voteSkip':
+          if (e.s === side) { sound.deny(); say('admin', 'Сход отменяется. Где наша обещанная четырёхдневка', 3); }
+          else say('admin', `У ${e.s === 0 ? 'Атагов' : 'Курчалоя'} сход отменили. Четырёхдневка`, 1);
+          break;
+        case 'dodge':
+          if (e.s === side && near(e.x, e.z, 50)) sound.swish();
+          if (e.s === side && cool('dodge', 45000)) say('Ислам', 'Шампунь +40 к удаче', 1);
           break;
       }
     }
@@ -380,10 +571,15 @@ async function boot() {
       if (session.backend.kind === 'shared') shared?.tick(session);
       if (playing && now > nextChatter) {
         nextChatter = now + 15000 + Math.random() * 12000;
-        const pool = TICKER.filter(l => prefs.spicy || !l.spicy);
-        const l = pickOne(pool);
-        say(l.who ?? 'беседа', l.t);
+        if (Math.random() > 0.45 || !heroIdle()) {
+          const pool = TICKER.filter(l => prefs.spicy || !l.spicy);
+          const l = pickOne(pool);
+          say(l.who ?? 'беседа', l.t, 0);
+        }
       }
+      if (playing && now > nextHint) { nextHint = now + 45000 + Math.random() * 20000; if (!hud.rotateTip(nextTip())) nextHint = now + 8000; }
+      if (playing) pumpFeed(now);
+      toasts.update(now, !playing || session.catchingUp);
       sound.intensity = Math.min(1, sim.st.units.length / 140);
       // reconcile with state (events are muted while a tab catches up)
       if (sim.st.winner === -1 && hud.overOpen) hud.hideOver();
@@ -406,8 +602,8 @@ async function boot() {
       if (s.k === 2 && near(s.x1, s.z1)) particles.emit(s.x1, s.y1, s.z1, { n: 14, color: '#ffffff', size: 0.16, life: 1.4, spread: 1.6, up: 0.4, grav: 0.4, wob: 1 });
       if ((s.k === 4 || s.k === 5) && near(s.x1, s.z1)) particles.emit(s.x1, s.y1 + 0.4, s.z1, { n: 4, color: '#8fe08a', size: 0.25, life: 0.6, spread: 0.6, up: 1.4, grav: 0.5 });
     });
-    if (playing) { labels.update(); minimap.draw(now); hud.update(sim, prefs.pid, now); }
-    else labels.update();
+    if (playing) { labels.update(dt); minimap.draw(now); hud.update(sim, prefs.pid, now); }
+    else labels.update(dt);
     stage.renderer.render(scene, stage.camera);
     requestAnimationFrame(frame);
   };

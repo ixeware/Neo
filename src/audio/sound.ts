@@ -88,6 +88,90 @@ export class Sound {
   }
   floorUp() { if (this.ok('fu', 300)) [392, 523, 659, 784].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.16, i * 0.08)); }
 
+  // ---- heroes, rides, world events -----------------------------------------------------
+  /** Noise through a band-pass whose centre slides from f0 to f1 (whoosh, rumble sweeps). */
+  private sweep(dur: number, vol: number, f0: number, f1: number, q = 1, at = 0) {
+    const c = this.ctx!; const t = c.currentTime + at;
+    const s = c.createBufferSource(); s.buffer = this.noise;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(this.sfx);
+    s.start(t, Math.random() * 0.4); s.stop(t + dur + 0.05);
+  }
+  /** «Землетряс»: a long low rumble with a few thumps inside. */
+  quake() {
+    if (!this.ok('quake', 600)) return;
+    this.hiss(1.3, 0.55, 80, 0.45); this.tone(38, 1.2, 'sine', 0.65, 0, 0.7);
+    for (let i = 0; i < 4; i++) this.tone(60 + Math.random() * 25, 0.18, 'sine', 0.35, 0.12 + i * 0.22, 0.5);
+  }
+  /** One pulse of the quake (lighter than the cast). */
+  rumble() { if (this.ok('rumble', 350)) { this.hiss(0.6, 0.35, 90, 0.5); this.tone(45, 0.5, 'sine', 0.4, 0, 0.6); } }
+  /** «Взломать Пентагон»: modem-ish bit glitch. */
+  hack() {
+    if (!this.ok('hack', 500)) return;
+    for (let i = 0; i < 9; i++) this.tone(300 + Math.random() * 1900, 0.035, 'square', 0.06, i * 0.042);
+    this.hiss(0.08, 0.25, 6000, 3, 0.05); this.hiss(0.08, 0.25, 6000, 3, 0.25);
+    this.tone(1200, 0.3, 'sawtooth', 0.04, 0.38, 0.25);
+  }
+  /** Админ ставит «Н»: a rubber stamp on paper. */
+  stamp() { if (this.ok('stamp', 180)) { this.tone(120, 0.1, 'sine', 0.55, 0, 0.45); this.hiss(0.06, 0.45, 2200, 1.3); this.hiss(0.12, 0.12, 600, 0.8, 0.02); } }
+  /** WOU «Рейджбайт»: a short jeer. */
+  jeer() {
+    if (!this.ok('jeer', 2500)) return;
+    this.tone(540, 0.22, 'sawtooth', 0.05, 0, 0.72); this.tone(400, 0.32, 'sawtooth', 0.05, 0.16, 0.7);
+    this.hiss(0.3, 0.06, 1100, 2, 0.05);
+  }
+  /** Голем: stone crack and a heavy settle. */
+  golem() {
+    if (!this.ok('golem', 400)) return;
+    this.hiss(0.05, 0.6, 3200, 2); this.hiss(0.45, 0.45, 260, 0.7, 0.03);
+    this.tone(70, 0.45, 'triangle', 0.45, 0.02, 0.5); this.hiss(0.05, 0.4, 2400, 2, 0.14);
+  }
+  /** Курица: clucks. */
+  cluck(n = 3) {
+    if (!this.ok('cluck', 300)) return;
+    for (let i = 0; i < n; i++) this.tone(820 + Math.random() * 260, 0.07, 'square', 0.05, i * 0.1 + Math.random() * 0.03, 0.5);
+  }
+  /** Курица or Голем burst on death. */
+  pop() { if (this.ok('pop', 120)) { this.hiss(0.14, 0.35, 1300, 1); this.tone(210, 0.1, 'square', 0.08, 0, 0.4); } }
+  /** Такси (side 0): bright two-tone horn. Маршрутка (side 1): lower, longer. */
+  horn(s: number) {
+    if (!this.ok('horn' + s, 900)) return;
+    if (s === 0) { this.tone(440, 0.16, 'square', 0.06); this.tone(554, 0.16, 'square', 0.05); this.tone(440, 0.22, 'square', 0.06, 0.22); this.tone(554, 0.22, 'square', 0.05, 0.22); }
+    else { this.tone(294, 0.42, 'sawtooth', 0.06); this.tone(349, 0.42, 'sawtooth', 0.05); }
+  }
+  /** Ride unloads: sliding door / car door clunk. */
+  door() { if (this.ok('door', 250)) { this.sweep(0.22, 0.18, 1800, 500, 1.4); this.tone(95, 0.12, 'square', 0.12, 0.2, 0.5); this.hiss(0.07, 0.3, 700, 1.2, 0.2); } }
+  /** World event starts: a short jingle. */
+  jingle() {
+    if (!this.ok('jingle', 1500)) return;
+    [659, 784, 988, 1319].forEach((f, i) => this.tone(f, 0.2, 'triangle', 0.13, i * 0.09));
+    this.tone(1319, 0.5, 'sine', 0.06, 0.36);
+  }
+  /** A hero walks in. Атаги rise, Курчалой growl. */
+  heroIn(s: number) {
+    if (!this.ok('hero', 700)) return;
+    const ch = s === 0 ? [392, 494, 587] : [220, 277, 330];
+    ch.forEach((f, i) => this.tone(f, 0.5, 'sawtooth', 0.045, i * 0.05, 1.02));
+    this.tone(ch[0] / 2, 0.45, 'square', 0.06, 0, 1);
+  }
+  /** Адам убегает. */
+  whoosh() { if (this.ok('whoosh', 600)) this.sweep(0.35, 0.22, 600, 4200, 1.1); }
+  /** Бекхан ест лагман. */
+  slurp() { if (this.ok('slurp', 800)) { this.tone(260, 0.3, 'sine', 0.12, 0, 2.1); this.tone(330, 0.2, 'sine', 0.08, 0.28, 1.6); } }
+  /** «Я отравился». */
+  sick() { if (this.ok('sick', 1500)) { this.tone(190, 0.45, 'sawtooth', 0.05, 0, 0.55); this.tone(150, 0.5, 'sawtooth', 0.04, 0.3, 0.6); } }
+  /** «Шампунь +40 к удаче»: a dodge. */
+  swish() { if (this.ok('swish', 250)) this.sweep(0.14, 0.12, 2500, 6000, 0.8); }
+  /** Achievement unlocked: stamp plus two bright notes. */
+  achievement() {
+    if (!this.ok('ach', 400)) return;
+    this.tone(120, 0.1, 'sine', 0.45, 0, 0.45); this.hiss(0.06, 0.35, 2200, 1.3);
+    this.tone(1047, 0.16, 'triangle', 0.1, 0.1); this.tone(1568, 0.3, 'triangle', 0.1, 0.2);
+  }
+
   // ---- music ------------------------------------------------------------------------
   intensity = 0.4; // 0..1, follows the battle
   private schedule() {

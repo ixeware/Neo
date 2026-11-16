@@ -467,5 +467,18 @@ const strip = (o: Record<string, unknown>, keys: string[]) => { for (const k of 
   for (const u of old.units) strip(u as unknown as Record<string, unknown>, ['psn', 'tt', 'tn', 'ld', 'f', 'fr']);
   migrates('pre-content format', old);
 }
+{ // bfa230a: v3 save with the capture places still at the old hand-placed spots, the market held by Атаги
+  const s = runTo(SEED, 2000);
+  const old = JSON.parse(JSON.stringify(s.st)) as State;
+  const OLD = [[66.5, 178], [74.5, 183.5], [321.5, 98], [332, 117.5]];
+  old.pts.slice(PT_PLACE0).forEach((p, k) => { p.x = OLD[k][0]; p.z = OLD[k][1]; p.name = 'old'; });
+  const mk = old.pts[PT_PLACE0 + 3]; mk.owner = 0; mk.prog = -40;
+  const x = new Sim(terrain), y = new Sim(terrain);
+  x.load(structuredClone(old)); y.load(JSON.parse(JSON.stringify(old)) as State); x.quiet = y.quiet = true;
+  const fresh = x.makePoints(), m = x.st.pts[PT_PLACE0 + 3];
+  const moved = x.st.pts.every((p, i) => p.x === fresh[i].x && p.z === fresh[i].z && p.name === fresh[i].name && p.key === fresh[i].key) && m.owner === 0 && m.prog === -40;
+  for (let i = 0; i < 1200; i++) { x.step(undefined); y.step(undefined); }
+  check('bfa230a save: places move to the 2GIS spots, owner and progress kept, replays identically', moved && hashState(x.st) === hashState(y.st));
+}
 
 console.log(fails.length ? `v3 checks FAILED: ${fails.join('; ')}` : 'v3 checks OK');

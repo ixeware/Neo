@@ -216,7 +216,9 @@ export const PLACE = {
   gymHp: 1.2, // wrestlers and спортики spawn with +20% hp
   market: 3, // ₽/s
   regen: 2, // uncontested owner's progress per capture step
-  aiOwn: 1.1, aiEnemy: 1.6, // pickGoal distance weights (villages 0.92..1.0, enemy high-rise 1.3)
+  // pickGoal distance weights (villages 0.92..1.0, enemy high-rise 1.3). aiEnemy 1.6 → 1.35 with the
+  // real 2GIS places (10–21 from the HQs instead of 16–18): enemy captures 34+58 → 115+68 in 32 games
+  aiOwn: 1.1, aiEnemy: 1.35,
 };
 
 /** Card consumables (снюс / Бамб LOOP and their clean twins). */

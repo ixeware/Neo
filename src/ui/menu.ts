@@ -1,9 +1,9 @@
 // Start screen: pick a village, difficulty, 18+ layer; continue the endless war.
 // Two more pages behind the notebook tabs: «Кто есть кто» (heroes) and «Ачивки».
 import { SIDE_TAG, HINTS } from '../data/lore';
-import { HEROES, ROSTER_ORDER, HERO_UNIT, ACHIEVEMENTS, type HeroId } from '../data/heroes';
+import { HEROES, ROSTER_ORDER, HERO_UNIT, ACHIEVEMENTS, UNIT_TEXT, GELIK_T, SPORTIK_T, type HeroId } from '../data/heroes';
 import { UNITS } from '../sim/defs';
-import { portraitHtml } from './hud';
+import { portraitHtml, unitRole } from './hud';
 import type { Portraits } from './portraits';
 
 export type MenuTab = 'play' | 'who' | 'ach';
@@ -85,10 +85,34 @@ function rosterCard(p: Portraits, id: HeroId, spicy: boolean): string {
   </article>`;
 }
 
+/** Not a hero, but worth a card: Гелик and Спортики (only once the sim has these unit types). */
+function unitCard(p: Portraits, t: number, spicy: boolean): string {
+  const u = UNIT_TEXT[t], d = UNITS[t];
+  if (!u || !d) return '';
+  const both = d.avail[0] && d.avail[1];
+  const s: 0 | 1 = d.avail[0] ? 0 : 1, tone = both ? 2 : s;
+  const meta = `${d.cost[s]} ₽ · ${d.hp} hp${d.count > 1 ? ` ×${d.count}` : ''} · ${both ? 'за обе стороны' : s ? 'только Курчалой' : 'только Атаги'}`;
+  const q = u.quote.spicy && !spicy ? null : u.quote;
+  return `<article class="who-card paper c${tone}">
+    <div class="who-pic">${portraitHtml(p, s, t, 'who-img', tone)}</div>
+    <div class="who-in">
+      <div class="who-h"><b class="who-n">${esc(u.name)}</b><span class="who-tag">${esc(u.tag)}</span></div>
+      <div class="who-t">${esc(u.title)}</div>
+      <p class="who-b">${esc(u.blurb)}</p>
+      <p class="who-b">${esc(unitRole(t, s))}</p>
+      ${q ? `<div class="who-q">«${esc(q.t)}»${q.who ? ` <span>— ${esc(q.who)}</span>` : ''}</div>` : ''}
+      <div class="who-m">${esc(meta)}</div>
+    </div>
+  </article>`;
+}
+
 function whoPage(p: Portraits, s: MenuState): string {
+  const extra = [GELIK_T, SPORTIK_T].map(t => unitCard(p, t, s.spicy)).join('');
   return `<div class="m-page">
     <p class="m-lead">Все, кто воюет за самое высокое здание. Герой может быть только один на сторону. Наёмники играют за любую сторону — за кого позовут.</p>
     <div class="who-list">${ROSTER_ORDER.map(id => rosterCard(p, id, s.spicy)).join('')}</div>
+    ${extra ? `<p class="m-lead">Ещё на районе: техника и пацаны, которых можно позвать из вкладки «Юниты».</p>
+    <div class="who-list">${extra}</div>` : ''}
   </div>`;
 }
 

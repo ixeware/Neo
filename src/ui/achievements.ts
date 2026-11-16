@@ -3,9 +3,13 @@
 //
 // step() runs after every sim tick (Session.onStep), also during quiet catch-up, so anything
 // that can be read from state is checked there. fx() sees the events the sim emitted while not
-// quiet; only three achievements need them (absent, bird55, chicken).
-import { ACHIEVEMENTS, type Achievement } from '../data/heroes';
-import { HQ, WOU, ADAM, BEKHAN, ERSNO, CHIMAEV, GOLEM, CHICKEN, type Side } from '../sim/defs';
+// quiet; absent, bird55, chicken, and from v3 thief, pack and snus need them.
+//
+// v3 (Гелик, Спортики, places with perks, ersno's «переводы», the admin's pack, «Закинуть снюс»):
+// the sim fields and events may be missing in an older sim, so every read of them is optional
+// and the FxEv 'steal' / 'pack' are matched loosely by their `e` string.
+import { ACHIEVEMENTS, GELIK_T, SPORTIK_T, type Achievement } from '../data/heroes';
+import { HQ, WOU, ADAM, BEKHAN, ERSNO, CHIMAEV, GOLEM, CHICKEN, UNITS, type Side } from '../sim/defs';
 import { PT_DONER, UF, type FxEv, type Sim } from '../sim/sim';
 
 const KEY = 'vysotka.ach.v1';
@@ -30,6 +34,16 @@ export function achievedIds(): Set<string> { return new Set(load().ids); }
 const BY_ID = new Map(ACHIEVEMENTS.map(a => [a.id, a]));
 const d2 = (ax: number, az: number, bx: number, bz: number) => (ax - bx) ** 2 + (az - bz) ** 2;
 
+/** Unit type by key, falling back to the agreed index (GELIK = 16, SPORTIK = 17). */
+const typeOf = (keys: string[], fallback: number) => { const i = UNITS.findIndex(d => keys.includes(d.key)); return i >= 0 ? i : fallback; };
+const GELIK = typeOf(['gelik'], GELIK_T), SPORTIK = typeOf(['sportik', 'sportiki'], SPORTIK_T);
+/** «Закинуть снюс» / «Энергетик в ларьке» in CARDS. */
+const CARD_SNUS = 30;
+const STOLEN = 500; // ₽ in one war
+const SCARED = 10; // enemies under one pack
+/** v3 events read loosely: they are not in FxEv until the sim has them. */
+interface V3Ev { e: string; s?: number; v?: number; n?: number; x?: number; z?: number; r?: number; card?: number }
+
 export class Achievements {
   private store = load();
   private got = new Set(this.store.ids);
@@ -41,6 +55,7 @@ export class Achievements {
   private prevHack = 0; private hacks = 0;
   private ersnoId = -1; private ersnoCd = 0; private knocks = 0;
   private rides = 0; private chickenKills = 0;
+  private stolen = 0; private snusWar = false; private prevSnus = 0;
   private pulses: { x: number; z: number; r: number; t: number }[] = [];
   private owners: number[] = [];
   private donerSince = -1;
@@ -68,6 +83,7 @@ export class Achievements {
     this.floors = [st.sides[0].floors, st.sides[1].floors];
     this.prevHack = st.sides[en].hack; this.hacks = 0;
     this.ersnoId = -1; this.knocks = 0; this.rides = 0; this.chickenKills = 0; this.pulses = [];
+    this.stolen = 0; this.snusWar = false; this.prevSnus = (st.sides[me] as { snus?: number }).snus ?? 0;
     this.owners = st.pts.map(p => p.owner);
     this.donerSince = -1; this.bossId = -1;
     this.wouId = -1; this.adamId = -1; this.bekId = -1; this.lagAt = -1;
@@ -166,8 +182,20 @@ export class Achievements {
       this.bossId = -1;
     }
 
+    // «Закинуть снюс» taken by our сход this war: the buff timer moves forward (read-only, optional)
+    const snus = (sd as { snus?: number }).snus;
+    if (typeof snus === 'number') { if (snus > this.prevSnus && snus > now) this.snusWar = true; this.prevSnus = snus; }
+
     if (now % 10 !== 0) return;
     if (sd.kills >= 60) this.unlock('prisoner6000');
+    // v3: two Гелики / 16 спортиков alive at once; every capture place ours
+    let geliks = 0, sportiki = 0;
+    for (const u of st.units) if (u.s === me && u.hp > 0) { if (u.t === GELIK) geliks++; else if (u.t === SPORTIK) sportiki++; }
+    if (geliks >= 2) this.unlock('kra');
+    if (sportiki >= 16) this.unlock('sportiki');
+    let places = 0, held = 0;
+    for (const p of st.pts) if ((p as { perk?: string }).perk) { places++; if (p.owner === me) held++; }
+    if (places >= 4 && held === places) this.unlock('rayon');
     let vil = 0, mine = 0;
     for (const p of st.pts) if (p.kind === 1) { vil++; if (p.owner === me) mine++; }
     if (vil && mine === vil) this.unlock('center');
@@ -181,6 +209,7 @@ export class Achievements {
       if (dur >= 0 && dur < MIN8) this.unlock('obvious');
       if (this.full && !this.lostFloor) this.unlock('lightest');
       if (this.minFloors <= 1) this.unlock('comeback');
+      if (this.snusWar) this.unlock('snus');
       const prev = this.store.win;
       if (prev && prev.seed === st.seed && prev.era === st.era - 1 && prev.s === me) this.unlock('b2b');
     } else if (dur >= 0 && dur < MIN8) this.unlock('shame');
@@ -199,6 +228,9 @@ export class Achievements {
       case 'pulse':
         if (e.s === me && e.key === 'chicken') { this.pulses.push({ x: e.x, z: e.z, r: e.r, t: now }); if (this.pulses.length > 16) this.pulses.shift(); }
         break;
+      case 'voteResult':
+        if (e.s === me && e.card === CARD_SNUS) this.snusWar = true;
+        break;
       case 'die': {
         if (e.s === me) break;
         let hit = this.pulses.some(p => now - p.t <= 3 && d2(p.x, p.z, e.x, e.z) <= (p.r + 0.4) ** 2);
@@ -206,6 +238,24 @@ export class Achievements {
         if (hit && ++this.chickenKills >= 10) this.unlock('chicken');
         break;
       }
+      default: this.fxV3(e as unknown as V3Ev);
+    }
+  }
+
+  /** ersno's «переводы» and the admin's pack («Курение убивает»). */
+  private fxV3(e: V3Ev) {
+    const sim = this.sim!, me = this.me;
+    if (e.s !== me) return;
+    if (e.e === 'steal') {
+      if (typeof e.n === 'number' && e.n > 0 && (this.stolen += e.n) >= STOLEN) this.unlock('thief');
+    } else if (e.e === 'pack') {
+      let n = typeof e.n === 'number' ? e.n : -1;
+      if (n < 0 && typeof e.x === 'number' && typeof e.z === 'number') { // older event without a count: who is under it now
+        const R = (e.r ?? 7) ** 2;
+        n = 0;
+        for (const u of sim.st.units) if (u.s !== me && u.hp > 0 && d2(u.x, u.z, e.x, e.z) <= R) n++;
+      }
+      if (n >= SCARED) this.unlock('pack');
     }
   }
 }

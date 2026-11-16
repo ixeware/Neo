@@ -1,8 +1,8 @@
 // HUD: notebook slips around the map. DOM is refreshed ~10×/s, not every frame.
 import { UNITS, HQ, CARDS, VOTERS, SIDE_FULL, SHOP, EVENTS, EVENT_EVERY, canBuy, type Side } from '../sim/defs';
 import { cardTitle, type Sim } from '../sim/sim';
-import { SIDE_TAG } from '../data/lore';
-import { HEROES, heroForUnit } from '../data/heroes';
+import { SIDE_TAG, uiName } from '../data/lore';
+import { HEROES, UNIT_TEXT, heroForUnit, cardLore } from '../data/heroes';
 import type { Portraits } from './portraits';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') => {
@@ -21,20 +21,32 @@ export const DECK_KEYS = '1234567890-=';
 /** Short handwritten initials for portrait fallbacks (types without a rendered portrait yet). */
 const INITIALS: Record<number, [string, string]> = {
   0: ['П×3', 'П×3'], 1: ['Бр', 'Бр'], 2: ['Сн', 'Мг'], 3: ['Бар', 'Км'], 4: ['Бл', 'Шм'], 5: ['Ис', 'Зу'],
-  6: ['Ч5.5', 'Ч5.5'], 7: ['WOU', 'WOU'], 8: ['адм', 'адм'], 9: ['ers', 'ers'], 10: ['Бх', 'Бх'], 11: ['Ад', 'Ад'],
-  12: ['Мх', 'Мх'], 13: ['Гл', 'Гл'], 14: ['Тк', 'Мр'], 15: ['Кр', 'Кр'],
+  6: ['Чим', 'Чим'], 7: ['Ам', 'Ам'], 8: ['адм', 'адм'], 9: ['ers', 'ers'], 10: ['Бх', 'Бх'], 11: ['Ад', 'Ад'],
+  12: ['Мх', 'Мх'], 13: ['Гл', 'Гл'], 14: ['Тк', 'Мр'], 15: ['Кр', 'Кр'], 16: ['Гел', 'Гел'], 17: ['Сп', 'Сп'],
 };
 /** <img> of the unit portrait, or a side-coloured tile with initials when there is none. */
 export function portraitHtml(p: Portraits, s: Side, t: number, cls = 'pimg', tone: number = s): string {
   const src = t === 5 ? p.bosses?.[s] : p.units?.[s]?.[t];
   if (src) return `<img class="${cls}" alt="" draggable="false" src="${src}">`;
-  const ini = INITIALS[t]?.[s] ?? UNITS[t]?.name[s].slice(0, 2) ?? '?';
+  const ini = INITIALS[t]?.[s] ?? (unitLabel(t, s).slice(0, 2) || '?');
   return `<span class="${cls} pf t${tone}" aria-hidden="true"><span>${esc(ini)}</span></span>`;
+}
+
+/**
+ * Name of a unit type as the player sees it: heroes by their lore name («Чимаев», «Амин»),
+ * the rest from UNITS with old names cleaned up (so a sim that still says «WOU» shows «Амин»).
+ */
+export function unitLabel(t: number, s: Side): string {
+  const id = t === 5 ? null : heroForUnit(t, s);
+  if (id) return HEROES[id].name;
+  const d = UNITS[t];
+  return d ? uiName(d.name[s]) : UNIT_TEXT[t]?.name ?? '';
 }
 
 /** One line on what the unit does (for the info card). */
 export function unitRole(t: number, s: Side): string {
   const d = UNITS[t];
+  if (!d) return UNIT_TEXT[t]?.role ?? '';
   switch (d.key) {
     case 'squad': return 'Пехота: трое за одну цену';
     case 'wrestler': return 'Держит линию, отбрасывает';
@@ -44,13 +56,15 @@ export function unitRole(t: number, s: Side): string {
     case 'ride': return `Транспорт: везёт ${d.carry![s]} пацанов к селу и уезжает. Сам не дерётся`;
     case 'chimaev': return 'Бежит только к вражеской высотке и бьёт её втрое. «Землетряс» достаёт и её';
     case 'wou': return 'Враги рядом бьют только его. Пока жив, +2 ₽/с. «Взломать Пентагон»: турель и доход соседей — ноль';
-    case 'admin': return '«Н»: враги рядом стоят 3 секунды. Свои рядом ходят быстрее';
-    case 'ersno': return 'Огромный танк. Каждым ударом отбрасывает';
+    case 'admin': return '«Н»: враги рядом стоят 3 секунды, свои ходят быстрее. «Курение убивает»: пачка с его фото пугает и травит толпу врагов';
+    case 'ersno': return 'Вор: каждый удар уводит пару рублей из соседской кассы. «Списание с карты» — до 10% их кассы, не больше 150 ₽';
     case 'bekhan': return 'Свои рядом получают на 15% меньше урона. Раз за жизнь ест лагман: +50% здоровья';
     case 'adam': return 'Не дерётся, от драки убегает. Село берёт за четверых';
     case 'mohmad': return 'Приводит Голема. Голем падает — камни летят во все стороны';
+    case 'gelik': return UNIT_TEXT[16].role;
+    case 'sportik': case 'sportiki': return UNIT_TEXT[17].role;
   }
-  return ['Ближний бой', 'Дальний бой', 'Быстрый', 'Лечит', 'Босс'][d.kind] ?? '';
+  return UNIT_TEXT[t]?.role ?? ['Ближний бой', 'Дальний бой', 'Быстрый', 'Лечит', 'Босс'][d.kind] ?? '';
 }
 
 const ICON = {
@@ -75,6 +89,8 @@ export class Hud {
   root: HTMLElement;
   side: Side = 0;
   selected = -1;
+  /** 18+ layer: picks clean or 18+ titles for the new сход cards (CARD_TEXT). */
+  spicy = true;
   private sides: HTMLElement[] = [];
   private towers: HTMLElement[] = [];
   private stats: HTMLElement[] = [];
@@ -191,8 +207,9 @@ export class Hud {
         const d = UNITS[t], i = this.order.indexOf(t);
         const b = h('button', `card paper${d.hero ? ' hero' : ''}`) as HTMLButtonElement;
         b.type = 'button';
-        b.innerHTML = `<span class="key">${DECK_KEYS[i] ?? ''}</span>${portraitHtml(this.o.portraits, s, t)}<span class="cn">${esc(d.name[s])}</span><span class="cc"></span><span class="st"></span><span class="cdbar"></span>`;
-        b.setAttribute('aria-label', `${d.name[s]}: ${unitRole(t, s)}`);
+        const nm = unitLabel(t, s);
+        b.innerHTML = `<span class="key">${DECK_KEYS[i] ?? ''}</span>${portraitHtml(this.o.portraits, s, t)}<span class="cn">${esc(nm)}</span><span class="cc"></span><span class="st"></span><span class="cdbar"></span>`;
+        b.setAttribute('aria-label', `${nm}: ${unitRole(t, s)}`);
         this.bindCard(b, t);
         this.cards.set(t, b);
         row.append(b);
@@ -258,15 +275,15 @@ export class Hud {
   }
 
   private showInfo(t: number, card: HTMLElement) {
-    const s = this.side, d = UNITS[t], hid = heroForUnit(t, s), lore = hid ? HEROES[hid] : null;
-    const tag = lore ? (lore.side === 'merc' ? 'наёмник, за обе стороны' : `герой ${lore.side === 'atagi' ? 'Атагов' : 'Курчалоя'}`) : d.key === 'ride' ? 'транспорт' : 'юнит';
+    const s = this.side, d = UNITS[t], hid = heroForUnit(t, s), lore = hid ? HEROES[hid] : null, ut = UNIT_TEXT[t];
+    const tag = lore ? (lore.side === 'merc' ? 'наёмник, за обе стороны' : `герой ${lore.side === 'atagi' ? 'Атагов' : 'Курчалоя'}`) : ut ? ut.tag : d.key === 'ride' ? 'транспорт' : 'юнит';
     const stats = `${d.hp} hp${d.count > 1 ? ` ×${d.count}` : ''} · ${d.cost[s]} ₽${d.respawn ? ` · после гибели ${Math.round(d.respawn / 10)} с` : ''}`;
-    const q = lore?.quote;
+    const q = lore?.quote ?? ut?.quote;
     this.info.className = `cardinfo paper s${s}`;
-    this.info.innerHTML = `<div class="ci-h"><b class="ci-n">${esc(d.name[s])}</b><span class="ci-tag">${esc(tag)}</span></div>
+    this.info.innerHTML = `<div class="ci-h"><b class="ci-n">${esc(unitLabel(t, s))}</b><span class="ci-tag">${esc(tag)}</span></div>
       ${lore ? `<div class="ci-t">${esc(lore.title)}</div>` : ''}
       <div class="ci-r">${esc(unitRole(t, s))}</div>
-      <div class="ci-b">${esc(lore ? lore.bio : d.blurb[s])}</div>
+      <div class="ci-b">${esc(lore ? lore.bio : ut ? ut.blurb : uiName(d.blurb[s]))}</div>
       ${q ? `<div class="ci-q">«${esc(q.t)}»${q.who ? ` <span>— ${esc(q.who)}</span>` : ''}</div>` : ''}
       <div class="ci-s">${esc(stats)}</div>`;
     this.info.hidden = false;
@@ -281,7 +298,7 @@ export class Hud {
   hideInfo() { if (!this.info.hidden) this.info.hidden = true; }
 
   hint(text: string) { clearTimeout(this.tipT); this.hintEl.classList.remove('rot'); this.hintEl.textContent = text; }
-  private blurb(t: number) { return t >= 0 ? `${UNITS[t].blurb[this.side]}. Тапни по кругу у своего села` : ''; }
+  private blurb(t: number) { return t >= 0 ? `${uiName(UNITS[t].blurb[this.side])}. Тапни по кругу у своего села` : ''; }
   /** A short note on the hint line (why a card can't be used); then the line returns to the selected card. */
   note(text: string, ms = 3200) {
     this.hint(text);
@@ -332,7 +349,7 @@ export class Hud {
       const w = d.hero ? sim.heroWait(me, t) : 0;
       const state = w === -1 ? 'field' : w === -2 ? 'away' : w > 0 ? 'cool' : '';
       const poor = sd.money < cost;
-      this.blocked.set(t, w === -1 ? `${d.name[me]} уже на поле` : w === -2 ? 'На парах. Завтра учимся' : w > 0 ? 'Ещё не вернулся' : '');
+      this.blocked.set(t, w === -1 ? `${unitLabel(t, me)} уже на поле` : w === -2 ? 'На парах. Завтра учимся' : w > 0 ? 'Ещё не вернулся' : '');
       if (d.hero && !state && !poor) ready++;
       const key = `${state}|${poor ? 1 : 0}|${cost}|${w > 0 ? w : 0}`;
       if (b.dataset.k !== key) {
@@ -412,15 +429,15 @@ export class Hud {
       if (v.open) {
         this.vote.innerHTML = `<h3><span>Сход · ${SIDE_TAG[this.side].short}</span><span class="num" data-t></span></h3>
           <div class="lead hand">Админ издал указ: голосуем</div>
-          ${v.opts.map((c, i) => `<button type="button" class="opt" data-o="${i}"><span class="bar"></span><span class="n"></span><span class="t">${esc(cardTitle(CARDS[c], village))}</span><span class="q">${esc(CARDS[c].quote)}</span></button>`).join('')}
+          ${v.opts.map((c, i) => { const ct = this.cardText(c, village); return `<button type="button" class="opt" data-o="${i}"><span class="bar"></span><span class="n"></span><span class="t">${esc(ct.title)}</span><span class="q">${esc(ct.desc)}</span></button>`; }).join('')}
           <div class="time"><b></b></div><div class="who"></div>`;
         this.vote.querySelectorAll<HTMLButtonElement>('.opt').forEach(b => {
           b.addEventListener('pointerdown', e => e.stopPropagation());
           b.addEventListener('click', () => this.o.onVote(Number(b.dataset.o)));
         });
       } else {
-        const c = CARDS[v.opts[v.result]];
-        this.vote.innerHTML = `<h3><span>Сход решил</span></h3><div class="stamp ${this.side ? 'k' : 'a'}">${esc(cardTitle(c, village))}</div><div class="who">${esc(c.quote)}</div>`;
+        const ct = this.cardText(v.opts[v.result], village);
+        this.vote.innerHTML = `<h3><span>Сход решил</span></h3><div class="stamp ${this.side ? 'k' : 'a'}">${esc(ct.title)}</div><div class="who">${esc(ct.quote || ct.desc)}</div>`;
       }
     }
     if (v.open) {
@@ -437,6 +454,16 @@ export class Hud {
       (this.vote.querySelector('.who') as HTMLElement).textContent =
         `Проголосовали: ${[...(humans ? [`${humans} чел. (×2)`] : []), ...voted].join(', ') || 'пока никто'}`;
     }
+  }
+
+  /**
+   * Title and text of a сход card as shown: the v3 cards (CARD_TEXT, ids 30..33) follow the 18+
+   * toggle («Закинуть снюс» / «Энергетик в ларьке»); the rest come from CARDS as before.
+   */
+  cardText(id: number, village = ''): { title: string; desc: string; quote: string } {
+    const L = cardLore(id, this.spicy), c = CARDS[id];
+    if (!L) return { title: c ? cardTitle(c, village) : '', desc: c?.quote ?? '', quote: '' };
+    return { title: L.title, desc: L.desc, quote: L.quote ? `«${L.quote.t}»${L.quote.who ? ` — ${L.quote.who}` : ''}` : '' };
   }
 
   feedMsg(who: string, text: string, side: number) {

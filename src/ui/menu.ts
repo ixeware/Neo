@@ -1,0 +1,73 @@
+// Start screen: pick a village, difficulty, 18+ layer; continue the endless war.
+import { SIDE_TAG } from '../data/lore';
+import type { Portraits } from './portraits';
+
+export interface MenuState {
+  canContinue: { era: number; side: 0 | 1; wins: [number, number] } | null;
+  diff: number; spicy: boolean;
+  shared: { available: boolean; online: number[]; era: number; wins: [number, number] } | null;
+}
+export interface MenuActions {
+  start(side: 0 | 1, diff: number): void;
+  resume(): void;
+  shared(side: 0 | 1): void;
+  setDiff(d: number): void;
+  setSpicy(on: boolean): void;
+}
+
+const DIFF = ['Легко', 'Нормально', 'Как Зураб'];
+
+export function renderMenu(root: HTMLElement, p: Portraits, s: MenuState, a: MenuActions) {
+  root.hidden = false;
+  const cont = s.canContinue;
+  const sh = s.shared;
+  root.innerHTML = `<div class="m-wrap">
+    <header class="m-head">
+      <h1 class="m-title">ВЫСОТКА</h1>
+      <div class="m-sub">Старые Атаги <span class="x">×</span> Курчалой. Война за самое высокое здание, на настоящем рельефе</div>
+      <div class="m-note">«Не успокоюсь, пока 4 этажа не найду» — Ислам. «Для тебя это как небоскрёб» — Зураб.</div>
+    </header>
+    ${cont ? `<div class="m-row"><button type="button" class="m-cont" id="m-resume">Продолжить войну №${cont.era} за ${cont.side ? 'Курчалой' : 'Атаги'} · счёт ${cont.wins[0]}:${cont.wins[1]}</button></div>` : ''}
+    <div class="m-sides">
+      ${[0, 1].map(i => {
+        const t = SIDE_TAG[i];
+        return `<button type="button" class="pick paper s${i}" data-side="${i}">
+          <img alt="${t.boss}" src="${p.bosses[i]}">
+          <span class="p-in">
+            <span class="p-v">${t.title}</span>
+            <span class="p-hq">${t.hq}: ${t.hqNote}</span>
+            <span class="p-boss">Босс: ${t.boss}. ${t.bossNote}</span>
+            <span class="p-q">${t.motto}</span>
+            <span class="p-go">${cont ? 'Новая война за ' : 'Играть за '}${t.short}</span>
+          </span>
+        </button>`;
+      }).join('')}
+    </div>
+    <div class="m-row">
+      <div class="m-box paper"><h4>Сложность</h4><div class="seg" id="m-diff">${DIFF.map((d, i) => `<button type="button" aria-pressed="${i === s.diff}" data-d="${i}">${d}</button>`).join('')}</div></div>
+      <div class="m-box paper"><h4>Пошлятина из чата</h4><div class="seg" id="m-spicy"><button type="button" aria-pressed="${s.spicy}" data-v="1">18+ вкл</button><button type="button" aria-pressed="${!s.spicy}" data-v="0">выкл</button></div></div>
+      <div class="m-box paper m-how"><h4>Как играть</h4><ol>
+        <li>Выбери юнита внизу и тапни по кругу у своего села или захваченного.</li>
+        <li>Юниты сами идут брать сёла: Шали, Автуры, Цоцин-Юрт, Аргун. Каждое село даёт деньги.</li>
+        <li>Раз в полторы минуты сход: голосуй за решение, твой голос считается за два.</li>
+        <li>Снеси все этажи вражеской высотки. На последнем этаже выходит финальный босс.</li>
+      </ol></div>
+    </div>
+    ${sh ? `<div class="m-box paper m-mp">${sh.available
+      ? `<h4>Общая война с пацанами</h4><span>Один мир на всех, кто открыл эту ссылку. Война №${sh.era}, счёт <b class="a">${sh.wins[0]}</b>:<b class="k">${sh.wins[1]}</b>. Сейчас в игре: Атаги — ${sh.online[0]}, Курчалой — ${sh.online[1]}.</span>
+         <div class="m-row"><button type="button" class="m-cont" data-shared="0">В общую войну за Атаги</button><button type="button" class="m-cont" data-shared="1">В общую войну за Курчалой</button></div>`
+      : `<h4>Общая война</h4><span>Общий мир работает, когда игра открыта по ссылке claude.ai и у тебя есть право редактировать. Сейчас играешь один против ИИ, прогресс хранится в этом браузере.</span>`}</div>` : ''}
+    <p class="m-foot">Карта — настоящий кусок Чечни между Старыми Атагами и Курчалоем: рельеф AWS Terrain Tiles, леса, поля и застройка ESA WorldCover 2021 (10 м). Река Аргун, мосты и сёла на своих местах. Управление: перетаскивай карту, колесо или щипок — зум, правая кнопка или два пальца — поворот, 1–5 — юниты.</p>
+  </div>`;
+  root.querySelectorAll<HTMLButtonElement>('.pick').forEach(b => b.addEventListener('click', () => a.start(Number(b.dataset.side) as 0 | 1, s.diff)));
+  root.querySelector('#m-resume')?.addEventListener('click', () => a.resume());
+  root.querySelectorAll<HTMLButtonElement>('[data-shared]').forEach(b => b.addEventListener('click', () => a.shared(Number(b.dataset.shared) as 0 | 1)));
+  root.querySelectorAll<HTMLButtonElement>('#m-diff button').forEach(b => b.addEventListener('click', () => {
+    s.diff = Number(b.dataset.d); a.setDiff(s.diff);
+    root.querySelectorAll<HTMLButtonElement>('#m-diff button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  root.querySelectorAll<HTMLButtonElement>('#m-spicy button').forEach(b => b.addEventListener('click', () => {
+    s.spicy = b.dataset.v === '1'; a.setSpicy(s.spicy);
+    root.querySelectorAll<HTMLButtonElement>('#m-spicy button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+}

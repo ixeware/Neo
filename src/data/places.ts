@@ -115,7 +115,7 @@ export const PLACES: Place[] = [
   { id: 'kurch_hospital', name: 'Районная больница', village: 'kurchaloy', kind: 'clinic', x: 350.5, z: 112, real: false,
     note: 'Очередь длиннее, чем болезнь' },
   { id: 'kurch_parking', name: 'Стоянка геликов', village: 'kurchaloy', kind: 'parking', x: 344, z: 116, real: false,
-    note: 'Чёрные гелики, номера КРА 95. Водителей никто не видел' },
+    note: 'Чёрные гелики, номера КРА 95. Блестят даже ночью' },
   { id: 'kurch_stadium', name: 'Стадион Курчалоя', village: 'kurchaloy', kind: 'stadium', x: 324, z: 103.5, real: false,
     note: 'Спортики бегают кругами. Кругов меньше, чем разговоров',
     spicyNote: 'Спортики: тренировка в 19:00, бамб LOOP — в 18:55' },

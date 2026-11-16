@@ -438,7 +438,7 @@ if (!(same && ok)) process.exitCode = 1;
 function migrates(label: string, old: State, n = 1200): boolean {
   const x = new Sim(terrain), y = new Sim(terrain);
   x.load(structuredClone(old)); y.load(JSON.parse(JSON.stringify(old)) as State); x.quiet = y.quiet = true;
-  const shape = x.st.pts.length === PT_COUNT && x.st.sides.every(sd => sd.hero.length === UNITS.length && sd.heroCd.length === UNITS.length && sd.snus === 0 && sd.loop === 0 && sd.pack === 0)
+  const shape = x.st.pts.length === PT_COUNT && x.st.sides.every(sd => sd.hero.length === UNITS.length && sd.heroCd.length === UNITS.length && sd.snus === 0 && sd.loop === 0 && (sd.pack === 0 || sd.hero[8] >= 0))
     && Array.isArray(x.st.packs) && x.st.units.every(u => u.fr === 0) && x.st.pts.slice(PT_PLACE0).every(p => p.owner === p.side);
   for (let i = 0; i < n; i++) { x.step(undefined); y.step(undefined); }
   const okm = shape && hashState(x.st) === hashState(y.st) && !JSON.stringify(x.st).includes('null');

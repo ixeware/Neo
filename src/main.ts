@@ -305,7 +305,7 @@ async function boot() {
       resume: () => { sound.unlock(); if (session && session.backend.kind === 'local' && session.paused) { session.pause(false); playing = true; $('menu').hidden = true; $('hud').hidden = false; } else resumeLocal(); },
       shared: s => { sound.unlock(); void startShared(s); },
       setDiff: d => { prefs.diff = d; savePrefs(prefs); },
-      setSpicy: on => { prefs.spicy = on; savePrefs(prefs); applySpicy(); },
+      setSpicy: on => { prefs.spicy = on; savePrefs(prefs); applySpicy(); if (!on) feedQ.length = 0; },
     });
   }
 

@@ -56,7 +56,7 @@ export function unitRole(t: number, s: Side): string {
     case 'ride': return `Транспорт: везёт ${d.carry![s]} пацанов к селу и уезжает. Сам не дерётся`;
     case 'chimaev': return 'Бежит только к вражеской высотке и бьёт её втрое. «Землетряс» достаёт и её';
     case 'wou': return 'Враги рядом бьют только его. Пока жив, +2 ₽/с. «Взломать Пентагон»: турель и доход соседей — ноль';
-    case 'admin': return '«Н»: враги рядом стоят 3 секунды, свои ходят быстрее. «Курение убивает»: пачка с его фото пугает и травит толпу врагов';
+    case 'admin': return '«Н»: враги рядом стоят 3 секунды, свои ходят быстрее. «Курение убивает»: пачка с его фото — толпа врагов разбегается и не дерётся';
     case 'ersno': return 'Вор: каждый удар уводит пару рублей из соседской кассы. «Списание с карты» — до 10% их кассы, не больше 150 ₽';
     case 'bekhan': return 'Свои рядом получают на 15% меньше урона. Раз за жизнь ест лагман: +50% здоровья';
     case 'adam': return 'Не дерётся, от драки убегает. Село берёт за четверых';
@@ -422,7 +422,7 @@ export class Hud {
     const tally = sim.tally(this.side);
     const total = tally.reduce((a, b) => a + b, 0) || 1;
     const village = v.focusPt >= 0 ? st.pts[v.focusPt].name : '';
-    const key = `${v.start}:${v.open}`;
+    const key = `${v.start}:${v.open}:${this.spicy ? 1 : 0}`;
     if (key !== this.voteKey) {
       this.voteKey = key;
       this.vote.classList.toggle('done', !v.open);

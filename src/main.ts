@@ -1,10 +1,11 @@
 import './ui/style.css';
 import * as THREE from 'three';
-import { loadTerrain, heightY } from './world/terrain';
+import { loadTerrain, heightY, setRenderSurface } from './world/terrain';
 import { Sim, cardTitle, type FxEv } from './sim/sim';
 import { TICK_MS, HQ, CARDS, UNITS, SIDE_NAME, Fx, type Side } from './sim/defs';
 import { Stage, bindInput } from './render/scene';
-import { paintMap, terrainMesh, waterMesh } from './render/terrainMesh';
+import { terrainMesh, waterMesh } from './render/terrainMesh';
+import { buildTin, tinHeight, paintTin } from './render/lowpoly';
 import { buildVillages, buildTrees, buildBridges, mosque, HqBuilding, VillageMarker, drapedRing } from './render/world';
 import { Particles, Shots } from './render/fx';
 import { UnitView } from './render/units';
@@ -52,15 +53,17 @@ async function boot() {
 
   bootMsg('Рисуем поля, лес и Аргун…');
   await new Promise(r => setTimeout(r, 16));
-  const painted = paintMap(terrain);
-  scene.add(terrainMesh(terrain, painted.texture));
-  scene.add(waterMesh(terrain));
+  const tin = buildTin(terrain);
+  setRenderSurface((x, z) => tinHeight(tin, x, z)); // houses, units and labels sit on the drawn faces
+  console.info(`low-poly map: ${tin.np} points, ${tin.nt} faces, ${tin.ms.toFixed(0)} ms`);
+  scene.add(terrainMesh(terrain, tin));
+  scene.add(waterMesh(terrain, tin));
   const world = new THREE.Group();
   scene.add(world);
   bootMsg('Строим сёла…');
   await new Promise(r => setTimeout(r, 16));
   const nh = buildVillages(terrain, sim.st.pts, world, !stage.lowPower);
-  const nt = buildTrees(terrain, world, !stage.lowPower);
+  const nt = buildTrees(terrain, world, !stage.lowPower, tin);
   console.info(`houses ${nh}, trees ${nt}`);
   buildBridges(terrain, world);
   const shali = sim.st.pts.find(p => p.key === 'shali')!;
@@ -124,7 +127,7 @@ async function boot() {
     onHome: () => { const p = sim.st.pts[side]; stage.flyTo(p.x, p.z, 38); },
   });
   const labels = new Labels($('labels'), terrain, sim, stage, hqs, units);
-  const minimap = new Minimap(hud.miniCanvas, painted.canvas, terrain, sim, stage);
+  const minimap = new Minimap(hud.miniCanvas, (g, w, h) => paintTin(tin, g, w, h), terrain, sim, stage);
 
   const say = (who: keyof typeof WHO | string, text: string) => {
     const key = WHO[who] ? who : /^Ислам/.test(who) ? 'islam' : /^Зураб/.test(who) ? 'zurab' : /^Чимаев/.test(who) ? 'chimaev' : /^WOU/.test(who) ? 'wou' : '';

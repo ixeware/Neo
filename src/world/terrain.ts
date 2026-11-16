@@ -118,7 +118,14 @@ export function heightM(t: Terrain, x: number, z: number): number {
   return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
 }
 
+// Render-only: once the low-poly map is built, heightY follows the drawn surface exactly so houses,
+// units, labels and effects sit on the faces. The sim never calls heightY (it uses navCost only).
+let renderSurface: ((x: number, z: number) => number) | null = null;
+export function setRenderSurface(fn: ((x: number, z: number) => number) | null) { renderSurface = fn; }
+
+/** Ground height in world units (the rendered surface when one is set, else the bilinear heightmap). */
 export function heightY(t: Terrain, x: number, z: number): number {
+  if (renderSurface) return renderSurface(x, z);
   return (heightM(t, x, z) / 100) * EXAG;
 }
 

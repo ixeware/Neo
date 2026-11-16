@@ -1,21 +1,24 @@
-// Minimap: the painted relief, villages, every unit as a pen dot, and the camera footprint.
+// Minimap: the low-poly map from above, villages, every unit as a pen dot, and the camera footprint.
 import type { Sim } from '../sim/sim';
 import type { Stage } from '../render/scene';
 import type { Terrain } from '../world/terrain';
 
 const PEN = ['#2a52d1', '#d8361f'];
 
+/** A ready image, or a painter that draws the base map at the minimap's exact pixel size. */
+export type MinimapBase = HTMLCanvasElement | ((g: CanvasRenderingContext2D, w: number, h: number) => void);
+
 export class Minimap {
   private g: CanvasRenderingContext2D;
   private base: HTMLCanvasElement;
   private last = 0;
-  constructor(private c: HTMLCanvasElement, map: HTMLCanvasElement, private t: Terrain, private sim: Sim, private stage: Stage) {
+  constructor(private c: HTMLCanvasElement, map: MinimapBase, private t: Terrain, private sim: Sim, private stage: Stage) {
     this.g = c.getContext('2d')!;
     this.base = document.createElement('canvas');
     this.base.width = c.width; this.base.height = c.height;
     const bg = this.base.getContext('2d')!;
-    bg.imageSmoothingQuality = 'high';
-    bg.drawImage(map, 0, 0, c.width, c.height);
+    if (typeof map === 'function') map(bg, c.width, c.height);
+    else { bg.imageSmoothingQuality = 'high'; bg.drawImage(map, 0, 0, c.width, c.height); }
     const move = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
       const x = ((e.clientX - r.left) / r.width) * t.W, z = ((e.clientY - r.top) / r.height) * t.H;

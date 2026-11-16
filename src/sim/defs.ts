@@ -44,6 +44,12 @@ export interface UnitDef {
   carry?: [number, number]; // passengers (single Пацаны) per side
   life?: number; // ticks before a ride unloads on its own
   deathR?: number; deathDmg?: number; // burst on death
+  /** Max alive per side (Гелик). */
+  max?: number;
+  /** «КРА номера»: immune to stun, slow, taunt, fear and the jam/flood slowdowns. */
+  kra?: true;
+  /** Every melee hit moves this many ₽ from the enemy bank to ours: [vs units, vs the high-rise] (ersno). */
+  steal?: [number, number];
 }
 
 const BOTH: [boolean, boolean] = [true, true];
@@ -90,31 +96,32 @@ export const UNITS: UnitDef[] = [
   },
   // ---- герои и наёмники (6..12): один на сторону, после смерти — откат ----------------------
   {
-    key: 'chimaev', name: ['Чимаев 5.5', 'Чимаев 5.5'],
-    blurb: ['Играет только за Курчалой', 'Хог райдер мейн: бежит только к высотке, бьёт её втрое. «Землетряс» достаёт и до неё'],
+    key: 'chimaev', name: ['Чимаев', 'Чимаев'],
+    blurb: ['Играет только за Курчалой', 'Рыжеватый, в бомбере BULLS. Хог райдер мейн: бежит только к высотке, бьёт её втрое. «Землетряс» достаёт и до неё'],
     cost: [420, 420], count: 1, kind: Kind.Melee, avail: [false, true], hero: true, respawn: 900,
     hp: 800, dmg: [30, 30], cd: 12, range: 1.4, speed: 0.5, aggro: 8, radius: 0.5,
     bldg: 3, abCd: 140, abR: 5,
   },
   {
-    key: 'wou', name: ['WOU', 'WOU'],
-    blurb: ['Король рейджбайта: все бьют его. «2 лярда токенов» +2 ₽/с, «Взломать Пентагон»', 'Король рейджбайта: все бьют его. «2 лярда токенов» +2 ₽/с, «Взломать Пентагон»'],
+    key: 'wou', name: ['Амин', 'Амин'],
+    blurb: ['Высокий, в чёрной кожанке. Король рейджбайта: все бьют его. «2 лярда токенов» +2 ₽/с, «Взломать Пентагон»', 'Высокий, в чёрной кожанке. Король рейджбайта: все бьют его. «2 лярда токенов» +2 ₽/с, «Взломать Пентагон»'],
     cost: [360, 360], count: 1, kind: Kind.Ranged, avail: BOTH, hero: true, respawn: 750,
     hp: 700, dmg: [9, 9], cd: 12, range: 6, speed: 0.26, aggro: 9, radius: 0.55, proj: 2.2, shot: 6,
     abCd: 300, abR: 7, aura: 7,
   },
   {
     key: 'admin', name: ['админ', 'админ'],
-    blurb: ['Староста с журналом. «Н» — враги стоят, наши не опаздывают', 'Староста с журналом. «Н» — враги стоят, наши не опаздывают'],
+    blurb: ['Староста с журналом. «Н» — враги стоят, наши не опаздывают. «Курение убивает»: пачка пугает и травит', 'Староста с журналом. «Н» — враги стоят, наши не опаздывают. «Курение убивает»: пачка пугает и травит'],
     cost: [360, 360], count: 1, kind: Kind.Ranged, avail: BOTH, hero: true, respawn: 750,
     hp: 380, dmg: [14, 14], cd: 14, range: 7, speed: 0.27, aggro: 10, radius: 0.45, proj: 2.4, shot: 7,
     abCd: 120, abR: 6, aura: 6,
   },
   {
     key: 'ersno', name: ['ersno', 'ersno'],
-    blurb: ['Молчит. Огромный. Весь в чёрном. Отбрасывает', 'Молчит. Огромный. Весь в чёрном. Отбрасывает'],
-    cost: [320, 320], count: 1, kind: Kind.Melee, avail: BOTH, hero: true, respawn: 750,
-    hp: 1100, dmg: [45, 45], cd: 16, range: 1.5, speed: 0.2, aggro: 7, radius: 0.9, knock: 1.2,
+    blurb: ['Оверсайз, в руках банковские карты. Каждый удар — «перевод по номеру карты» с соседского счёта. «Списание с карты»', 'Оверсайз, в руках банковские карты. Каждый удар — «перевод по номеру карты» с соседского счёта. «Списание с карты»'],
+    cost: [300, 300], count: 1, kind: Kind.Melee, avail: BOTH, hero: true, respawn: 750,
+    hp: 420, dmg: [20, 20], cd: 10, range: 1.3, speed: 0.31, aggro: 8, radius: 0.5,
+    steal: [4, 8], abCd: 120, abR: 10,
   },
   {
     key: 'bekhan', name: ['Бекхан', 'Бекхан'],
@@ -157,17 +164,33 @@ export const UNITS: UnitDef[] = [
     hp: 30, dmg: [4, 4], cd: 6, range: 0.9, speed: 0.55, aggro: 7, radius: 0.3,
     deathR: 1.6, deathDmg: 18,
   },
+  // ---- для масштаба: гелики и спортики с района (16..17) ----------------------------------
+  {
+    key: 'gelik', name: ['Гелик', 'Гелик'],
+    blurb: ['Чёрный гелик, номера КРА 95. Таранит и не тормозит: ни Н, ни пробки, ни потоп. Не больше двух', 'Чёрный гелик, номера КРА 95. Таранит и не тормозит: ни Н, ни пробки, ни потоп. Не больше двух'],
+    cost: [300, 300], count: 1, kind: Kind.Fast, avail: BOTH, max: 2, kra: true,
+    hp: 900, dmg: [34, 34], cd: 13, range: 1.5, speed: 0.6, aggro: 8, radius: 1.0, knock: 0.5,
+  },
+  {
+    key: 'sportik', name: ['Спортики ×4', 'Спортики ×4'],
+    blurb: ['Треники, кроссы, турник у школы. Вчетвером и быстро', 'Треники, кроссы, турник у школы. Вчетвером и быстро'],
+    cost: [120, 120], count: 4, kind: Kind.Melee, avail: BOTH,
+    hp: 80, dmg: [8, 8], cd: 7, range: 1.1, speed: 0.33, aggro: 7, radius: 0.42,
+  },
 ];
 export const BOSS = 5, CHIMAEV = 6, WOU = 7, ADMIN = 8, ERSNO = 9, BEKHAN = 10, ADAM = 11, MOHMAD = 12, GOLEM = 13, RIDE = 14, CHICKEN = 15;
+export const GELIK = 16, SPORTIK = 17;
+/** Амин: the display name since v3; the internal id stays WOU = 7 (key 'wou'). */
+export const AMIN = WOU;
 export const HEROES = [6, 7, 8, 9, 10, 11, 12];
-/** Buy panel order: base deck, ride, then heroes. Filter per side with canBuy(). */
-export const SHOP = [0, 1, 2, 3, 4, 14, 6, 10, 7, 8, 9, 11, 12];
+/** Buy panel order: base deck, спортики, ride, гелик, then heroes. Filter per side with canBuy(). */
+export const SHOP = [0, 1, 2, 3, 4, 17, 14, 16, 6, 10, 7, 8, 9, 11, 12];
 export function canBuy(s: Side, t: number): boolean {
   const d = UNITS[t];
   return !!d && t !== BOSS && !d.summon && d.avail[s];
 }
-/** Name for messages: «Чимаев уже на поле». */
-export function unitName(s: Side, t: number): string { return UNITS[t].name[s].replace(/ 5\.5$/, ''); }
+/** Name for messages: «Чимаев уже на поле», «Амин уже на поле» (drops the «×4» of squads). */
+export function unitName(s: Side, t: number): string { return UNITS[t].name[s].replace(/ 5\.5$/, '').replace(/ ×\d+$/, ''); }
 
 export const HERO = {
   wouIncome: 2, // ₽/с while WOU is alive («2 лярда токенов»)
@@ -179,12 +202,34 @@ export const HERO = {
   bolt: 1.25, // Адам убегает быстрее
   rideUnloadR: 6, rideLeave: 25,
   classesFor: 200, // «Завтра учимся»: heroes are away this long
+  // ersno «Списание с карты»: near the enemy high-rise or ≥ cardMin enemies within abR
+  cardPct: 0.1, cardMax: 150, cardMin: 3,
+  // админ «Курение убивает»: a pack lands on ≥ packMin enemies within packTrig of him
+  packCd: 350, packFirst: 150, packTrig: 9, packMin: 4, packR: 7, packFor: 60, fearFor: 40, packPsn: 60,
+};
+
+/** Capture places: pts[9..12], kind 3, from CAPTURE_PLACES in src/data/places.ts. */
+export const PLACE = {
+  r: 5,
+  sportikiEvery: 400, sportikiAt: 200, // a free squad whenever tick % every === at
+  gelikDisc: 0.7, // Гелик price ×0.7 for the owner of the car wash
+  gymHp: 1.2, // wrestlers and спортики spawn with +20% hp
+  market: 3, // ₽/s
+  regen: 2, // uncontested owner's progress per capture step
+  aiOwn: 1.1, aiEnemy: 1.6, // pickGoal distance weights (villages 0.92..1.0, enemy high-rise 1.3)
+};
+
+/** Card consumables (снюс / Бамб LOOP and their clean twins). */
+export const BUFF = {
+  snusAtk: 13, // attack cooldown × 10/13 (+30% attack speed)
+  snusSpd: 1.15, offFor: 100, offSpd: 0.8, // then «отходняк»: −20% speed for 10 s
+  loopDmg: 1.2, loopHp: 0.05, // stun-immune, +20% damage; «сушняк»: −5% of max hp once
 };
 
 /** AI shopping weights per side by unit type (heroes and rides only while allowed; healer only with > 8 units). */
 export const AI_W: [number[], number[]] = [
-  [30, 20, 22, 14, 10, 0, 0, 3, 3, 3, 5, 3, 3, 0, 6, 0],
-  [30, 20, 22, 14, 10, 0, 6, 3, 3, 3, 0, 3, 3, 0, 10, 0],
+  [30, 20, 22, 14, 10, 0, 0, 3, 3, 3, 5, 3, 3, 0, 6, 0, 4, 10],
+  [30, 20, 22, 14, 10, 0, 6, 3, 3, 3, 0, 3, 3, 0, 10, 0, 4, 10],
 ];
 
 export const DONER = { r: 6, income: 5, healR: 10, heal: 0.015 /* of max hp per second */, aiWeight: 1.9 };
@@ -229,8 +274,18 @@ export const BOSS_RESPAWN = 1200;
 export const enum Fx {
   Money, Floor, Focus, Speed, Damage, EnemyN, Heal, Blackout, FreeSquads, Income, Regen, Boss, Cars,
   FocusDoner, Fudzi, Sauce, Cleanse, Creatine, Chickens, SkipVote, Excuses, Shampoo, Ult, Poverty, Ersno, Changans,
+  Snus, Loop, Geliks, Sportiki,
 }
-export interface Card { id: number; side: -1 | 0 | 1; title: string; quote: string; fx: Fx; v: number }
+export interface Card {
+  id: number; side: -1 | 0 | 1;
+  /** Always clean: what the UI shows with the 18+ layer off, and what FxEv 'voteResult'.title carries. */
+  title: string; quote: string;
+  fx: Fx; v: number;
+  /** Draw weight on the сход (default 2). */
+  w?: number;
+  /** 18+ wording, shown instead of title/quote only with the 18+ layer on. The sim never reads it. */
+  spicy18?: { title: string; quote?: string };
+}
 export const CARDS: Card[] = [
   { id: 0, side: -1, title: 'Взнос по 100 рублей', quote: 'Ислам: «Взнос 100 рублей ю шун»', fx: Fx.Money, v: 300 },
   { id: 1, side: 0, title: 'Найти 4-й этаж', quote: '«Не успокоюсь, пока 4 этажа не найду»', fx: Fx.Floor, v: 1 },
@@ -261,9 +316,22 @@ export const CARDS: Card[] = [
   { id: 25, side: 0, title: 'Шампунь +40 к удаче', quote: '«Шампунь +40 к удаче»: наши уворачиваются от 40% ударов', fx: Fx.Shampoo, v: 200 },
   { id: 26, side: -1, title: 'Копил ульту', quote: '«Я копил ульту». Все способности героев и босса готовы', fx: Fx.Ult, v: 1 },
   { id: 27, side: -1, title: 'Аура нищеты', quote: '«Слабая аура». Доход соседей вдвое меньше', fx: Fx.Poverty, v: 300 },
-  { id: 28, side: -1, title: 'Мы своего друга качка позовём', quote: 'ersno выходит из качалки. Молча', fx: Fx.Ersno, v: 1 },
+  { id: 28, side: -1, title: 'Скинь номер карты', quote: 'ersno выходит в оверсайзе. В руках — чужие банковские карты', fx: Fx.Ersno, v: 1 },
   { id: 29, side: 1, title: 'По чанганам!', quote: 'Две Камри без прав выезжают бесплатно', fx: Fx.Changans, v: 2 },
+  // ---- v3: для масштаба (v: duration in ticks, or how many) -------------------------------
+  { id: 30, side: -1, title: 'Энергетик в ларьке', quote: 'Наши бьют на 30% чаще и бегут на 15% быстрее. Через 25 секунд — отходняк', fx: Fx.Snus, v: 250,
+    spicy18: { title: 'Закинуть снюс', quote: '«Закинул под губу — и погнали». Через 25 секунд — отходняк' } },
+  { id: 31, side: -1, title: 'Двойной эспрессо', quote: 'Наших не остановить: Н не липнет, урон +20%. Потом сушняк: −5% здоровья', fx: Fx.Loop, v: 200,
+    spicy18: { title: 'Бамб LOOP', quote: '«Бамб LOOP под губу». Н не липнет, урон +20%. Сушняк: −5% здоровья' } },
+  { id: 32, side: -1, title: 'Гелики с КРА номерами', quote: 'Два чёрных гелика выезжают со стоянки. Тормозить их некому', fx: Fx.Geliks, v: 2, w: 1 },
+  { id: 33, side: -1, title: 'Спортики с района', quote: 'Треники, кроссы, турник у школы. Две четвёрки уже бегут', fx: Fx.Sportiki, v: 2 },
 ];
+
+/** Card text for the current 18+ setting; `village` fills «{V}» (Шали when empty). UI helper, never used by the sim. */
+export function cardText(c: Card, spicy: boolean, village = ''): { title: string; quote: string } {
+  const sp = spicy ? c.spicy18 : undefined;
+  return { title: (sp ? sp.title : c.title).replace('{V}', village || 'Шали'), quote: sp && sp.quote ? sp.quote : c.quote };
+}
 
 export const VOTERS: [string[], string[]] = [
   ['Таксисты', 'Старейшины', 'Студенты ГГНТУ'],

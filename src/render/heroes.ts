@@ -3,6 +3,7 @@
 // vertex-coloured geometry so a crowd instances cheaply. Units face +z and stand on y=0.
 import * as THREE from 'three';
 import { Builder, PAL } from './models';
+import { body, strokeText } from './props';
 
 type V3 = [number, number, number];
 type Col = THREE.Color;
@@ -19,10 +20,6 @@ const ICO = new THREE.IcosahedronGeometry(0.5, 0);
 const ICO1 = new THREE.IcosahedronGeometry(0.5, 1);
 const CONE6 = new THREE.ConeGeometry(0.5, 1, 6);
 const BOWL = new THREE.CylinderGeometry(0.5, 0.32, 1, 10);
-/** Square frustum, 1 wide on top and 0.72 at the bottom: a V-taper torso. */
-const TAPER = new THREE.CylinderGeometry(Math.SQRT1_2, Math.SQRT1_2 * 0.72, 1, 4, 1).rotateY(Math.PI / 4);
-/** Sloped trapezius block for the big guys. */
-const TRAPS = new THREE.CylinderGeometry(0.1, 0.24, 0.12, 4).rotateY(Math.PI / 4);
 
 const C = {
   jogger: col('#33353c'),
@@ -206,93 +203,126 @@ function slab(b: Builder, body: Col, face: Col | null, at: V3, rot: V3, size: V3
 }
 
 // ---- the heroes --------------------------------------------------------------------------
-function chimaev(b: Builder, team: Col, dark: Col) {
-  const f = figure(b, {
-    top: team, pants: C.jogger, w: 0.8, lw: 0.82, hair: 'none', beard: 'none',
-    legL: { up: [-0.32, 0, 0] }, legR: { up: [0.28, 0, 0] },
-    armL: { up: [0.4, 0, -0.06] },
+// Чимаев, Амин, админ and ersno use body() from props.ts (same proportions as figure(), but with
+// adjustable leg / torso length, baggy pants and brown eyes). Heights: Амин > Чимаев > админ > ersno.
+
+/** Чимаев: пацан с рыжевато-каштановыми волосами, чёрный атласный бомбер с красными рукавами и BULLS. */
+function chimaev(b: Builder, team: Col) {
+  const satin = col('#16171b'), red = col('#c41f2b'), hair = col('#6b3a1d'), hairL = col('#8e4c25');
+  const f = body(b, {
+    top: satin, sleeve: red, cuff: satin, pants: col('#26272c'), shoe: PAL.white, sole: team,
+    w: 0.9, lw: 0.88, leg: 1.04, beard: 'none',
+    legL: { up: [-0.3, 0, 0] }, legR: { up: [0.26, 0, 0] },
+    armL: { up: [0.38, 0, -0.06] },
     armR: { up: [-0.35, 0, 0.1], lo: [-1.75, 0, 0.55] },
   });
-  // капюшон натянут
-  b.box(team, [0, 0.805, -0.035], [0.315, 0.31, 0.22]);
-  b.box(team, [0, 0.955, -0.005], [0.3, 0.06, 0.27]);
-  b.box(dark, [0, 0.925, 0.13], [0.3, 0.035, 0.025]);
-  b.box(dark, [-0.145, 0.79, 0.12], [0.03, 0.26, 0.035]);
-  b.box(dark, [0.145, 0.79, 0.12], [0.03, 0.26, 0.035]);
-  b.box(PAL.white, [-0.035, 0.57, 0.116], [0.012, 0.09, 0.008]); // шнурки
-  b.box(PAL.white, [0.035, 0.57, 0.116], [0.012, 0.09, 0.008]);
-  b.box(dark, [0, 0.4, 0.114], [0.2, 0.08, 0.01]); // карман-кенгуру
-  // «5.5» во всю спину
-  glyphs(b, PAL.white, '5.5', [0, 0.475, -0.118], '-x', 0.2, 0.034);
-  // телефон, экраном к себе: катка в рояль
-  const h = f.handR;
-  slab(b, C.black, C.phone, [h[0] + 0.01, h[1] + 0.06, h[2] + 0.015], [0.75, 0, 0], [0.085, 0.13, 0.016], -1);
-}
-
-function wou(b: Builder, team: Col, dark: Col) {
-  const f = figure(b, {
-    top: dark, pants: C.sweat, shoe: C.shoeBlack, w: 1.05, hair: 'short',
-    armL: { up: [-2.92, 0, 0.12] },
-    armR: { up: [-0.25, 0, 0.1], lo: [-1.5, 0, 0.35] },
-  });
-  b.box(lift(dark, 0.8), [0, 0.64, -0.1], [0.3, 0.07, 0.1]); // капюшон на плечах
-  b.box(lift(dark, 0.8), [0, 0.4, 0.113], [0.22, 0.09, 0.01]);
-  // большие наушники в цвет села
-  b.box(C.black, [0, 0.985, -0.005], [0.34, 0.05, 0.07]);
+  const tw = 0.36 * 0.9, hy = f.headY;
+  // резинки: низ, ворот (красные с чёрной полоской), молния
+  b.box(red, [0, f.hipY + 0.016, 0], [tw + 0.014, 0.05, 0.234]);
+  b.box(satin, [0, f.hipY + 0.016, 0], [tw + 0.018, 0.012, 0.238]);
+  b.box(red, [0, f.topY + 0.012, -0.006], [0.215, 0.04, 0.17]);
+  b.box(satin, [0, f.topY + 0.012, -0.006], [0.219, 0.01, 0.174]);
+  b.box(PAL.steel, [0, (f.hipY + f.topY) / 2, 0.112], [0.01, f.topY - f.hipY - 0.07, 0.004]);
+  // атласный блик на плечах
+  b.box(col('#2a2c33'), [0, f.topY - 0.02, -0.02], [tw + 0.004, 0.03, 0.2]);
+  // рогатая бычья голова на груди
+  const mx = 0.075, my = f.topY - 0.085, mz = 0.112;
+  b.box(red, [mx, my, mz], [0.042, 0.036, 0.006]);
+  b.box(red, [mx, my - 0.026, mz], [0.024, 0.018, 0.006]);
+  b.box(red, [mx - 0.032, my + 0.02, mz], [0.034, 0.01, 0.006], [0, 0, -0.62]);
+  b.box(red, [mx + 0.032, my + 0.02, mz], [0.034, 0.01, 0.006], [0, 0, 0.62]);
+  b.box(red, [mx - 0.046, my + 0.04, mz], [0.01, 0.018, 0.006]);
+  b.box(red, [mx + 0.046, my + 0.04, mz], [0.01, 0.018, 0.006]);
+  // BULLS дугой во всю спину: красные буквы с белой обводкой
+  const back: V3 = [0, f.topY - 0.1, -0.111];
+  const lt = { w: 0.046, gap: 0.012, arch: 0.018, inset: 0.016 };
+  strokeText(b, PAL.white, 'BULLS', back, '-z', 0.078, { ...lt, th: 0.028, lift: 0.001 });
+  strokeText(b, red, 'BULLS', back, '-z', 0.078, { ...lt, th: 0.016, lift: 0.0025 });
+  // волосы: каштановые с рыжиной, чуб вверх
+  b.box(hair, [0, hy + 0.15, -0.012], [0.284, 0.06, 0.27]);
+  b.box(hairL, [0.025, hy + 0.188, 0.055], [0.19, 0.05, 0.12], [-0.28, 0.18, 0]);
+  b.box(hair, [-0.06, hy + 0.172, 0.09], [0.12, 0.045, 0.08], [-0.35, -0.2, 0.1]);
+  b.box(hairL, [0.07, hy + 0.18, -0.06], [0.09, 0.03, 0.09], [0, 0.5, 0.2]);
+  b.box(hair, [0, hy + 0.06, -0.13], [0.276, 0.18, 0.02]);
   for (const s of [-1, 1]) {
-    b.box(C.black, [0.168 * s, 0.9, -0.005], [0.035, 0.16, 0.07]);
-    b.box(C.black, [0.168 * s, 0.795, 0], [0.07, 0.17, 0.16]);
-    b.box(team, [0.207 * s, 0.795, 0], [0.014, 0.13, 0.12]);
+    b.box(hair, [0.138 * s, hy + 0.085, -0.03], [0.012, 0.11, 0.19]);
+    b.box(hair, [0.06 * s, hy + 0.058, 0.128], [0.06, 0.014, 0.008]); // брови
   }
-  b.box(C.black, [-0.13, 0.72, 0.09], [0.018, 0.018, 0.14], [0, -0.6, 0]); // микрофон
-  b.box(C.black, [-0.08, 0.715, 0.15], [0.035, 0.035, 0.035]);
-  // монитор на ножке поднят над головой, как плакат: рейджбайт всем видно
-  const h = f.handL;
-  b.box(C.black, [h[0], h[1] + 0.02, h[2]], [0.12, 0.03, 0.1]);
-  b.box(C.black, [h[0], h[1] + 0.1, h[2] - 0.01], [0.04, 0.16, 0.03]);
-  // экран смотрит вперёд и вверх: его видно с камеры, куда бы он ни шёл
-  const rot: V3 = [-0.75, 0, -0.1];
-  const mc = along([h[0] + 0.02, h[1] + 0.17, h[2] - 0.01], rot, [0, 0.18, 0]);
-  b.add(BOX, C.black, mc, rot, [0.56, 0.36, 0.05]);
-  seg(b, team, mc, rot, [0, 0, -0.03], [0.4, 0.24, 0.02]); // спинка в цвет села
-  seg(b, C.screen, mc, rot, [0, 0.01, 0.027], [0.5, 0.29, 0.006]);
-  // чат с нейросетью
-  const msg = (x: number, y: number, w: number, c: Col) => seg(b, c, mc, rot, [x, y, 0.032], [w, 0.04, 0.006]);
-  msg(-0.09, 0.08, 0.24, PAL.white);
-  msg(0.1, 0.02, 0.2, team);
-  msg(-0.07, -0.04, 0.28, PAL.white);
-  msg(0.11, -0.095, 0.16, team);
-  // ноутбук на предплечье, экраном к себе
-  const r = f.handR;
-  const lp: V3 = [r[0] + 0.07, r[1] + 0.03, r[2] - 0.02], lr: V3 = [0, 0.3, 0];
-  seg(b, col('#9ea3aa'), lp, lr, [0, 0, 0], [0.26, 0.02, 0.18]);
-  seg(b, col('#9ea3aa'), lp, lr, [0, 0.085, 0.1], [0.26, 0.17, 0.015]);
-  seg(b, C.screen, lp, lr, [0, 0.085, 0.091], [0.22, 0.13, 0.004]);
-  seg(b, team, lp, lr, [0, 0.085, 0.109], [0.05, 0.05, 0.004]); // наклейка на крышке
+  // телефон в чехле цвета села, экраном к себе
+  const h = f.handR;
+  slab(b, team, C.phone, [h[0] + 0.01, h[1] + 0.06, h[2] + 0.015], [0.75, 0, 0], [0.085, 0.13, 0.016], -1);
 }
 
-function admin(b: Builder, team: Col, dark: Col) {
-  const f = figure(b, {
-    top: PAL.white, pants: col('#2b2d33'), shoe: C.shoeBlack, hair: 'short', beard: 'none',
+/** Амин (ex-WOU): высокий, тёмные волосы, карие глаза, чёрная кожанка, чёрная рубашка, тёмные джинсы. */
+function amin(b: Builder, team: Col) {
+  const leather = col('#242429'), shine = col('#4a4b55'), shirt = col('#070708'), jeans = col('#1f2c4f'), hair = col('#17110d');
+  const f = body(b, {
+    top: leather, pants: jeans, shoe: col('#0c0c0d'), cuff: shine,
+    w: 1.02, lw: 0.95, leg: 1.38, torso: 1.12, arm: 1.12, eyes: 'brown', beard: 'none',
+    legL: { up: [-0.14, 0, 0.02] }, legR: { up: [0.12, 0, -0.03] },
+    armL: { up: [0.05, 0, 0.14] },
+    armR: { up: [-0.4, 0, 0.12], lo: [-1.85, 0, 0.5] },
+  });
+  const tw = 0.36 * 1.02, hy = f.headY, top = f.topY;
+  // расстёгнутый ворот: чёрная рубашка, уголки воротника, пуговицы
+  b.box(shirt, [0, top - 0.1, 0.112], [0.13, 0.19, 0.006]);
+  for (const s of [-1, 1]) b.box(shirt, [0.04 * s, top - 0.012, 0.1], [0.06, 0.03, 0.04], [0, 0, 0.55 * s]);
+  for (let k = 0; k < 3; k++) b.box(col('#33343a'), [0, top - 0.07 - k * 0.05, 0.116], [0.01, 0.01, 0.004]);
+  // лацканы косухи, косая молния, карманы, погоны, низ
+  for (const s of [-1, 1]) {
+    b.box(shine, [0.075 * s, top - 0.085, 0.115], [0.055, 0.2, 0.008], [0, 0, -0.32 * s]);
+    b.box(PAL.steel, [0.1 * s, f.hipY + 0.085, 0.114], [0.06, 0.006, 0.004], [0, 0, 0.4 * s]);
+    b.box(shine, [0.165 * s, top + 0.004, 0], [0.08, 0.012, 0.06]);
+  }
+  b.box(PAL.steel, [-0.045, (f.hipY + top) / 2 - 0.02, 0.114], [0.008, (top - f.hipY) * 0.62, 0.004], [0, 0, -0.16]);
+  b.box(shine, [0, f.hipY + 0.008, 0], [tw + 0.012, 0.045, 0.232]);
+  // волосы: тёмные, уложены назад
+  b.box(hair, [0, hy + 0.15, -0.012], [0.285, 0.065, 0.27]);
+  b.box(hair, [0.015, hy + 0.178, 0.05], [0.23, 0.055, 0.15], [-0.22, 0, 0]);
+  b.box(hair, [0, hy + 0.05, -0.13], [0.276, 0.2, 0.02]);
+  for (const s of [-1, 1]) {
+    b.box(hair, [0.138 * s, hy + 0.09, -0.03], [0.012, 0.1, 0.19]);
+    b.box(hair, [0.062 * s, hy + 0.064, 0.127], [0.07, 0.018, 0.008]); // густые брови
+  }
+  // телефон в правой: рейджбайтит, экраном к себе
+  const h = f.handR;
+  slab(b, C.black, C.phone, [h[0] + 0.01, h[1] + 0.065, h[2] + 0.015], [0.75, 0, 0], [0.085, 0.14, 0.016], -1);
+  // ноутбук под рукой, крышка в цвет села (Пентагон сам себя не взломает)
+  const l = f.handL;
+  b.box(col('#9ea3aa'), [l[0] + 0.05, l[1] + 0.08, l[2] + 0.01], [0.026, 0.2, 0.29]);
+  b.box(team, [l[0] + 0.064, l[1] + 0.08, l[2] + 0.01], [0.004, 0.17, 0.26]);
+  b.box(PAL.white, [l[0] + 0.067, l[1] + 0.11, l[2] + 0.05], [0.003, 0.05, 0.05]);
+}
+
+/** Админ: лохматые тёмно-каштановые волосы с длинной чёлкой, светлая кожа, кремовая футболка, рюкзак, журнал с «Н». */
+function admin(b: Builder, team: Col) {
+  const tee = col('#ece2cc'), skin = col('#efcdb3'), hair = col('#3a291d'), hair2 = col('#4d3626'), pack = col('#141416');
+  const f = body(b, {
+    top: tee, pants: col('#384055'), shoe: col('#ecebe6'), sole: col('#c9c6bf'), skin, tee: true, eyes: 'brown', beard: 'none',
     armL: { up: [-0.3, 0, -0.05], lo: [-1.25, 0, -0.35] },
     armR: { up: [-0.55, 0, 0.12], lo: [-2.0, 0, 0.6] },
   });
-  b.box(team, [0, 0.5, 0.114], [0.045, 0.24, 0.01]); // галстук
-  b.box(dark, [0, 0.61, 0.116], [0.06, 0.04, 0.012]);
-  b.box(PAL.white, [-0.06, 0.62, 0.105], [0.07, 0.03, 0.04], [0, 0, -0.35]); // воротник
-  b.box(PAL.white, [0.06, 0.62, 0.105], [0.07, 0.03, 0.04], [0, 0, 0.35]);
-  b.box(C.black, [0, 0.335, 0], [0.37, 0.035, 0.225]); // ремень
-  // повязка старосты на плече
-  b.box(team, [-0.23, 0.54, 0], [0.105, 0.06, 0.125]);
-  // аккуратный пробор
-  b.box(PAL.hair, [0.045, 0.972, 0.0], [0.16, 0.03, 0.24]);
-  // очки
-  for (const s of [-1, 1]) {
-    b.box(C.glasses, [0.065 * s, 0.81, 0.13], [0.085, 0.07, 0.012]);
-    b.box(C.lens, [0.065 * s, 0.81, 0.137], [0.06, 0.045, 0.006]);
-    b.box(PAL.black, [0.065 * s, 0.81, 0.141], [0.025, 0.025, 0.004]);
-  }
-  b.box(C.glasses, [0, 0.82, 0.13], [0.06, 0.015, 0.012]);
+  const hy = f.headY, top = f.topY, mid = (f.hipY + top) / 2;
+  b.box(lift(tee, 0.86), [0, top - 0.008, 0.108], [0.12, 0.022, 0.012]); // ворот
+  // рюкзак на правом плече: лямка спереди, сам рюкзак за спиной, бегунок в цвет села
+  b.box(pack, [-0.04, mid + 0.03, -0.2], [0.29, 0.33, 0.15]);
+  b.box(lift(pack, 1.6), [-0.04, mid - 0.04, -0.286], [0.23, 0.13, 0.03]);
+  b.box(pack, [-0.04, mid + 0.21, -0.2], [0.1, 0.03, 0.03]);
+  b.box(team, [0.06, mid + 0.12, -0.28], [0.035, 0.04, 0.012]);
+  b.box(pack, [-0.13, top + 0.012, -0.03], [0.06, 0.026, 0.26]);
+  b.box(pack, [-0.12, top - 0.12, 0.113], [0.05, 0.24, 0.012], [0, 0, 0.08]);
+  b.box(col('#4a4a4e'), [-0.115, top - 0.17, 0.12], [0.06, 0.025, 0.006]);
+  // повязка старосты в цвет села на левом рукаве
+  b.box(team, [0.235, f.shY - 0.075, 0.004], [0.112, 0.05, 0.13], [-0.3, 0, -0.05]);
+  // лохматые волосы и длинная чёлка до бровей
+  b.box(hair, [0, hy + 0.15, -0.012], [0.3, 0.08, 0.285]);
+  b.box(hair2, [0.04, hy + 0.195, 0.0], [0.12, 0.04, 0.14], [0.2, 0.4, 0.25]);
+  b.box(hair, [-0.07, hy + 0.19, -0.07], [0.1, 0.04, 0.12], [-0.3, -0.5, -0.2]);
+  b.box(hair2, [0.09, hy + 0.18, -0.1], [0.08, 0.04, 0.1], [0.3, 0.2, 0.35]);
+  b.box(hair, [0, hy + 0.03, -0.136], [0.29, 0.26, 0.03]);
+  for (const s of [-1, 1]) b.box(hair, [0.142 * s, hy + 0.055, -0.02], [0.02, 0.19, 0.22]);
+  const strands: [number, number][] = [[-0.1, -0.22], [-0.05, 0.16], [0.0, -0.08], [0.05, 0.2], [0.1, -0.14]];
+  strands.forEach(([x, rz], i) => b.box(i % 2 ? hair2 : hair, [x, hy + 0.1 - (i % 2) * 0.012, 0.132], [0.066, 0.11, 0.03], [-0.12, 0, rz]));
   // журнал посещаемости раскрыт и развёрнут к врагу: кто отсутствует
   const hL = f.handL;
   const j: V3 = [hL[0] - 0.13, hL[1] + 0.05, hL[2] + 0.04];
@@ -311,29 +341,43 @@ function admin(b: Builder, team: Col, dark: Col) {
   b.box(C.pen, [hR[0] + 0.02, hR[1] + 0.0, hR[2] + 0.04], [0.02, 0.02, 0.13], [1.2, 0.5, 0]);
 }
 
+/** ersno: чуть ниже Чимаева, оверсайз пуховик и широченные джинсы, веер чужих банковских карт в обеих руках. */
 function ersno(b: Builder, team: Col) {
-  const w = 1.5;
-  const tee = col('#2a2c31'), tee2 = col('#34373d');
-  const f = figure(b, {
-    top: tee, sleeve: tee, pants: col('#1d1e22'), shoe: C.shoeBlack, w, lw: 1.45, tee: true,
-    hair: 'buzz', beard: 'stubble',
-    legL: { up: [0, 0, 0.08] }, legR: { up: [0, 0, -0.08] },
-    armL: { up: [0, 0, 0.24] }, armR: { up: [0, 0, -0.24] },
+  const puffer = col('#30333a'), puff2 = col('#41454e'), jeans = col('#8796ad');
+  const W = 1.34;
+  const f = body(b, {
+    top: puffer, cuff: puff2, pants: jeans, shoe: PAL.white, sole: col('#d8d4cc'), chunky: true,
+    w: W, lw: 1.3, leg: 0.92, arm: 1.02, baggy: 1.5, beard: 'stubble',
+    legL: { up: [0, 0, 0.06] }, legR: { up: [0, 0, -0.06] },
+    armL: { up: [-0.8, 0, 0.12], lo: [-2.05, 0, -0.3] },
+    armR: { up: [-0.8, 0, -0.12], lo: [-2.05, 0, 0.3] },
   });
-  // V-образная спина, грудь, дельты, трапеции
-  b.add(TAPER, tee, [0, 0.53, 0], [0, 0, 0], [0.64, 0.26, 0.28]);
-  b.box(tee2, [-0.11, 0.59, 0.125], [0.2, 0.12, 0.05]);
-  b.box(tee2, [0.11, 0.59, 0.125], [0.2, 0.12, 0.05]);
-  for (const s of [-1, 1]) b.add(ICO, tee2, [0.36 * s, 0.6, 0], [0, 0, 0], [0.2, 0.17, 0.19]);
-  b.add(TRAPS, tee, [0, 0.665, -0.02], [0, 0, 0], [1, 1, 0.75]);
-  b.box(PAL.skin, [0, 0.67, 0.0], [0.17, 0.08, 0.15]); // шея
-  // напульсники в цвет села
-  for (const h of [f.handL, f.handR]) b.box(team, [h[0], h[1] + 0.07, h[2]], [0.11, 0.055, 0.115]);
-  b.box(team, [0, 0.335, 0.11], [0.12, 0.05, 0.02]); // пряжка
-  // чёрные очки, молчит
-  b.box(C.glasses, [0, 0.815, 0.13], [0.24, 0.055, 0.015]);
-  b.box(col('#4b5560'), [-0.06, 0.825, 0.139], [0.07, 0.015, 0.004]);
-  b.box(PAL.skin2, [0, 0.715, 0.128], [0.07, 0.012, 0.006]);
+  const tw = 0.36 * W, hy = f.headY, top = f.topY;
+  // пуховик: длинный низ поверх джинсов, стёжка, высокий ворот, капюшон, молния
+  b.box(puffer, [0, f.hipY - 0.025, 0], [tw + 0.02, 0.09, 0.25]);
+  for (let k = 0; k < 3; k++) b.box(puff2, [0, f.hipY + 0.045 + k * 0.1, 0], [tw + 0.03, 0.05, 0.255]);
+  b.box(puffer, [0, top + 0.025, -0.01], [0.3, 0.075, 0.23]);
+  b.box(team, [0, top + 0.064, -0.01], [0.24, 0.006, 0.17]);
+  b.box(puff2, [0, top + 0.01, -0.14], [0.28, 0.12, 0.09]);
+  b.box(PAL.steel, [0, (f.hipY + top) / 2, 0.128], [0.01, top - f.hipY, 0.004]);
+  b.box(team, [0, top - 0.06, 0.132], [0.022, 0.035, 0.006]);
+  // ёжик
+  const buzz = col('#2f241d');
+  b.box(buzz, [0, hy + 0.142, -0.01], [0.276, 0.02, 0.256]);
+  b.box(buzz, [0, hy + 0.07, -0.128], [0.27, 0.12, 0.01]);
+  for (const s of [-1, 1]) b.box(buzz, [0.137 * s, hy + 0.075, -0.04], [0.006, 0.1, 0.15]);
+  // веер чужих банковских карт в каждой руке, с чипами
+  const cards = [col('#e5b53a'), col('#1fa463'), col('#202024'), col('#2c6fe0'), col('#c23a8f'), col('#e8e6e0')];
+  const chip = col('#d9b25a');
+  for (const [hd, s] of [[f.handL, 1], [f.handR, -1]] as const) {
+    for (let k = 0; k < 4; k++) {
+      const rot: V3 = [-0.45, 0, (k - 1.5) * 0.36 * s + 0.15 * s];
+      const piv: V3 = [hd[0], hd[1] + 0.015, hd[2] + 0.04];
+      const c = cards[(k + (s > 0 ? 0 : 3)) % cards.length];
+      seg(b, c, piv, rot, [0, 0.07, k * 0.006], [0.095, 0.145, 0.006]);
+      seg(b, chip, piv, rot, [-0.02, 0.1, k * 0.006 + 0.0035], [0.028, 0.022, 0.002]);
+    }
+  }
 }
 
 function bekhan(b: Builder, team: Col, dark: Col) {
@@ -550,9 +594,9 @@ export function heroGeometry(type: number, side: 0 | 1): THREE.BufferGeometry {
   const b = new Builder();
   const team = PAL.side[side], dark = PAL.sideDark[side];
   switch (type) {
-    case 6: chimaev(b, team, dark); break;
-    case 7: wou(b, team, dark); break;
-    case 8: admin(b, team, dark); break;
+    case 6: chimaev(b, team); break;
+    case 7: amin(b, team); break;
+    case 8: admin(b, team); break;
     case 9: ersno(b, team); break;
     case 10: bekhan(b, team, dark); break;
     case 11: adam(b, team); break;
@@ -576,7 +620,8 @@ export function heroGeometry(type: number, side: 0 | 1): THREE.BufferGeometry {
 export function heroScale(type: number, side: 0 | 1): number {
   switch (type) {
     case 6: return 1.05;
-    case 9: return 1.4;
+    case 7: return 1.05;
+    case 9: return 1.04;
     case 10: return 1.05;
     case 12: return 1.1;
     case 13: return 1.1;

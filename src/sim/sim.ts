@@ -265,6 +265,8 @@ export class Sim {
    * Saves from before the content updates: fill in what is missing (same on every client).
    * v2 (d69dd41 and earlier) lacks packs, SideState snus/loop/pack, U.fr, unit types 16..17 in
    * hero/heroCd and the capture places pts[9..12] (they come back owned by their home side).
+   * v3 saves from bfa230a have the places at the old hand-placed spots: they move to the
+   * current CAPTURE_PLACES (owner and progress kept).
    */
   private migrate() {
     const st = this.st as State & Record<string, unknown>;
@@ -272,7 +274,11 @@ export class Sim {
     if (!st.away) st.away = [];
     if (!st.ev) st.ev = this.freshEv(st.tick);
     if (!st.packs) st.packs = [];
-    if (st.pts.length < PT_COUNT) { const full = this.makePoints(); while (st.pts.length < full.length) st.pts.push(full[st.pts.length]); }
+    const full = this.makePoints();
+    while (st.pts.length < full.length) st.pts.push(full[st.pts.length]);
+    // capture places moved to real 2GIS spots: older saves get the new layout (the flow fields
+    // follow makePoints), keeping who owns them and the capture progress
+    for (const i of PT_PLACES) { const p = st.pts[i], f = full[i]; p.key = f.key; p.name = f.name; p.x = f.x; p.z = f.z; p.r = f.r; p.perk = f.perk; }
     for (const s of [0, 1] as Side[]) {
       const sd = st.sides[s] as unknown as Record<string, unknown>, fr = this.freshSide(s) as unknown as Record<string, unknown>;
       for (const k of Object.keys(fr)) if (sd[k] === undefined) sd[k] = fr[k];
@@ -330,6 +336,7 @@ export class Sim {
   inZone(s: Side, x: number, z: number): boolean {
     for (const p of this.st.pts) {
       if (p.owner !== s) continue;
+      if (p.kind === 3 && p.side !== s) continue; // a captured enemy place is no bridgehead next to their high-rise
       const r = p.kind === 0 ? HQ.zone : p.r;
       const dx = x - p.x, dz = z - p.z;
       if (dx * dx + dz * dz <= r * r) return true;

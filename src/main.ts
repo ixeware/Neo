@@ -6,7 +6,8 @@ import { TICK_MS, HQ, CARDS, UNITS, SIDE_NAME, Fx, HEROES as HERO_TYPES, RIDE, G
 import { Stage, bindInput } from './render/scene';
 import { terrainMesh, waterMesh } from './render/terrainMesh';
 import { buildTin, tinHeight, paintTin } from './render/lowpoly';
-import { buildVillages, buildTrees, buildBridges, mosque, HqBuilding, VillageMarker, drapedRing } from './render/world';
+import { buildVillages, buildTrees, buildBridges, mosque, HqBuilding, VillageMarker, drapedRing, keepOut } from './render/world';
+import { buildRoads } from './render/roads';
 import { Particles, Shots } from './render/fx';
 import { UnitView } from './render/units';
 import { buildDecor } from './render/decor';
@@ -80,6 +81,7 @@ async function boot() {
   scene.add(world);
   bootMsg('Строим сёла…');
   await new Promise(r => setTimeout(r, 16));
+  buildRoads(world, terrain, { lowPower: stage.lowPower, tin, keep: keepOut(terrain, sim.st.pts) });
   const nh = buildVillages(terrain, sim.st.pts, world, !stage.lowPower);
   const nt = buildTrees(terrain, world, !stage.lowPower, tin);
   console.info(`houses ${nh}, trees ${nt}`);

@@ -3,6 +3,7 @@ import type { Sim } from '../sim/sim';
 import { UNITS } from '../sim/defs';
 import type { Stage } from '../render/scene';
 import type { Terrain } from '../world/terrain';
+import { paintRoads } from '../render/roads';
 
 const PEN = ['#2a52d1', '#d8361f'];
 const IS_HERO = UNITS.map(d => !!d.hero);
@@ -21,6 +22,7 @@ export class Minimap {
     const bg = this.base.getContext('2d')!;
     if (typeof map === 'function') map(bg, c.width, c.height);
     else { bg.imageSmoothingQuality = 'high'; bg.drawImage(map, 0, 0, c.width, c.height); }
+    paintRoads(bg, c.width, c.height); // real roads and streets, thin, on the base image
     const move = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
       const x = ((e.clientX - r.left) / r.width) * t.W, z = ((e.clientY - r.top) / r.height) * t.H;

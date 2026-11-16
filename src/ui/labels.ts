@@ -3,8 +3,9 @@
 import * as THREE from 'three';
 import { heightY, type Terrain } from '../world/terrain';
 import { SIDE_TAG, VILLAGE_NOTE } from '../data/lore';
-import { DONER } from '../data/heroes';
-import { UNITS, HEROES as HERO_TYPES } from '../sim/defs';
+import { DONER, PERK_TEXT, type PerkId } from '../data/heroes';
+import { HEROES as HERO_TYPES } from '../sim/defs';
+import { unitLabel } from './hud';
 import { UF, type Sim } from '../sim/sim';
 import type { Stage } from '../render/scene';
 import type { HqBuilding } from '../render/world';
@@ -38,12 +39,16 @@ export class Labels {
         this.list.push({ el, x: p.x, y: 0, z: p.z, kind: 'hq', idx: i, sub: el.querySelector('.fl') as HTMLElement });
       } else {
         const doner = p.kind === 2;
+        // v3 capture places (stadium, car wash, gym, market) carry a perk: show what it gives
+        const perk = (p as { perk?: string }).perk;
+        const perkText = perk && perk in PERK_TEXT ? PERK_TEXT[perk as PerkId] : '';
         const el = document.createElement('div');
-        el.className = doner ? 'lbl lbl-v lbl-doner' : 'lbl lbl-v';
+        el.className = doner ? 'lbl lbl-v lbl-doner' : perkText ? 'lbl lbl-v lbl-place' : 'lbl lbl-v';
         el.innerHTML = `<div class="nm"></div><div class="sub"></div>`;
         const nm = el.querySelector('.nm') as HTMLElement, sub = el.querySelector('.sub') as HTMLElement;
         nm.textContent = doner ? DONER.clean : p.name;
-        sub.textContent = doner ? DONER.note : VILLAGE_NOTE[p.key] ?? '';
+        sub.textContent = doner ? DONER.note : perkText || (VILLAGE_NOTE[p.key] ?? '');
+        if (perkText) el.title = `${p.name}: ${perkText}`;
         root.append(el);
         this.list.push({ el, x: p.x, y: heightY(t, p.x, p.z) + (doner ? 4.2 : 3.4), z: p.z, kind: doner ? 'doner' : 'v', idx: i, nm, key: '' });
       }
@@ -142,14 +147,14 @@ export class Labels {
         if (!h) {
           const el = document.createElement('div');
           el.className = `lbl lbl-hero s${s}${s === this.side ? ' me' : ''}`;
-          el.textContent = UNITS[t].name[s];
+          el.textContent = unitLabel(t, s);
           this.root.append(el);
           h = { el, id, t, s, x: u.x, z: u.z, w: 0, h: 0, sx: 0, sy: 0, on: false, seen: now, flee: false };
           this.heroes.set(id, h);
         }
         h.seen = now;
         const flee = t === 11 && (u.f & UF.FLEE) !== 0;
-        if (flee !== h.flee) { h.flee = flee; h.el.textContent = flee ? `${UNITS[t].name[s]} · бежит` : UNITS[t].name[s]; h.w = 0; }
+        if (flee !== h.flee) { h.flee = flee; h.el.textContent = flee ? `${unitLabel(t, s)} · бежит` : unitLabel(t, s); h.w = 0; }
       }
       for (const [id, h] of this.heroes) if (now - h.seen > 400) { h.el.remove(); this.heroes.delete(id); }
     }

@@ -2,7 +2,7 @@ import './ui/style.css';
 import * as THREE from 'three';
 import { loadTerrain, heightY, setRenderSurface } from './world/terrain';
 import { Sim, cardTitle, PT_DONER, type FxEv } from './sim/sim';
-import { TICK_MS, HQ, CARDS, UNITS, SIDE_NAME, Fx, HEROES as HERO_TYPES, RIDE, GOLEM, CHICKEN, WOU, ADMIN, type Side } from './sim/defs';
+import { TICK_MS, HQ, CARDS, UNITS, SIDE_NAME, Fx, HEROES as HERO_TYPES, RIDE, GOLEM, CHICKEN, WOU, ADMIN, ERSNO, type Side } from './sim/defs';
 import { Stage, bindInput } from './render/scene';
 import { terrainMesh, waterMesh } from './render/terrainMesh';
 import { buildTin, tinHeight, paintTin } from './render/lowpoly';
@@ -21,7 +21,10 @@ import { Sound } from './audio/sound';
 import { Session, LocalBackend, loadLocal, clearLocal } from './net/session';
 import { connectShared, type Shared } from './net/shared';
 import { TICKER, HINTS, lore, type Line } from './data/lore';
-import { HEROES, EVENTS as EVENT_LORE, DONER, FUJI, SUMMON_LINES, heroForUnit, heroLine, pickLine, type HeroId, type LineBucket, type EventId } from './data/heroes';
+import {
+  HEROES, EVENTS as EVENT_LORE, DONER, FUJI, SUMMON_LINES, PACK_REACT, UNIT_LINES, CARD_TEXT, PERK_TEXT,
+  heroForUnit, heroLine, pickLine, unitLine, placeLine, type HeroId, type LineBucket, type ExtraBucket, type EventId, type PerkId,
+} from './data/heroes';
 import { Achievements, AchToasts, achievedIds } from './ui/achievements';
 import { DECK_KEYS } from './ui/hud';
 
@@ -40,19 +43,21 @@ function savePrefs(p: Prefs) { try { localStorage.setItem('vysotka.prefs', JSON.
 const WHO: Record<string, { name: string; side: number }> = {
   islam: { name: 'Ислам #1 ranked chad', side: 0 },
   zurab: { name: 'Зураб легенда', side: 1 },
-  chimaev: { name: 'Чимаев 5.5', side: 1 },
+  chimaev: { name: 'Чимаев', side: 1 },
   bekhan: { name: 'Бекхан', side: 0 },
-  wou: { name: 'WOU', side: -1 },
+  wou: { name: 'Амин', side: -1 },
   admin: { name: 'админ', side: -1 },
   ersno: { name: 'ersno', side: -1 },
   adam: { name: 'Адам', side: -1 },
   mohmad: { name: 'Мохьмад', side: -1 },
 };
 const WHO_RE: [RegExp, string][] = [
-  [/^Ислам/, 'islam'], [/^(Качок )?Зураб/, 'zurab'], [/^Чимаев/, 'chimaev'], [/^Бекхан/, 'bekhan'], [/^WOU/, 'wou'],
+  [/^Ислам/, 'islam'], [/^(Качок )?Зураб/, 'zurab'], [/^Чимаев/, 'chimaev'], [/^Бекхан/, 'bekhan'], [/^(Амин|WOU)/, 'wou'],
   [/^админ/i, 'admin'], [/^ersno/, 'ersno'], [/^Адам/, 'adam'], [/^Мохьмад/, 'mohmad'],
 ];
 const pickOne = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+/** v3 sim events (steal, pack, comedown) as read by the feed before the sim types know them. */
+interface V3Ev { e: string; s?: number; v?: number; n?: number; k?: string; x?: number; z?: number; r?: number; until?: number }
 /** Feed priority: 0 chatter, 1 the other side, 2 our side, 3 must-see (events, bosses, wars). */
 type Prio = 0 | 1 | 2 | 3;
 interface FeedLine { who: string; text: string; side: number; prio: Prio; at: number; until: number }
@@ -162,6 +167,7 @@ async function boot() {
   const ach = new Achievements(a => toasts.push(a));
   /** Everything that follows the 18+ toggle. */
   const applySpicy = () => {
+    hud.spicy = prefs.spicy;
     labels.setSpicy(prefs.spicy);
     decor.setSpicy(prefs.spicy);
   };
@@ -202,7 +208,7 @@ async function boot() {
   /** true at most once per `ms` for this key (chatter throttling). */
   const cool = (key: string, ms: number) => { const now = performance.now(); if ((cds.get(key) ?? 0) > now) return false; cds.set(key, now + ms); return true; };
   /** A hero's line from src/data/heroes.ts; the hero's own lines take the pen of the side that fielded them. */
-  const heroSay = (t: number, s: Side, bucket: LineBucket, prio: Prio = pr(s), delayMs = 0) => {
+  const heroSay = (t: number, s: Side, bucket: LineBucket | ExtraBucket, prio: Prio = pr(s), delayMs = 0) => {
     const id: HeroId | null = heroForUnit(t, s);
     if (!id) return;
     const l = heroLine(id, bucket, prefs.spicy);
@@ -210,6 +216,10 @@ async function boot() {
   };
   /** Somebody on the field says an idle line now and then (our side more often). */
   const heroIdle = () => {
+    if (Math.random() < 0.25) { // a Гелик or Спортики of ours, if any, gets a word in
+      const u = sim.st.units.find(x => x.s === side && UNIT_LINES[x.t]);
+      if (u) { sayLine(unitLine(u.t, 'idle', prefs.spicy), 0, u.s); return true; }
+    }
     const mine: [number, Side][] = [], theirs: [number, Side][] = [];
     for (const s of [0, 1] as Side[]) {
       const sd = sim.st.sides[s], to = s === side ? mine : theirs;
@@ -239,6 +249,7 @@ async function boot() {
     feedQ.length = 0; nextHint = performance.now() + 20000;
     hqs.forEach((b, i) => b.setFloors(sim.st.sides[i].floors, false));
     ach.begin(sim, s, fresh);
+    syncPlaces();
     session.onStep = () => { units.capture(performance.now()); ach.step(); };
     playing = true;
     $('menu').hidden = true;
@@ -331,6 +342,46 @@ async function boot() {
   // ---- sim events → effects, sound, chat -------------------------------------------------------
   const near = (x: number, z: number, r = 90) => { const t = stage.target; return (t.x - x) ** 2 + (t.z - z) ** 2 < r * r && stage.dist < 200; };
   const projTmp = { x: 0, y: 0, vis: false };
+  /** Last known owner of each point, so a lost place can say its «lost» line. */
+  const placeOwner = new Map<number, number>();
+  function syncPlaces() { placeOwner.clear(); sim.st.pts.forEach((p, i) => placeOwner.set(i, p.owner)); }
+  /**
+   * v3 events, read loosely so this file compiles before the sim has them:
+   * 'steal' {s thief side, v victim side, n ₽, k 'hit' | 'card'}, 'pack' {s, x, z, r, n scared},
+   * 'comedown' {s} — «Закинуть снюс» wore off.
+   */
+  function v3Feed(e: V3Ev) {
+    const s = (e.s === 1 ? 1 : 0) as Side, n = Math.round(e.n ?? 0);
+    switch (e.e) {
+      case 'steal': {
+        if (n <= 0) break;
+        const v = (1 - s) as Side;
+        if (e.k === 'card') {
+          if (v === side) hud.banner('Списание с карты', `ersno увёл ${n} ₽ из нашей кассы`, s, 2400);
+          sayLine(heroLine('ersno', 'steal', prefs.spicy), pr(v), undefined, 1200);
+        } else if (v === side && cool('steal', 30000)) sayLine(heroLine('ersno', 'steal', prefs.spicy), 1);
+        if (e.x !== undefined && e.z !== undefined && near(e.x, e.z, 60) && (e.k === 'card' || s === side || v === side)) {
+          stage.project(e.x, heightY(terrain, e.x, e.z) + 2.4, e.z, projTmp);
+          if (projTmp.vis) hud.tip(projTmp.x, projTmp.y, `${s === side ? '+' : '−'}${n} ₽`);
+        }
+        break;
+      }
+      case 'pack': {
+        if (cool('pack' + s, 8000)) heroSay(ADMIN, s, 'ult', s === side || n >= 6 ? 2 : 1);
+        if (n >= 4 && Math.random() < 0.6 && cool('packr', 20000)) sayLine(pickLine(PACK_REACT, prefs.spicy), 1, undefined, 1800);
+        if (n >= 8 && s === side) hud.banner('Курение убивает', `${n} разбежались`, s, 2200);
+        if (e.x !== undefined && e.z !== undefined && near(e.x, e.z, 70)) {
+          stage.project(e.x, heightY(terrain, e.x, e.z) + 3, e.z, projTmp);
+          if (projTmp.vis) hud.tip(projTmp.x, projTmp.y, n > 0 ? `КУРЕНИЕ УБИВАЕТ ×${n}` : 'КУРЕНИЕ УБИВАЕТ', 'tip-n');
+        }
+        break;
+      }
+      case 'comedown':
+        if (s === side) sayLine(pickLine(CARD_TEXT[30]?.after ?? [], prefs.spicy), 2);
+        break;
+    }
+  }
+
   function handleFx(list: FxEv[]) {
     afx.handleAll(list);
     const now = performance.now();
@@ -347,6 +398,7 @@ async function boot() {
             if (e.s === side || near(e.x, e.z)) sound.heroIn(e.s);
             heroSay(e.t, e.s, 'spawn');
           } else if (e.t === RIDE && (e.s === side || near(e.x, e.z, 60))) sound.horn(e.s);
+          else if (UNIT_LINES[e.t] && cool('u' + e.t + e.s, 20000)) sayLine(unitLine(e.t, 'spawn', prefs.spicy), pr(e.s), e.s);
           break;
         }
         case 'hit': {
@@ -370,6 +422,12 @@ async function boot() {
           particles.emit(e.x, y + 0.3, e.z, { n: 6, color: PAL.side[e.s], size: 0.18, life: 0.9, spread: 2, up: 2.4, grav: 6 });
           if (e.t === CHICKEN && cool('chickdie', 20000)) sayLine(pickLine(SUMMON_LINES.chicken.death, prefs.spicy), 0, e.s);
           if (e.t === GOLEM) sayLine(pickLine(SUMMON_LINES.golem.death, prefs.spicy), pr(e.s), e.s);
+          if (UNIT_LINES[e.t] && cool('ud' + e.t, 25000)) sayLine(unitLine(e.t, 'death', prefs.spicy), e.s === side ? 1 : 0, e.s);
+          if (Math.random() < 0.15 && cool('ukill', 30000)) {
+            for (const u of sim.st.units) {
+              if (u.s !== e.s && UNIT_LINES[u.t] && (u.x - e.x) ** 2 + (u.z - e.z) ** 2 < 12) { sayLine(unitLine(u.t, 'kill', prefs.spicy), u.s === side ? 1 : 0, u.s); break; }
+            }
+          }
           break;
         }
         case 'shot': {
@@ -405,13 +463,19 @@ async function boot() {
         }
         case 'capture': {
           const p = sim.st.pts[e.p], doner = e.p === PT_DONER, name = doner ? donerName() : p.name;
-          if (e.s < 0) { say('admin', `${name} теперь ничьё`, 1); break; }
+          const perk = (p as { perk?: string }).perk, was = placeOwner.get(e.p) ?? -1;
+          placeOwner.set(e.p, e.s);
+          if (e.s < 0) { say('admin', `${name} теперь ничьё`, 1); if (perk && was >= 0) sayLine(placeLine(perk, 'lost', prefs.spicy), was === side ? 2 : 1, was, 1400); break; }
           sound.capture(e.s === side);
           const y = heightY(terrain, p.x, p.z) + 1;
           particles.emit(p.x, y, p.z, { n: 30, color: PAL.side[e.s], size: 0.3, life: 1.2, spread: 4, up: 3, grav: 5, jitter: 2 });
           if (doner) {
             if (e.s === side) hud.banner(`${name} наш`, 'Плюс 5 ₽ в секунду, свои рядом лечатся', e.s, 2400);
             sayLine(pickLine(DONER.lines, prefs.spicy), pr(e.s), e.s);
+          } else if (perk) {
+            if (e.s === side) hud.banner(`${p.name} наш`, PERK_TEXT[perk as PerkId] ?? '', e.s, 2400);
+            sayLine(placeLine(perk, 'capture', prefs.spicy), pr(e.s), e.s);
+            if (was >= 0 && was !== e.s) sayLine(placeLine(perk, 'lost', prefs.spicy), was === side ? 2 : 1, was, 1600);
           } else if (p.key === 'shali') say(e.s === 1 ? 'zurab' : 'islam', e.s === 1 ? 'У нас знаешь их сколько?' : 'Курчалой, ну как там, завидуете?', pr(e.s));
           else if (e.s === 0) say('islam', pickOne([`${p.name} наш. Тактика`, 'Мы в плюсе', 'Спасибо Исламу', 'Йоккха Атаг1а — центр мира']), pr(0));
           else say('chimaev', pickOne([`${p.name} наш. Я соло за Курчалой тащу`, 'Исход очевиден', 'Куда лезет букашка', 'Факты ☝🏿']), pr(1));
@@ -421,14 +485,15 @@ async function boot() {
           if (e.s === side) { sound.gavel(); say('admin', 'Админ издал указ: сход. Голосуем', 3); }
           break;
         case 'voteResult': {
-          const card = CARDS[e.card];
+          const card = CARDS[e.card], v3 = CARD_TEXT[e.card] ? hud.cardText(e.card) : null;
+          if (v3) sayLine(pickLine(CARD_TEXT[e.card].react ?? [], prefs.spicy), pr(e.s), e.s, 2200);
           if (e.s === side) {
             sound.gavel();
-            hud.banner(`Сход решил: ${e.title}`, card.quote, e.s, 2800);
+            hud.banner(`Сход решил: ${v3 ? v3.title : e.title}`, v3 ? v3.desc : card.quote, e.s, 2800);
             if (card.fx === Fx.Focus) { const v = sim.st.votes[e.s]; if (v.focusPt >= 0) { const p = sim.st.pts[v.focusPt]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); } }
             if (card.fx === Fx.FocusDoner) { const p = sim.st.pts[PT_DONER]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); }
           } else {
-            say('admin', `${SIDE_NAME[e.s]} решил: ${cardTitle(card, e.title.replace(/^Все на |!$/g, ''))}`, 1);
+            say('admin', `${SIDE_NAME[e.s]} решил: ${v3 ? v3.title : cardTitle(card, e.title.replace(/^Все на |!$/g, ''))}`, 1);
           }
           if (card.fx === Fx.Blackout && e.s !== side) say('chimaev', 'Свет яц. Я тут долго не протяну', 1);
           if (card.fx === Fx.EnemyN && e.s === side) say('admin', 'Всем Н. Страйк нельзя прерывать', 2);
@@ -468,6 +533,7 @@ async function boot() {
           break;
         }
         case 'newWar':
+          syncPlaces();
           hud.hideOver();
           hqs.forEach((b, i) => b.setFloors(sim.st.sides[i].floors, false));
           units.resetVis();
@@ -486,6 +552,7 @@ async function boot() {
           if (e.key === 'quake') { if (close) sound.quake(); if (cool('quake' + e.s, 12000)) heroSay(e.t, e.s, 'ability'); }
           else if (e.key === 'lagman') { if (close) sound.slurp(); heroSay(e.t, e.s, 'ability'); }
           else if (e.key === 'bolt') { if (close) sound.whoosh(); if (cool('bolt' + e.s, 25000)) heroSay(e.t, e.s, 'ability', e.s === side ? 1 : 0); }
+          else if (e.key === 'card') { if (cool('card' + e.s, 10000)) heroSay(ERSNO, e.s, 'ability'); }
           // golem → 'summon', hack → 'hack', n → 'stunN' follow with the details
           break;
         }
@@ -504,6 +571,7 @@ async function boot() {
           const close = e.s === side || near(e.x, e.z);
           if (e.t === GOLEM) { if (close) sound.golem(); sayLine(pickLine(SUMMON_LINES.golem.spawn, prefs.spicy), pr(e.s), e.s); }
           else if (e.t === CHICKEN) { if (close) sound.cluck(5); sayLine(pickLine(SUMMON_LINES.chicken.spawn, prefs.spicy), pr(e.s), e.s); }
+          else if (UNIT_LINES[e.t] && cool('u' + e.t + e.s, 20000)) sayLine(unitLine(e.t, 'spawn', prefs.spicy), pr(e.s), e.s);
           break;
         }
         case 'heroDown': {
@@ -553,6 +621,7 @@ async function boot() {
           if (e.s === side && near(e.x, e.z, 50)) sound.swish();
           if (e.s === side && cool('dodge', 45000)) say('Ислам', 'Шампунь +40 к удаче', 1);
           break;
+        default: v3Feed(e as unknown as V3Ev);
       }
     }
     list.length = 0;

@@ -2,6 +2,12 @@
 import * as THREE from 'three';
 import { heightY, type Terrain } from '../world/terrain';
 
+/** Phones, small screens and `?lq`: fewer trees, no shadows, lighter effects. */
+export function isLowPower(): boolean {
+  const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(window.innerWidth, window.innerHeight) < 600;
+  return mobile || new URLSearchParams(location.search).has('lq');
+}
+
 export class Stage {
   renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();
@@ -10,12 +16,24 @@ export class Stage {
   target = new THREE.Vector3(200, 0, 150);
   dist = 70; yaw = 0.0; minDist = 7; maxDist = 300;
   private goal: { x: number; z: number; d: number; t: number } | null = null;
-  shake = 0;
   lowPower: boolean;
+  private shakeAmt = 0;
+  private shakeT = 0;
+  private calm = false; // prefers-reduced-motion: no camera shake at all
+
+  /**
+   * Camera shake. `stage.shake(0.4)` adds a small decaying kick (quakes, bursts);
+   * the older `stage.shake = 1` form still sets it outright (floor collapse, boss).
+   */
+  get shake(): (amount: number) => void { return this.kick; }
+  set shake(v: number) { this.shakeAmt = Math.max(0, Math.min(1.2, v)); }
+  private kick = (amount: number) => { this.shakeAmt = Math.min(1.2, Math.max(amount, this.shakeAmt + amount * 0.5)); };
 
   constructor(public canvas: HTMLCanvasElement, public t: Terrain) {
     const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(window.innerWidth, window.innerHeight) < 600;
-    this.lowPower = mobile || new URLSearchParams(location.search).has('lq');
+    this.lowPower = isLowPower();
+    const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+    if (mq) { this.calm = mq.matches; mq.addEventListener?.('change', () => { this.calm = mq.matches; }); }
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !mobile || devicePixelRatio < 2, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.75 : 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -89,10 +107,16 @@ export class Stage {
     let cy = this.target.y + Math.sin(p) * this.dist;
     cy = Math.max(cy, heightY(this.t, cx, cz) + 2);
     this.camera.position.set(cx, cy, cz);
-    if (this.shake > 0) {
-      this.shake = Math.max(0, this.shake - dt * 2);
-      const a = this.shake * 0.25;
-      this.camera.position.x += (Math.random() - 0.5) * a; this.camera.position.y += (Math.random() - 0.5) * a;
+    if (this.shakeAmt > 0) {
+      this.shakeAmt = Math.max(0, this.shakeAmt - dt * 2);
+      this.shakeT += dt;
+      if (!this.calm) {
+        // smooth, decaying wobble (two detuned sines) rather than per-frame noise
+        const a = this.shakeAmt * this.shakeAmt * 0.14 * Math.min(1.5, 0.5 + this.dist / 80);
+        const t = this.shakeT * 38;
+        this.camera.position.x += Math.sin(t) * a; this.camera.position.y += Math.sin(t * 1.31 + 1.7) * a * 0.8;
+        this.camera.position.z += Math.sin(t * 0.87 + 0.6) * a * 0.6;
+      }
     }
     this.camera.lookAt(this.target);
     // sun follows the view so shadows stay crisp where you look

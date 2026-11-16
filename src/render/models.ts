@@ -296,13 +296,6 @@ export function houseGeometries() {
   return { body, roof };
 }
 
-export function treeGeometry(): THREE.BufferGeometry {
-  const b = new Builder();
-  b.add(new THREE.CylinderGeometry(0.5, 0.5, 1, 4, 1, true), new THREE.Color('#5b4330'), [0, 0.25, 0], [0, 0, 0], [0.12, 0.5, 0.12]);
-  b.add(ICO, new THREE.Color('#ffffff'), [0, 0.85, 0], [0, 0, 0], [1, 1.05, 1]);
-  return b.build();
-}
-
 /** Window-grid texture for a panel block / brick building floor. */
 export function facadeTexture(kind: 'panel' | 'brick', side: 0 | 1): THREE.CanvasTexture {
   const c = document.createElement('canvas');

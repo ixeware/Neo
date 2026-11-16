@@ -1,7 +1,14 @@
 // Renders the real unit models into small images for cards and the side picker.
 import * as THREE from 'three';
 import { unitGeometry, islamRig, zurabRig } from '../render/models';
+import { heroGeometry } from '../render/heroes';
+import { UNITS } from '../sim/defs';
 
+/**
+ * `units[side][type]`: a 172×144 PNG data URL for every unit type 0..15 (UNITS.length), drawn in
+ * that side's colours. Index 5 (the boss) holds the same image as `bosses[side]`.
+ * `bosses[side]`: a 256×336 PNG data URL of Ислам (0) / Зураб (1).
+ */
 export interface Portraits { units: string[][]; bosses: string[] }
 
 export function makePortraits(): Portraits {
@@ -17,14 +24,15 @@ export function makePortraits(): Portraits {
   scene.add(sun);
   const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const box = new THREE.Box3(), c = new THREE.Vector3(), size = new THREE.Vector3();
   const shot = (obj: THREE.Object3D, w: number, h: number, height: number, yaw: number) => {
     r.setSize(w, h, false);
     cam.aspect = w / h; cam.updateProjectionMatrix();
     obj.rotation.y = yaw;
     scene.add(obj);
-    const box = new THREE.Box3().setFromObject(obj);
-    const c = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
+    box.setFromObject(obj);
+    box.getCenter(c);
+    box.getSize(size);
     const span = Math.max(size.y, size.x * h / w, size.z * 0.8) * 1.12;
     const d = span / 2 / Math.tan((cam.fov * Math.PI) / 360);
     cam.position.set(c.x + d * 0.35, c.y + span * 0.22, c.z + d);
@@ -35,17 +43,19 @@ export function makePortraits(): Portraits {
     scene.remove(obj);
     return url;
   };
-  const units: string[][] = [[], []];
-  for (const side of [0, 1] as const) for (let t = 0; t < 5; t++) {
-    const m = new THREE.Mesh(unitGeometry(t, side), mat);
-    units[side].push(shot(m, 172, 144, 1, t === 3 ? 0.9 : 0.5));
-    m.geometry.dispose();
-  }
   const bosses = [islamRig(mat), zurabRig(mat)].map((rig, s) => {
     if (s === 1) { rig.armL.rotation.z = 1.5; rig.armR.rotation.z = -1.5; }
     else { rig.armR.rotation.set(-2.7, 0, -0.35); }
     return shot(rig.root, 256, 336, rig.height, 0.45);
   });
+  const units: string[][] = [[], []];
+  for (const side of [0, 1] as const) for (let t = 0; t < UNITS.length; t++) {
+    if (t === 5) { units[side].push(bosses[side]); continue; }
+    const m = new THREE.Mesh(t < 6 ? unitGeometry(t, side) : heroGeometry(t, side), mat);
+    // cars are shown three-quarter so the whole body reads
+    units[side].push(shot(m, 172, 144, 1, t === 3 || t === 14 ? 0.9 : 0.5));
+    m.geometry.dispose();
+  }
   r.dispose();
   r.forceContextLoss();
   return { units, bosses };

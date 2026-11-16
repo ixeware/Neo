@@ -1,6 +1,6 @@
 // Villages, forests, landmarks and the two high-rises the whole war is about.
 import * as THREE from 'three';
-import { LC, BRIDGES, heightY, passable, type Terrain } from '../world/terrain';
+import { LC, BRIDGES, heightY, passable, lcAt, type Terrain } from '../world/terrain';
 import { hash2 } from './terrainMesh';
 import type { Tin } from './lowpoly';
 import { treeGeometries, treeSpots } from './trees';
@@ -39,6 +39,86 @@ function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Materi
   }
 }
 
+// ---- decor spots (Фудзи, качалка, такси, Донер Бей) -------------------------------------------
+/** Where decor.ts puts a village building: centre, facing (rotation.y) and a keep-clear radius. */
+export interface DecorSpot { key: 'fudzi' | 'gym' | 'taxi'; x: number; z: number; ry: number; r: number }
+/** Донер Бей keeps houses and trees this far from pts[8] (its terrace reaches about 3.2). */
+export const DONER_CLEAR = 3.6;
+/** High-rise rotation, as HqBuilding.place sets it. */
+const HQ_ROT = [0.35, -0.25];
+
+let spotCache: { t: Terrain; spots: DecorSpot[] } | null = null;
+/**
+ * Village decor spots, a pure function of the terrain (so world.ts and decor.ts agree without
+ * passing anything around): Фудзи and the gym in Курчалой, the taxi stand in Старые Атаги.
+ * They sit on built-up, flat, passable ground, clear of the high-rise, its zone ring, the mosque,
+ * the idle boss and the bridges, on the side the opening camera looks at.
+ */
+export function decorSpots(t: Terrain): DecorSpot[] {
+  if (spotCache && spotCache.t === t) return spotCache.spots;
+  const want: { key: DecorSpot['key']; village: string; r: number; side: 0 | 1; radii: number[]; prefer: number }[] = [
+    { key: 'taxi', village: 'atagi', r: 1.5, side: 0, radii: [8.5, 9.5, 10.5, 11.5, 12.5], prefer: 0.6 },
+    { key: 'fudzi', village: 'kurchaloy', r: 1.8, side: 1, radii: [9, 10, 11, 12, 17.5, 19, 20.5, 22], prefer: -0.4 },
+    { key: 'gym', village: 'kurchaloy', r: 2.2, side: 1, radii: [9, 10, 11, 12, 17.5, 19, 20.5, 22], prefer: 0.5 },
+  ];
+  const spots: DecorSpot[] = [];
+  for (const w of want) {
+    const v = t.villages.find(q => q.key === w.village);
+    if (!v) continue;
+    const s = w.side, rot = HQ_ROT[s];
+    const bossX = v.x + (s === 0 ? -4.6 : 5.6) * Math.cos(rot) + -3.4 * Math.sin(rot);
+    const bossZ = v.z - (s === 0 ? -4.6 : 5.6) * Math.sin(rot) + -3.4 * Math.cos(rot);
+    const keep = [
+      { x: v.x, z: v.z, r: 6.5 }, // high-rise
+      { x: v.x + (s === 0 ? -6 : 7), z: v.z + 4, r: 2.8 }, // mosque
+      { x: bossX, z: bossZ, r: 2.6 }, // the boss waits here
+      { x: v.x + (s === 0 ? 4 : -4), z: v.z + 1, r: 2.2 }, // boss spawn
+      ...spots.map(o => ({ x: o.x, z: o.z, r: o.r + 4 })),
+    ];
+    let best: DecorSpot | null = null, bestScore = -Infinity;
+    for (const R of w.radii) for (let k = 0; k < 36; k++) {
+      const a = (k / 36) * Math.PI * 2; // 0 = south (+z), towards the opening camera
+      const x = v.x + Math.sin(a) * R, z = v.z + Math.cos(a) * R;
+      const r = w.r;
+      if (Math.abs(R - 15) < r + 0.8) continue; // HQ zone ring
+      if (keep.some(o => (o.x - x) ** 2 + (o.z - z) ** 2 < (o.r + r) ** 2)) continue;
+      if (BRIDGES.some(br => segDist(x, z, br.x0, br.z0, br.x1, br.z1) < r + 1.6)) continue;
+      let lo = Infinity, hi = -Infinity, ok = true;
+      for (const [ox, oz] of [[0, 0], [-r, -r], [r, -r], [-r, r], [r, r], [0, r], [0, -r], [r, 0], [-r, 0]]) {
+        const px = x + ox * 0.8, pz = z + oz * 0.8;
+        if (!passable(t, px, pz) || lcAt(t, px, pz) === LC.WATER) { ok = false; break; }
+        const h = heightY(t, px, pz);
+        lo = Math.min(lo, h); hi = Math.max(hi, h);
+      }
+      if (!ok || hi - lo > 0.45) continue;
+      // built-up density around the spot (5×5 land-cover cells, about 2.5 units): stay in the village
+      const ci = Math.floor((x * 100) / t.lcCell), cj = Math.floor((z * 100) / t.lcCell);
+      let built = 0;
+      for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
+        const bi = Math.max(0, Math.min(t.lcw - 1, ci + i)), bj = Math.max(0, Math.min(t.lch - 1, cj + j));
+        built += t.built[bj * t.lcw + bi] / 255 / 25;
+      }
+      if (built < 0.3) continue;
+      let da = Math.abs(a - w.prefer); if (da > Math.PI) da = Math.PI * 2 - da;
+      const score = -(hi - lo) * 3 + built * 2 + Math.cos(da) * 0.9 - R * 0.03;
+      if (score > bestScore) {
+        bestScore = score;
+        // face the opening camera (south, turned towards the village side it comes from), a bit towards the centre
+        const toC = Math.atan2(v.x - x, v.z - z);
+        const cam = s === 0 ? -0.5 : 0.5;
+        let dd = toC - cam; while (dd > Math.PI) dd -= Math.PI * 2; while (dd < -Math.PI) dd += Math.PI * 2;
+        best = { key: w.key, x, z, ry: cam + Math.max(-0.6, Math.min(0.6, dd * 0.3)), r };
+      }
+    }
+    if (best) spots.push(best);
+  }
+  spotCache = { t, spots };
+  return spots;
+}
+
+/** Spots buildVillages kept clear last time (decor + Донер Бей), for buildTrees. */
+let clearSpots: { x: number; z: number; r: number }[] = [];
+
 export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq = true) {
   const items: Item[] = [];
   const cw = t.lcCell / 100;
@@ -47,6 +127,11 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   avoid.push({ x: shali.x, z: shali.z, r: 3.6 });
   for (const p of pts.slice(0, 2)) avoid.push({ x: p.x + (p.side === 0 ? -6 : 7), z: p.z + 4, r: 2 });
   for (const p of pts.slice(0, 2)) avoid.push({ x: p.x + (p.side === 0 ? -4.6 : 5.6), z: p.z - 3.4, r: 2.5 });
+  // Донер Бей and the village decor (decor.ts builds them on these spots)
+  clearSpots = decorSpots(t).map(d => ({ x: d.x, z: d.z, r: d.r + 0.5 }));
+  const doner = pts.find(p => p.key === 'doner');
+  if (doner) clearSpots.push({ x: doner.x, z: doner.z, r: DONER_CLEAR });
+  avoid.push(...clearSpots);
   for (let j = 0; j < t.lch; j++) for (let i = 0; i < t.lcw; i++) {
     const b = t.built[j * t.lcw + i];
     if (b < 95) continue;
@@ -74,6 +159,9 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
 export function buildTrees(t: Terrain, parent: THREE.Object3D, hq: boolean, tin: Tin) {
   // keep bridges, high-rises, mosques and village flags clear
   const marks = t.villages.map(v => ({ x: v.x, z: v.z, r2: (v.key === 'atagi' || v.key === 'kurchaloy' ? 10 : v.key === 'shali' ? 4.8 : 1.8) ** 2 }));
+  // decor and Донер Бей (clearSpots is filled by buildVillages, which runs first)
+  for (const d of decorSpots(t)) marks.push({ x: d.x, z: d.z, r2: (d.r + 0.6) ** 2 });
+  for (const c of clearSpots) marks.push({ x: c.x, z: c.z, r2: (c.r + 0.4) ** 2 });
   const clear = (x: number, z: number) =>
     marks.some(m => (m.x - x) ** 2 + (m.z - z) ** 2 < m.r2) || BRIDGES.some(br => segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.8);
   const spots = treeSpots(t, tin, hq, clear);
@@ -306,6 +394,15 @@ export function drapedRing(t: Terrain, cx: number, cz: number, r: number, w: num
   return g;
 }
 
+/**
+ * The sim replaces its points on every new game, new war and load, so markers look their point up
+ * by key in the live list (decor.ts registers it from the Sim). Without it they keep the first object.
+ */
+let livePoints: (() => Pt[]) | null = null;
+export function followPoints(get: (() => Pt[]) | null) { livePoints = get; }
+
+const NEUTRAL = new THREE.Color('#efe6d2'), RING_NEUTRAL = new THREE.Color('#f2ead8');
+
 export class VillageMarker {
   group = new THREE.Group();
   ring: THREE.Mesh; prog: THREE.Mesh; flag: THREE.Mesh; pole: THREE.Mesh;
@@ -330,8 +427,12 @@ export class VillageMarker {
     this.group.add(this.pole, this.flag);
   }
   update(time: number) {
+    if (livePoints) {
+      const list = livePoints();
+      if (list.indexOf(this.p) < 0) { const q = list.find(o => o.key === this.p.key); if (q) this.p = q; }
+    }
     const p = this.p;
-    const col = p.owner === 0 ? PAL.side[0] : p.owner === 1 ? PAL.side[1] : new THREE.Color('#efe6d2');
+    const col = p.owner === 0 ? PAL.side[0] : p.owner === 1 ? PAL.side[1] : NEUTRAL;
     this.flagMat.color.copy(col);
     const lead = p.prog < 0 ? 0 : p.prog > 0 ? 1 : -1;
     const frac = Math.abs(p.prog) / 100;
@@ -341,7 +442,7 @@ export class VillageMarker {
       this.lastArc = arc;
       this.progGeo.setDrawRange(0, arc * 6);
     }
-    this.ringMat.color.copy(p.owner >= 0 ? PAL.side[p.owner] : new THREE.Color('#f2ead8'));
+    this.ringMat.color.copy(p.owner >= 0 ? PAL.side[p.owner] : RING_NEUTRAL);
     const pa = this.flag.geometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pa.count; i++) { const x = (i % 9) / 8; pa.setZ(i, Math.sin(time * 3.4 + x * 4 + p.x) * 0.12 * x); }
     pa.needsUpdate = true;

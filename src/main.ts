@@ -9,6 +9,8 @@ import { buildTin, tinHeight, paintTin } from './render/lowpoly';
 import { buildVillages, buildTrees, buildBridges, mosque, HqBuilding, VillageMarker, drapedRing } from './render/world';
 import { Particles, Shots } from './render/fx';
 import { UnitView } from './render/units';
+import { buildDecor } from './render/decor';
+import { AbilityFx } from './render/abilityFx';
 import { PAL } from './render/models';
 import { makePortraits } from './ui/portraits';
 import { Hud } from './ui/hud';
@@ -94,6 +96,9 @@ async function boot() {
   const units = new UnitView(terrain, sim, particles);
   units.hqPos = hqs.map(b => ({ x: b.group.position.x, z: b.group.position.z, rot: b.group.rotation.y }));
   scene.add(units.group);
+  const decor = buildDecor(scene, sim);
+  decor.setSpicy(prefs.spicy);
+  const afx = new AbilityFx(scene, particles, stage);
 
   bootMsg('Лепим Зураба и Ислама…');
   await new Promise(r => setTimeout(r, 16));
@@ -141,6 +146,7 @@ async function boot() {
     hud.setSide(s);
     hud.hideOver();
     units.resetVis();
+    afx.clear();
     hqs.forEach((b, i) => b.setFloors(sim.st.sides[i].floors, false));
     session.onStep = () => units.capture(performance.now());
     playing = true;
@@ -196,7 +202,7 @@ async function boot() {
       resume: () => { sound.unlock(); if (session && session.backend.kind === 'local' && session.paused) { session.pause(false); playing = true; $('menu').hidden = true; $('hud').hidden = false; } else resumeLocal(); },
       shared: s => { sound.unlock(); void startShared(s); },
       setDiff: d => { prefs.diff = d; savePrefs(prefs); },
-      setSpicy: on => { prefs.spicy = on; savePrefs(prefs); },
+      setSpicy: on => { prefs.spicy = on; savePrefs(prefs); decor.setSpicy(on); },
     });
   }
 
@@ -230,6 +236,7 @@ async function boot() {
   // ---- sim events → effects, sound, chat -------------------------------------------------------
   const near = (x: number, z: number, r = 90) => { const t = stage.target; return (t.x - x) ** 2 + (t.z - z) ** 2 < r * r && stage.dist < 200; };
   function handleFx(list: FxEv[]) {
+    afx.handleAll(list);
     const now = performance.now();
     for (const e of list) {
       switch (e.e) {
@@ -398,6 +405,7 @@ async function boot() {
     const tnow = now / 1000;
     hqs.forEach((b, s) => { b.update(dt, tnow); if (b.floors.length !== sim.st.sides[s].floors && !b.falling.length) b.setFloors(sim.st.sides[s].floors, true); });
     markers.forEach(m => m.update(tnow));
+    decor.update(dt); afx.update(dt);
     units.zoomK = Math.max(1, Math.min(2.4, stage.dist / 50));
     units.update(session ? session.alpha() : 1, now, dt, stage.camera);
     particles.setScale(stage.renderer.domElement.height / (2 * Math.tan((stage.camera.fov * Math.PI) / 360)));

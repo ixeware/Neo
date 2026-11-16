@@ -280,9 +280,17 @@ export class Sim {
       while (h.length < NT) h.push(-1);
       while (hc.length < NT) hc.push(0);
     }
+    const oldSave = st.units.some(u => u.fr === undefined);
     for (const u of st.units) {
       if (u.psn === undefined) { u.psn = 0; u.tt = 0; u.tn = -1; u.ld = -1; u.f = 0; }
       if (u.fr === undefined) u.fr = 0;
+      if (u.t === ERSNO && u.mhp > UNITS[ERSNO].hp) { // pre-v3 tank ersno
+        u.hp = Math.max(1, Math.floor((u.hp * UNITS[ERSNO].hp) / u.mhp)); u.mhp = UNITS[ERSNO].hp;
+      }
+    }
+    if (oldSave) for (const s of [0, 1] as Side[]) {
+      const sd = st.sides[s];
+      if (sd.hero[ADMIN] >= 0 && sd.pack === 0) sd.pack = st.tick + HERO.packFirst;
     }
   }
 
@@ -612,7 +620,11 @@ export class Sim {
       case Fx.Heal: for (const u of st.units) if (u.s === s) u.hp = Math.min(u.mhp, u.hp + (u.mhp * c.v) / 100); break;
       case Fx.Blackout: en.black = now + c.v; break;
       case Fx.FreeSquads:
-        for (const p of st.pts) if (p.owner === s) this.spawnGroup(s, 0, p.x + (s ? -2 : 2), p.z + 1.5, -1); // places too
+        for (const p of st.pts) { // places too
+          if (p.owner !== s) continue;
+          if (this.count(s) + UNITS[0].count > ECON.unitCap) break;
+          this.spawnGroup(s, 0, p.x + (s ? -2 : 2), p.z + 1.5, -1);
+        }
         break;
       case Fx.Income: sd.inc = now + c.v; break;
       case Fx.Regen: sd.regen = now + c.v; break;
@@ -663,7 +675,7 @@ export class Sim {
         for (const u of st.units) if (u.s === s && u.hp > 0) { u.stun = 0; u.hp = Math.max(1, u.hp - u.mhp * BUFF.loopHp); } // «сушняк»
         break;
       case Fx.Geliks: {
-        const n = Math.min(c.v, UNITS[GELIK].max! - this.countType(s, GELIK));
+        const n = Math.max(0, Math.min(c.v, UNITS[GELIK].max! - this.countType(s, GELIK), ECON.unitCap - this.count(s)));
         for (let i = 0; i < n; i++) { const p = this.hqSpot(s, i * 2 + 1); this.spawn(s, GELIK, p.x, p.z, -1); }
         if (n > 0) { const p = st.pts[s]; this.emit({ e: 'summon', s, t: GELIK, x: p.x, z: p.z, n }); }
         break;
@@ -785,7 +797,8 @@ export class Sim {
     sd.aiNext = st.tick + 22 + rint(st, 30);
     const mine = this.count(s);
     let t = -1;
-    if (sd.aiWant >= 0 && st.tick < sd.aiWantUntil && mine >= 6 && this.heroOk(s, sd.aiWant)) t = sd.aiWant;
+    if (sd.aiWant >= 0 && st.tick < sd.aiWantUntil && mine >= 6 && this.heroOk(s, sd.aiWant)
+      && !(sd.aiWant === ERSNO && st.sides[(1 - s) as Side].money < 250)) t = sd.aiWant;
     else {
       sd.aiWant = -1;
       const weights: number[] = [];
@@ -909,7 +922,7 @@ export class Sim {
     else if (sd.snus > 0 && now < sd.snus + BUFF.offFor) spd *= BUFF.offSpd; // отходняк
     if (sd.cars > now && d.kind === Kind.Fast) { spd *= 1.5; dmg *= 1.5; }
     if (sd.immune <= now && !d.kra) {
-      if (sd.n > now) spd *= 0.5;
+      if (sd.n > now && sd.loop <= now) spd *= 0.5; // «Н не липнет» under LOOP
       if (u.slow > now) spd *= 0.55;
     }
     // Ислам's aura: +15% damage near him
@@ -1126,9 +1139,9 @@ export class Sim {
       this.emit({ e: 'hit', x: t.x, z: t.z, s: t.s, big: 2 });
       return;
     }
-    this.hurt(t, dmg);
+    const landed = this.hurt(t, dmg);
     if (d.knock) this.knock(u, t, d.knock);
-    if (d.steal) this.steal(u, d.steal[0], 'hit');
+    if (d.steal && landed) this.steal(u, d.steal[0], 'hit');
     this.emit({ e: 'hit', x: t.x, z: t.z, s: t.s, big: d.kind === Kind.Fast || MASS[u.t] > 1 ? 1 : 0 });
   }
 
@@ -1453,14 +1466,16 @@ export class Sim {
     this.goalMove(u, S.spd, 1);
   }
 
-  hurt(u: U, dmg: number) {
+  /** Returns false when the hit was dodged. */
+  hurt(u: U, dmg: number): boolean {
     const st = this.st, sd = st.sides[u.s];
-    if (sd.dodge > st.tick && rnd(st) < 0.4) { this.emit({ e: 'dodge', x: u.x, z: u.z, s: u.s }); return; }
+    if (sd.dodge > st.tick && rnd(st) < 0.4) { this.emit({ e: 'dodge', x: u.x, z: u.z, s: u.s }); return false; }
     if (sd.hero[BEKHAN] >= 0) { // «Главное не игра, главное дисциплина»
       const b = this.byId.get(sd.hero[BEKHAN]);
       if (b) { const R = UNITS[BEKHAN].aura!, dx = b.x - u.x, dz = b.z - u.z; if (dx * dx + dz * dz < R * R) dmg *= HERO.bekhanArmor; }
     }
     u.hp -= dmg; u.hit = 0;
+    return true;
   }
 
   hurtHq(s: Side, dmg: number) {

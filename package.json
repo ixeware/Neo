@@ -11,6 +11,7 @@
     "artifact": "vite build && node tools/artifact.mjs"
   },
   "dependencies": {
+    "delaunator": "5.1.0",
     "three": "^0.187.0"
   },
   "devDependencies": {

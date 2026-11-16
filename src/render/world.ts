@@ -2,13 +2,14 @@
 import * as THREE from 'three';
 import { LC, BRIDGES, heightY, passable, type Terrain } from '../world/terrain';
 import { hash2 } from './terrainMesh';
-import { Builder, PAL, houseGeometries, treeGeometry, facadeTexture } from './models';
+import type { Tin } from './lowpoly';
+import { treeGeometries, treeSpots } from './trees';
+import { Builder, PAL, houseGeometries, facadeTexture } from './models';
 import { HQ } from '../sim/defs';
 import type { Pt } from '../sim/sim';
 
 const WALLS = ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
 const ROOFS = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
-const LEAVES = ['#3f6a35', '#4b7a3a', '#365c2e', '#58803f', '#2f5229'].map(c => new THREE.Color(c));
 
 interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color; c2?: THREE.Color }
 
@@ -69,22 +70,18 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   return items.length;
 }
 
-export function buildTrees(t: Terrain, parent: THREE.Object3D, hq = true) {
-  const items: Item[] = [];
-  const cw = t.lcCell / 100;
-  for (let j = 0; j < t.lch; j++) for (let i = 0; i < t.lcw; i++) {
-    const c = t.lc[j * t.lcw + i];
-    const k = hq ? 1 : 0.5;
-    const p = (c === LC.TREE ? (j * cw > 215 ? 0.03 : 0.06) : c === LC.GRASS ? 0.008 : c === LC.WET ? 0.04 : 0) * k;
-    if (!p || hash2(i * 13 + 1, j * 17 + 3) > p) continue;
-    const x = (i + hash2(i, j + 5)) * cw, z = (j + hash2(i + 8, j)) * cw;
-    const s = 0.5 + hash2(i + 1, j + 2) * 0.45;
-    items.push({ x, z, y: heightY(t, x, z) - 0.03, ry: hash2(i, j) * 6.28, sx: s, sy: s * (0.9 + hash2(j, i) * 0.4), sz: s, c: LEAVES[Math.floor(hash2(i + 4, j + 4) * LEAVES.length)] });
-  }
-  const geo = treeGeometry();
+/** Low-poly forests on the TIN's forest faces (clumped; about half with lowPower). Returns the tree count. */
+export function buildTrees(t: Terrain, parent: THREE.Object3D, hq: boolean, tin: Tin) {
+  // keep bridges, high-rises, mosques and village flags clear
+  const marks = t.villages.map(v => ({ x: v.x, z: v.z, r2: (v.key === 'atagi' || v.key === 'kurchaloy' ? 10 : v.key === 'shali' ? 4.8 : 1.8) ** 2 }));
+  const clear = (x: number, z: number) =>
+    marks.some(m => (m.x - x) ** 2 + (m.z - z) ** 2 < m.r2) || BRIDGES.some(br => segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.8);
+  const spots = treeSpots(t, tin, hq, clear);
+  const geo = treeGeometries();
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  chunked(items, [geo], [mat], [false], parent, 60, false);
-  return items.length;
+  chunked(spots.broad, [geo.broad], [mat], [false], parent, 60, hq);
+  chunked(spots.fir, [geo.fir], [mat], [false], parent, 60, hq);
+  return spots.broad.length + spots.fir.length;
 }
 
 function segDist(px: number, pz: number, x0: number, z0: number, x1: number, z1: number) {

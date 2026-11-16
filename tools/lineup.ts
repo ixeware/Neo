@@ -313,6 +313,71 @@ if (view === 'all') {
   gameCam = { x: 0, z: 3, dist: Number(q.get('dist') ?? 38) };
 }
 
+// ---- girls + Вайнаг (fictional lore NPCs, src/render/girls.ts) -------------------------------
+//   girls (all looks + Вайнаг both sides, next to Пацаны / админ / Амин) · girlsr (random looks, close)
+//   girls1&id=a1|ryzhulka|altushka|operator|g1..g14|vainag0|vainag1 (four angles)
+//   girlsgame[&dist=38] (in-game camera). One self-contained block: own import, own nav links.
+if (view === 'girls' || view === 'girls1' || view === 'girlsr' || view === 'girlsgame') {
+  const G = await import('../src/render/girls');
+  const GNAME: Record<string, string> = { a1: 'A1', ryzhulka: 'Рыжулька', altushka: 'Альтушка', operator: 'Оператор' };
+  const gname = (id: string) => GNAME[id] ?? `Студентка #${id.slice(1)}`;
+  const npc = (g: THREE.BufferGeometry, x: number, z: number, yaw0: number, text: string | null, sub: string, side: number) => {
+    const m = new THREE.Mesh(g, unitMat);
+    m.scale.setScalar(US); m.position.set(x, 0, z); m.rotation.y = yaw0;
+    m.castShadow = true; m.receiveShadow = true;
+    scene.add(m); placed.push(m);
+    g.computeBoundingBox();
+    const top = g.boundingBox!.max.y * US;
+    if (text) labels.push({ text, sub: `${g.attributes.position.count / 3} тр · h ${top.toFixed(2)} ${sub}`, at: new THREE.Vector3(x, top + 0.25, z), side });
+    return (g.boundingBox!.max.x - g.boundingBox!.min.x) * US;
+  };
+  if (view === 'girls') {
+    // row 1: the named four + Вайнаг (both sides) next to existing units; row 2: random looks
+    let x = 0;
+    for (const [t, s] of [[0, 0], [8, 0], [7, 1]] as const) { unit(t, s, x, 1.9); x += 1.05; }
+    for (const id of G.NAMED_GIRL_IDS) { x += 0.15; npc(G.girlGeometry(id), x + 0.35, 1.9, 0, gname(id), '', -1); x += 1.05; }
+    for (const s of [0, 1] as const) { npc(G.vainagGeometry(s), x + 0.4, 1.9, 0, 'Вайнаг', s ? '· Курчалой' : '· Атаги', s); x += 1.15; }
+    G.GIRL_IDS.filter(id => id.startsWith('g')).forEach((id, i) => {
+      const look = G.girlLook(Number(id.slice(1)));
+      npc(G.girlGeometry(id), 0.6 + (i % 7) * 1.6 + (i < 7 ? 0 : 0.8), i < 7 ? -1.4 : -4.4, 0, `#${id.slice(1)} ${look.acc}`, '', -1);
+    });
+    pitch = Number(q.get('pitch') ?? 0.62);
+  } else if (view === 'girlsr') {
+    // random looks only, two rows, close
+    G.GIRL_IDS.filter(id => id.startsWith('g')).forEach((id, i) => {
+      npc(G.girlGeometry(id), (i % 7) * 1.15, i < 7 ? 1.3 : -1.3, 0, `#${id.slice(1)}`, `· ${G.girlLook(Number(id.slice(1))).acc}`, -1);
+    });
+    pitch = Number(q.get('pitch') ?? 0.3);
+  } else if (view === 'girls1') {
+    const id = q.get('id') ?? 'a1';
+    const yaws = [0, 0.75, Math.PI / 2, Math.PI];
+    yaws.forEach((a, i) => {
+      const g = id === 'vainag0' || id === 'vainag1' ? G.vainagGeometry(id === 'vainag1' ? 1 : 0) : G.girlGeometry(id);
+      npc(g, i * 1.35, 0, a, i === 0 ? (id.startsWith('vainag') ? 'Вайнаг' : gname(id)) : null, '', -1);
+    });
+    pitch = Number(q.get('pitch') ?? 0.22);
+    tight = 0.92;
+  } else {
+    // как в игре: перемешаны с пацанами и героями, дистанция 38
+    const ids = [...G.GIRL_IDS];
+    ids.forEach((id, i) => npc(G.girlGeometry(id), (i % 9) * 2.3, i < 9 ? 1.6 : -1.4, i % 2 ? 1.2 : -0.9, null, '', -1));
+    npc(G.vainagGeometry(0), 21.5, 1.6, 0.6, null, '', 0);
+    npc(G.vainagGeometry(1), 21.5, -1.4, -0.8, null, '', 1);
+    unit(0, 0, 24.0, 1.6, 1.2, false); unit(8, 0, 24.0, -1.4, -1.6, false); unit(7, 1, 26.3, 1.6, 1.2, false); unit(6, 1, 26.3, -1.4, -1.6, false);
+    gameCam = { x: 13.2, z: 0, dist: Number(q.get('dist') ?? 38) };
+  }
+  queueMicrotask(() => {
+    const bar = document.getElementById('bar')!;
+    for (const [v, txt] of [['girls', 'девушки + Вайнаг'], ['girlsr', 'случайные'], ['girlsgame', 'девушки в игре'], ...[...G.NAMED_GIRL_IDS, 'vainag0', 'vainag1', 'g1'].map(id => [`girls1&id=${id}`, id.startsWith('vainag') ? `Вайнаг ${id.slice(-1)}` : gname(id)])]) {
+      const a = document.createElement('a');
+      a.href = `?view=${v}`; a.textContent = txt;
+      const lq = new URLSearchParams(`view=${v}`);
+      if ([...lq].every(([k, val]) => (k === 'view' ? view : q.get(k)) === val)) a.className = 'on';
+      bar.append(a);
+    }
+  });
+}
+
 // ---- camera ---------------------------------------------------------------------------------
 function resize() {
   const w = innerWidth, h = innerHeight;

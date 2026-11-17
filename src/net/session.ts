@@ -1,6 +1,7 @@
 // Timeline: wall clock → sim ticks, command log, rollback on late commands, checkpoints.
 import { Sim, type Cmd, type State } from '../sim/sim';
 import { TICK_MS } from '../sim/defs';
+import type { PresenceSource } from './presence';
 
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type CmdBody = DistOmit<Cmd, 't' | 'id' | 'p'>;
@@ -12,6 +13,8 @@ export interface Backend {
   /** Persist a checkpoint (local: localStorage; shared: keeper writes it). */
   checkpoint(st: State, wall: number): void;
   close?(): void;
+  /** Who is online on this transport (roster, «<ник> ведёт» tags); none = just this browser (src/net/presence.ts). */
+  presence?: PresenceSource;
 }
 
 const SNAP_EVERY = 10;

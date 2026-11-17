@@ -33,15 +33,20 @@ import { Achievements, AchToasts, achievedIds } from './ui/achievements';
 import { DECK_KEYS } from './ui/hud';
 import { initAdmin } from './ui/admin';
 import { localChannel, artifactChannel } from './net/adminChannel';
+import { Control } from './ui/control';
+import { Roster } from './ui/roster';
+import { LocalPresence, cleanNick, type PresenceSource } from './net/presence';
+import { NearFade } from './render/fpcam';
+import { unitLabel } from './ui/hud';
 
 const $ = (id: string) => document.getElementById(id)!;
 const bootMsg = (s: string) => { $('boot-msg').textContent = s; };
 
-interface Prefs { pid: string; diff: number; spicy: boolean; muted: boolean; music: boolean }
+interface Prefs { pid: string; diff: number; spicy: boolean; muted: boolean; music: boolean; nick?: string }
 function loadPrefs(): Prefs {
   let p: Partial<Prefs> = {};
   try { p = JSON.parse(localStorage.getItem('vysotka.prefs') || '{}'); } catch { /* blocked storage */ }
-  return { pid: p.pid || 'p' + Math.random().toString(36).slice(2, 10), diff: p.diff ?? 1, spicy: p.spicy ?? true, muted: p.muted ?? false, music: p.music ?? true };
+  return { pid: p.pid || 'p' + Math.random().toString(36).slice(2, 10), diff: p.diff ?? 1, spicy: p.spicy ?? true, muted: p.muted ?? false, music: p.music ?? true, nick: cleanNick(p.nick) };
 }
 function savePrefs(p: Prefs) { try { localStorage.setItem('vysotka.prefs', JSON.stringify(p)); } catch { /* blocked storage */ } }
 
@@ -175,6 +180,19 @@ async function boot() {
     onHome: () => { const p = sim.st.pts[side]; stage.flyTo(p.x, p.z, 38); },
   });
   const labels = new Labels($('labels'), terrain, sim, stage, hqs, units);
+  // ---- unit control (src/ui/control.ts), first person (src/ui/fp.ts), who is who (src/ui/roster.ts) ----
+  let presence: PresenceSource = new LocalPresence(prefs.pid, prefs.nick ?? '');
+  const control = new Control({
+    sim, stage, units, hud, terrain, root: $('hud'), session: () => session, side: () => side, pid: () => session?.pid ?? prefs.pid,
+    playing: () => playing && !!session, sound: { click: () => sound.click(), deny: () => sound.deny() },
+    onPresence: p => presence.setPresence(p),
+  });
+  const roster = new Roster({
+    sim, stage, units, hud, root: $('hud'), labels: $('labels'), side: () => side, pid: () => session?.pid ?? prefs.pid, playing: () => playing && !!session,
+    nick: () => prefs.nick ?? '', setNick: n => { prefs.nick = n; savePrefs(prefs); presence.setPresence({ name: n }); },
+    riding: () => control.fp.id, selected: () => control.sel.size,
+  });
+  NearFade.install(world, units.group); // first person: whatever stands at the camera dithers away
   const minimap = new Minimap(hud.miniCanvas, (g, w, h) => paintTin(tin, g, w, h), terrain, sim, stage);
   const toasts = new AchToasts($('hud'), () => prefs.spicy, () => sound.achievement());
   const ach = new Achievements(a => toasts.push(a));
@@ -265,6 +283,10 @@ async function boot() {
     ach.begin(sim, s, fresh);
     syncPlaces();
     session.onStep = () => { units.capture(performance.now()); ach.step(); };
+    control.reset();
+    presence = sess.backend.presence ?? new LocalPresence(sess.pid, prefs.nick ?? '', s);
+    roster.attach(presence);
+    presence.setPresence({ name: prefs.nick ?? '', side: s, sel: 0, ctl: 0 });
     playing = true;
     $('menu').hidden = true;
     $('hud').hidden = false;
@@ -307,6 +329,7 @@ async function boot() {
   }
 
   function openMenu() {
+    control.fp.exit(true);
     playing = false;
     if (session && session.backend.kind === 'local') { session.pause(true); session.backend.checkpoint(sim.snapshot(), Date.now()); }
     const save = loadLocal();
@@ -324,24 +347,35 @@ async function boot() {
   }
 
   // ---- input ---------------------------------------------------------------------------------
-  const keyPan = bindInput(stage, canvas, (x, y) => {
-    sound.unlock();
-    if (!playing || !session) return;
-    lastTap = { x, y };
-    const t = hud.selected;
-    if (t < 0) { hud.note('Сначала выбери юнита внизу'); return; }
-    const p = stage.pick(x, y);
-    if (!p) return;
-    const why = sim.canDeploy(side, t, p.x, p.z, sim.st.players[prefs.pid]);
-    if (why) { sound.deny(); hud.tip(x, y, lore.deny(why, prefs.spicy)); return; }
-    const cost = sim.cost(side, t);
-    session.submit({ k: 'dep', s: side, u: t, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 });
-    sound.deploy();
-    hud.tip(x, y, `−${cost} ₽`);
-    if (UNITS[t].hero) hud.select(-1); // one per side: the card goes «на поле»
-  }, () => { /* hover preview could go here */ });
+  const keyPan = bindInput(stage, canvas, {
+    tap: (x, y, m) => {
+      sound.unlock();
+      if (!playing || !session) return;
+      lastTap = { x, y };
+      const t = hud.selected;
+      if (t < 0) { // no card in hand: select / order (src/ui/control.ts)
+        if (!control.tap(x, y, m)) hud.note(m.touch ? 'Выбери юнита внизу или тапни по своему' : 'Выбери юнита внизу или кликни по своему');
+        return;
+      }
+      const p = stage.pick(x, y);
+      if (!p) return;
+      const why = sim.canDeploy(side, t, p.x, p.z, sim.st.players[prefs.pid]);
+      if (why) { sound.deny(); hud.tip(x, y, lore.deny(why, prefs.spicy)); return; }
+      const cost = sim.cost(side, t);
+      session.submit({ k: 'dep', s: side, u: t, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 });
+      sound.deploy();
+      hud.tip(x, y, `−${cost} ₽`);
+      if (UNITS[t].hero) hud.select(-1); // one per side: the card goes «на поле»
+    },
+    order: (x, y) => { sound.unlock(); if (playing && session) control.order(x, y); },
+    box: (ph, x0, y0, x1, y1, m) => control.box(ph, x0, y0, x1, y1, m),
+    hover: (x, y) => control.hover(x, y),
+    keyBusy: code => control.keyBusy(code),
+    look: { on: () => control.fp.on, drag: (dx, dy, t) => control.fp.look(dx, dy, t), press: d => control.fp.press(d) },
+  });
   addEventListener('keydown', e => {
     if (!playing) return;
+    if (control.key(e)) return; // selection, orders, groups, first person
     const k = e.ctrlKey || e.metaKey || e.altKey ? -1 : DECK_KEYS.indexOf(e.key);
     if (k >= 0 && hud.typeAt(k) >= 0) pickCard(hud.typeAt(k));
     if (e.key === 'Escape') hud.select(-1);
@@ -579,7 +613,14 @@ async function boot() {
           say(e.s === 0 ? 'zurab' : 'islam', lore.lose(prefs.spicy), 3, undefined, 1600);
           break;
         }
+        case 'possess': {
+          if (!e.on) break;
+          const who = roster.nameOf(e.n);
+          if (who && !who.me && (e.s === side || near(sim.unit(e.id)?.x ?? 0, sim.unit(e.id)?.z ?? 0)) && cool('poss' + e.n, 15000)) say(who.name, `ведёт: ${unitLabel(e.t, e.s)}`, pr(e.s), e.s);
+          break;
+        }
         case 'newWar':
+          control.reset();
           syncPlaces();
           hud.hideOver();
           hqs.forEach((b, i) => b.setFloors(sim.st.sides[i].floors, false));
@@ -738,8 +779,10 @@ async function boot() {
     decor.update(dt); afx.update(dt);
     packs.update(dt, sim.st); coins.update(dt);
     if (playing) flushSteals(now);
-    units.zoomK = Math.max(1, Math.min(2.4, stage.dist / 50));
+    units.zoomK = control.fp.on ? 1 : Math.max(1, Math.min(2.4, stage.dist / 50));
     units.update(session ? session.alpha() : 1, now, dt, stage.camera);
+    control.update(now, dt);
+    roster.update(now);
     particles.setScale(stage.renderer.domElement.height / (2 * Math.tan((stage.camera.fov * Math.PI) / 360)));
     particles.update(dt, tnow);
     shots.update(now, s => {
@@ -756,7 +799,7 @@ async function boot() {
   requestAnimationFrame(frame);
   // debug handle for automated checks
   (window as unknown as { __game: unknown }).__game = { sim, stage, get session() { return session; }, hud, start: startLocal, units, decor, defs: { CARDS, UNITS }, get side() { return side; },
-    setSpicy(on: boolean) { prefs.spicy = on; savePrefs(prefs); applySpicy(); }, packs, labels };
+    setSpicy(on: boolean) { prefs.spicy = on; savePrefs(prefs); applySpicy(); }, packs, labels, control, roster };
 }
 
 boot().catch(err => {

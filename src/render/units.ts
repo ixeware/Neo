@@ -199,6 +199,22 @@ export class UnitView {
     return v ? { x: v.rx, y: v.ry, z: v.rz, top: v.top } : null;
   }
 
+  /** Unit control: ids that always show a health bar (the selection), and the unit the camera sits in (not drawn). */
+  alwaysBar: ReadonlySet<number> | null = null;
+  hideId = -1;
+  /** Where unit `id` is between its last two sim steps (alpha 0..1), on the ground; null if never seen. */
+  lerpPos(id: number, alpha: number, out: { x: number; z: number }): boolean {
+    const v = this.vis.get(id);
+    if (!v) return false;
+    out.x = v.px + (v.x - v.px) * alpha; out.z = v.pz + (v.z - v.pz) * alpha;
+    return true;
+  }
+  /** Drawn heading of unit `id` (radians, forward = (sin, cos)) and its model height; null if never drawn. */
+  headOf(id: number): { yaw: number; top: number } | null {
+    const v = this.vis.get(id);
+    return v ? { yaw: v.yaw, top: v.top } : null;
+  }
+
   zoomK = 1;
   update(alpha: number, now: number, dt: number, cam: THREE.Camera) {
     const counts = this.counts;
@@ -232,6 +248,7 @@ export class UnitView {
       const type = u.t >= 0 && u.t < NT ? u.t : 0;
       const im = this.inst[u.s][type];
       if (!im) continue;
+      if (u.id === this.hideId) { v.rx = x; v.ry = heightY(this.t, x, z); v.rz = z; v.top = this.kTop[u.s * NT + type] * this.kScale[u.s * NT + type] * US * zk; continue; }
       const ci = u.s * NT + type;
       const i = counts[ci]++;
       if (i >= this.caps[type]) continue;
@@ -271,7 +288,7 @@ export class UnitView {
       // health bar: wounded units, and heroes always (they are worth watching)
       const barY = y + top + 0.2;
       let cs = 0;
-      if ((u.hp < u.mhp || hero) && nb < BAR_MAX) this.bar(nb++, x, barY, z, hero ? 1.5 : 1.1, Math.max(0, u.hp / u.mhp), u.s, camQ);
+      if ((u.hp < u.mhp || hero || this.alwaysBar?.has(u.id)) && nb < BAR_MAX) this.bar(nb++, x, barY, z, hero ? 1.5 : 1.1, Math.max(0, u.hp / u.mhp), u.s, camQ);
       if (hero && nRing < 16) {
         // ground ring, tilted to the slope
         const h = 0.6;

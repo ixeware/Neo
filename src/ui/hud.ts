@@ -193,6 +193,7 @@ export class Hud {
       tools.append(b);
       return b;
     };
+    this.mkTool = mk;
     mk(ICON.menu, 'Меню', () => o.onMenu());
     mk(ICON.home, 'К своей высотке', () => o.onHome());
     mk(ICON.sound, 'Звук', b => b.classList.toggle('off', !o.onSound()));
@@ -203,6 +204,9 @@ export class Hud {
   }
 
   private myBuffs: HTMLElement;
+  private mkTool!: (icon: string, label: string, fn: (b: HTMLButtonElement) => void) => HTMLButtonElement;
+  /** One more round button on the toolbar (unit control adds «Кто в игре»). */
+  addTool(icon: string, label: string, fn: (b: HTMLButtonElement) => void): HTMLButtonElement { return this.mkTool(icon, label, fn); }
 
   setSide(s: Side) {
     this.side = s;

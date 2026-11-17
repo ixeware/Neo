@@ -1,9 +1,10 @@
 // Headless AI-vs-AI run: balance, speed, content events, state size, determinism, plus unit checks
 // for every mechanic (heroes, v3: гелики, спортики, ersno steal, админ pack, снюс/LOOP cards, places)
-// and for the admin commands (every op, malformed bodies, channels, snapshots and rollback).
+// and for the admin commands (every op, malformed bodies, channels, snapshots and rollback), and for
+// unit control (orders, possession, validation, flow-field cache, snapshots and rollback).
 // npx tsx tools/simtest.ts <minutes> <seed>
-import { loadTerrain, lcAt, navIndex, LC } from '../src/world/terrain';
-import { Sim, hashState, PT_DONER, PT_PLACE0, PT_COUNT, type Cmd, type State, type U } from '../src/sim/sim';
+import { loadTerrain, lcAt, navIndex, passable, LC } from '../src/world/terrain';
+import { Sim, hashState, PT_DONER, PT_PLACE0, PT_COUNT, OM, ORD_MAX, POSS_IDLE, ORD_IDLE, canControl, type Cmd, type State, type U } from '../src/sim/sim';
 import {
   UNITS, CARDS, SIDE_NAME, RIDE, GOLEM, CHICKEN, CHIMAEV, BEKHAN, WOU, ADMIN, ERSNO, ADAM, MOHMAD, GELIK, SPORTIK, BOSS,
   HERO, PLACE, BUFF, Fx, SHOP, unitName, cardText, type Card, type Side,
@@ -777,3 +778,297 @@ const doAdm = (s: Sim, body: Record<string, unknown>) => { s.fx.length = 0; s.st
 }
 const admFails = fails.slice(admFails0);
 console.log(admFails.length ? `admin checks FAILED: ${admFails.join('; ')}` : 'admin checks OK');
+
+// ---- unit control: orders, possession, validation, flow cache, snapshots, rollback -----------------------
+console.log('--- unit control checks ---');
+const ctlFails0 = fails.length;
+let ctlN = 0;
+/** A command from player p at the current tick. */
+const C = (s: Sim, p: string, b: Record<string, unknown>) => ({ t: s.st.tick, id: `${p}:${String(ctlN++).padStart(6, '0')}`, p, ...b }) as unknown as Cmd;
+const stepC = (s: Sim, ...c: Cmd[]) => { s.fx.length = 0; s.step(c.length ? c : undefined); return s.fx.slice(); };
+const runN = (s: Sim, n: number) => { for (let i = 0; i < n; i++) s.step(undefined); s.fx.length = 0; };
+/** sandbox() with three players: pa and pb play Атаги, pk Курчалой. */
+function ctlBox(seed = 5): Sim {
+  const s = sandbox(seed);
+  stepC(s, C(s, 'pa', { k: 'join', s: 0 }), C(s, 'pb', { k: 'join', s: 0 }), C(s, 'pk', { k: 'join', s: 1 }));
+  return s;
+}
+const freeze = (s: Sim, side: Side, on = 1) => { s.st.adm ??= { frz: [0, 0], god: [0, 0], ai: [0, 0] }; s.st.adm.frz[side] = on; };
+const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u.x - x, u.z - z);
+{
+  check('canControl: not the boss, rides, Голем or Курица; heroes and the rest yes', !canControl(BOSS) && !canControl(RIDE) && !canControl(GOLEM) && !canControl(CHICKEN) && canControl(0) && canControl(1) && canControl(CHIMAEV) && canControl(GELIK) && canControl(SPORTIK) && canControl(ADAM));
+  // move: a group walks across the field in formation, arrives and holds
+  const s = ctlBox(), a = s.st.pts[0];
+  const ws: U[] = [];
+  for (let i = 0; i < 12; i++) ws.push(s.spawn(0, 1, a.x + 3 + (i % 4), a.z + 2 + Math.floor(i / 4), -1));
+  const tx = a.x + 40, tz = a.z + 6;
+  stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: ws.map(u => u.id), m: 'move', x: tx, z: tz }));
+  const dests = new Set(ws.map(u => `${u.o?.x},${u.o?.z}`));
+  check('move: every unit gets an order with its own formation slot', ws.every(u => u.o?.m === OM.MOVE && u.o.c >= 0 && dist(u.o, tx, tz) < 4) && dests.size === 12);
+  runN(s, 450);
+  check('move: the group arrives (all within 4 of the spot) and holds', ws.every(u => u.o?.m === OM.HOLD && dist(u, tx, tz) < 4), ws.map(u => dist(u, tx, tz).toFixed(1)).join(' '));
+  const p0 = ws.map(u => ({ x: u.x, z: u.z }));
+  runN(s, 100);
+  check('hold: they stay put', ws.every((u, i) => dist(u, p0[i].x, p0[i].z) < 1.2));
+  // the selection split over two commands keeps one formation
+  const ids20: number[] = [];
+  for (let i = 0; i < 20; i++) ids20.push(s.spawn(0, 0, a.x + 2 + (i % 5) * 0.8, a.z + 4 + Math.floor(i / 5) * 0.8, -1).id);
+  stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: ids20.slice(0, 12), m: 'move', x: tx, z: tz - 15, fi: 0, fn: 20 }), C(s, 'pa', { k: 'ord', s: 0, ids: ids20.slice(12), m: 'move', x: tx, z: tz - 15, fi: 12, fn: 20 }));
+  check('move in chunks (fi / fn): 20 distinct slots', new Set(ids20.map(id => { const o = s.unit(id)!.o!; return `${o.x},${o.z}`; })).size === 20);
+  // auto: back to goal picking
+  stepC(s, C(s, 'pb', { k: 'ord', s: 0, ids: ws.slice(0, 4).map(u => u.id), m: 'auto' }));
+  const q0 = ws.slice(0, 4).map(u => ({ x: u.x, z: u.z }));
+  runN(s, 80);
+  check('auto (from another player of the side): no order, goals picked, walking again', ws.slice(0, 4).every((u, i) => u.o === undefined && u.g >= 0 && dist(u, q0[i].x, q0[i].z) > 3) && ws[4].o?.m === OM.HOLD);
+}
+{
+  // attack: chase a target across the field (flow field when far), kill it, then hold
+  const s = ctlBox(), a = s.st.pts[0];
+  const w1 = s.spawn(0, 1, a.x + 4, a.z + 3, -1), w2 = s.spawn(0, 1, a.x + 4, a.z + 4, -1);
+  const e = s.spawn(1, 0, a.x + 34, a.z + 4, -1);
+  freeze(s, 1);
+  stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: [w1.id, w2.id], m: 'attack', tg: e.id }));
+  check('attack: the order is on both', w1.o?.m === OM.ATTACK && w1.o.tg === e.id && w2.o?.tg === e.id);
+  let tk = 0;
+  while (e.hp > 0 && tk < 500) { s.step(undefined); tk++; }
+  s.step(undefined); s.step(undefined);
+  check('attack: the target dies, then they hold where they stand', e.hp <= 0 && w1.o?.m === OM.HOLD && w2.o?.m === OM.HOLD, `${tk} ticks`);
+  // hold: an enemy out of reach is left alone, one in reach is hit; the holder does not move
+  const h = s.spawn(0, 1, a.x + 10, a.z + 12, -1);
+  stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: [h.id], m: 'hold' }));
+  const far = s.spawn(1, 0, h.x + 5, h.z, -1);
+  runN(s, 60);
+  check('hold: enemy 5 away untouched, holder still', far.hp === far.mhp && dist(h, h.o!.x, h.o!.z) < 0.6);
+  const close = s.spawn(1, 0, h.x - 1.8, h.z, -1);
+  runN(s, 60);
+  check('hold: enemy in reach gets hit, holder still', close.hp < close.mhp && dist(h, h.o!.x, h.o!.z) < 1.2);
+  freeze(s, 1, 0);
+}
+{
+  // attackMove: fights what it meets on the way, then goes on and arrives
+  const s = ctlBox(), a = s.st.pts[0];
+  const ws = [0, 1, 2].map(i => s.spawn(0, 1, a.x + 4, a.z + 2 + i, -1));
+  const tx = a.x + 40, tz = a.z + 6;
+  const e = s.spawn(1, 0, a.x + 18, a.z + 6, -1);
+  freeze(s, 1);
+  stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: ws.map(u => u.id), m: 'attackMove', x: tx, z: tz }));
+  let met = -1;
+  for (let i = 0; i < 600; i++) { s.step(undefined); if (met < 0 && e.hp <= 0) met = i; }
+  check('attackMove: kills the enemy on the way, then arrives and holds', met > 0 && ws.every(u => u.o?.m === OM.HOLD && dist(u, tx, tz) < 4), `killed at ${met}`);
+  // plain move walks past enemies
+  const s2 = ctlBox(), b = s2.st.pts[0];
+  const m = s2.spawn(0, 1, b.x + 4, b.z + 6, -1), e2 = s2.spawn(1, 0, b.x + 18, b.z + 6, -1);
+  freeze(s2, 1);
+  stepC(s2, C(s2, 'pa', { k: 'ord', s: 0, ids: [m.id], m: 'move', x: b.x + 40, z: b.z + 6 }));
+  runN(s2, 400);
+  check('move: does not stop to fight', e2.hp === e2.mhp && m.o?.m === OM.HOLD && dist(m, b.x + 40, b.z + 6) < 2);
+}
+{
+  // possession
+  const s = ctlBox(), a = s.st.pts[0], n = (p: string) => s.st.players[p].n;
+  const w = [0, 1, 2, 3, 4, 5].map(i => s.spawn(0, 1, a.x + 6 + i * 3, a.z + 8, -1));
+  let fx = stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: [w[0].id], m: 'possessed' }));
+  check('possess: order on the unit with the player number, fx possess on', w[0].o?.m === OM.POSSESS && w[0].o.p === n('pa') && fx.some(e => e.e === 'possess' && e.id === w[0].id && e.on === 1));
+  const x0 = w[0].x, z0 = w[0].z, spd = (P(s).stats(w[0]).spd * 10) / (terrain.navCost[navIndex(terrain, x0, z0)] || 30);
+  stepC(s, C(s, 'pa', { k: 'ctl', s: 0, u: w[0].id, dx: 8, dz: 0, atk: 0 }));
+  runN(s, 9);
+  check('ctl: the stick moves it east at its own speed', w[0].x - x0 > spd * 10 * 0.6 && w[0].x - x0 < spd * 10 * 1.6 && Math.abs(w[0].z - z0) < 1, `${(w[0].x - x0).toFixed(2)} vs ${(spd * 10).toFixed(2)}`);
+  fx = stepC(s, C(s, 'pa', { k: 'ctl', s: 0, u: w[1].id, dx: 0, dz: 0, atk: 0 }));
+  check('one possessed unit per player: taking another lets the first hold', w[1].o?.m === OM.POSSESS && w[0].o?.m === OM.HOLD && fx.some(e => e.e === 'possess' && e.id === w[0].id && e.on === 0));
+  const before = JSON.stringify(w[1].o);
+  stepC(s, C(s, 'pb', { k: 'ctl', s: 0, u: w[1].id, dx: -8, dz: 0, atk: 1 }), C(s, 'pb', { k: 'ord', s: 0, ids: [w[1].id, w[2].id], m: 'move', x: a.x + 30, z: a.z + 20 }));
+  check('another player cannot drive or order a unit someone possesses (the rest of the order applies)', JSON.stringify(w[1].o) === before && w[2].o?.m === OM.MOVE);
+  stepC(s, C(s, 'pk', { k: 'ctl', s: 1, u: w[3].id, dx: 1, dz: 0, atk: 0 }), C(s, 'pk', { k: 'ctl', s: 0, u: w[3].id, dx: 1, dz: 0, atk: 0 }), C(s, 'pk', { k: 'ord', s: 0, ids: [w[3].id], m: 'hold' }));
+  check('the other side cannot touch our units', w[3].o === undefined);
+  // attack in front only (a unit of its own, away from the others)
+  freeze(s, 1);
+  const me = s.spawn(0, 1, a.x + 14, a.z + 22, -1), ahead = s.spawn(1, 0, me.x + 1.6, me.z, -1), behind = s.spawn(1, 0, me.x - 1.6, me.z + 0.2, -1);
+  stepC(s, C(s, 'pa', { k: 'ctl', s: 0, u: me.id, dx: 0, dz: 0, atk: 1, fx: 8, fz: 0 }));
+  runN(s, 30);
+  check('atk: hits the enemy in front, not the one behind', ahead.hp < ahead.mhp && behind.hp === behind.mhp, `${ahead.hp}/${behind.hp}`);
+  stepC(s, C(s, 'pa', { k: 'ctl', s: 0, u: me.id, dx: 0, dz: 0, atk: 1, fx: -8, fz: 0 }));
+  runN(s, 30);
+  check('atk: turning round hits the other one', behind.hp < behind.mhp);
+  freeze(s, 1, 0);
+  fx = stepC(s, C(s, 'pa', { k: 'ctl', s: 0, u: me.id, dx: 0, dz: 0, atk: 0, rel: 1 }));
+  check('rel: lets go, the unit holds where it stands', me.o?.m === OM.HOLD && dist(me, me.o.x, me.o.z) < 0.01 && fx.some(e => e.e === 'possess' && e.on === 0));
+  // nobody drives for 30 s → auto
+  stepC(s, C(s, 'pa', { k: 'ctl', s: 0, u: w[4].id, dx: 0, dz: 0, atk: 0 }));
+  runN(s, POSS_IDLE - 20);
+  const still = w[4].o?.m === OM.POSSESS;
+  runN(s, 40);
+  check('possessed unit with no ctl for 30 s goes back to auto', still && w[4].o === undefined);
+  // keep-alive keeps it
+  stepC(s, C(s, 'pa', { k: 'ctl', s: 0, u: w[4].id, dx: 0, dz: 0, atk: 0 }));
+  for (let i = 0; i < 4; i++) { runN(s, 100); stepC(s, C(s, 'pa', { k: 'ctl', s: 0, u: w[4].id, dx: 0, dz: 0, atk: 0 })); }
+  check('a ctl every 10 s keeps it', w[4].o?.m === OM.POSSESS);
+  // changing sides lets go
+  stepC(s, C(s, 'pa', { k: 'join', s: 1 }));
+  check('join the other side: the possessed unit goes back to auto', w[4].o === undefined);
+  // the stick never takes a unit into blocked ground
+  const T = terrain;
+  let spot: { x: number; z: number } | null = null;
+  for (let j = 10; j < T.nh - 10 && !spot; j++) for (let i = 10; i < T.nw - 10 && !spot; i++) {
+    const c = j * T.nw + i;
+    if (T.navCost[c] && !T.navCost[c + 1] && T.navCost[c - 1] && T.navCost[c - T.nw] && T.navCost[c + T.nw]) spot = { x: (i + 0.5) * 2, z: (j + 0.5) * 2 };
+  }
+  const s2 = ctlBox();
+  const g = s2.spawn(0, 3, spot!.x, spot!.z, -1); // Баран, fast
+  stepC(s2, C(s2, 'pa', { k: 'ctl', s: 0, u: g.id, dx: 8, dz: 1, atk: 0 }));
+  let okP = true;
+  for (let i = 0; i < 60; i++) { s2.step(undefined); if (!passable(T, g.x, g.z)) okP = false; }
+  check('ctl: blocked ground stays blocked', okP && g.hp > 0);
+  // heroes keep casting while driven (Чимаев «Землетряс»)
+  const s3 = ctlBox(), k = s3.st.pts[1];
+  const ch = s3.spawn(1, CHIMAEV, k.x - 30, k.z, -1);
+  for (let i = 0; i < 4; i++) s3.spawn(0, 0, ch.x + 1 + i * 0.4, ch.z + 0.5, -1);
+  freeze(s3, 0);
+  s3.st.units.forEach(u => { if (u.id === ch.id) u.ab = 3; });
+  stepC(s3, C(s3, 'pk', { k: 'ctl', s: 1, u: ch.id, dx: 0, dz: 0, atk: 1, fx: 8, fz: 0 }));
+  let quake = false;
+  for (let i = 0; i < 40; i++) { s3.step(undefined); if (s3.fx.some(e => e.e === 'ability' && e.key === 'quake')) quake = true; s3.fx.length = 0; }
+  check('possessed hero still casts (Чимаев «Землетряс»)', quake && ch.o?.m === OM.POSSESS);
+}
+{
+  // invalid commands: ignored, no throw, the world exactly as without them
+  const mk = (s: Sim) => {
+    const a = s.st.pts[0];
+    const boss = s.spawn(0, BOSS, a.x + 3, a.z + 3, -1), ride = s.spawn(0, RIDE, a.x + 4, a.z + 3, -1), gol = s.spawn(0, GOLEM, a.x + 5, a.z + 3, -1), chk = s.spawn(0, CHICKEN, a.x + 6, a.z + 3, -1);
+    const w = s.spawn(0, 1, a.x + 7, a.z + 3, -1), e = s.spawn(1, 1, a.x + 30, a.z + 3, -1);
+    return { boss, ride, gol, chk, w, e };
+  };
+  const x = ctlBox(9), y = ctlBox(9), ux = mk(x); mk(y);
+  const W = ux.w.id, E = ux.e.id;
+  const many = Array.from({ length: ORD_MAX + 1 }, () => W);
+  const bad: Record<string, unknown>[] = [
+    { k: 'ord', s: 0, ids: W, m: 'hold' }, { k: 'ord', s: 0, ids: [], m: 'hold' }, { k: 'ord', s: 0, ids: many, m: 'hold' }, { k: 'ord', s: 0, m: 'hold' },
+    { k: 'ord', s: 0, ids: ['1', NaN, 1.5, null, -1, 1e15], m: 'hold' }, { k: 'ord', s: 0, ids: [W], m: '__proto__' }, { k: 'ord', s: 0, ids: [W], m: 'constructor' },
+    { k: 'ord', s: 0, ids: [W], m: 'nope' }, { k: 'ord', s: 0, ids: [W] }, { k: 'ord', s: 0, ids: [W], m: 'move' }, { k: 'ord', s: 0, ids: [W], m: 'move', x: NaN, z: 5 },
+    { k: 'ord', s: 0, ids: [W], m: 'move', x: Infinity, z: 5 }, { k: 'ord', s: 0, ids: [W], m: 'move', x: -3, z: 5 }, { k: 'ord', s: 0, ids: [W], m: 'move', x: 1e6, z: 5 },
+    { k: 'ord', s: 0, ids: [W], m: 'attackMove', x: '50', z: 50 }, { k: 'ord', s: 0, ids: [W], m: 'attack' }, { k: 'ord', s: 0, ids: [W], m: 'attack', tg: W },
+    { k: 'ord', s: 0, ids: [W], m: 'attack', tg: 999999 }, { k: 'ord', s: 0, ids: [W], m: 'attack', tg: String(E) }, { k: 'ord', s: 2, ids: [W], m: 'hold' },
+    { k: 'ord', s: '0', ids: [W], m: 'hold' }, { k: 'ord', s: 1, ids: [W], m: 'hold' }, { k: 'ord', s: 0, ids: [E], m: 'hold' },
+    { k: 'ord', s: 0, ids: [ux.boss.id, ux.ride.id, ux.gol.id, ux.chk.id], m: 'hold' }, { k: 'ord', s: 0, ids: [ux.boss.id], m: 'possessed' },
+    { k: 'ctl', s: 0, u: W, dx: 9, dz: 0, atk: 0 }, { k: 'ctl', s: 0, u: W, dx: -9, dz: 0, atk: 0 }, { k: 'ctl', s: 0, u: W, dx: 1.5, dz: 0, atk: 0 },
+    { k: 'ctl', s: 0, u: W, dx: '3', dz: 0, atk: 0 }, { k: 'ctl', s: 0, u: W, dx: 1, dz: null, atk: 0 }, { k: 'ctl', s: 0, u: W, dx: 1, dz: 0, atk: 2 },
+    { k: 'ctl', s: 0, u: W, dx: 1, dz: 0, atk: 0, rel: 2 }, { k: 'ctl', s: 0, u: W, dx: 1, dz: 0, atk: 0, rel: true }, { k: 'ctl', s: 0, u: W, dx: 1, dz: 0, atk: 0, fx: 3 },
+    { k: 'ctl', s: 0, u: W, dx: 1, dz: 0, atk: 0, fx: 9, fz: 0 }, { k: 'ctl', s: 0, u: 'x', dx: 1, dz: 0, atk: 0 }, { k: 'ctl', s: 0, u: E, dx: 1, dz: 0, atk: 0 },
+    { k: 'ctl', s: 0, u: ux.boss.id, dx: 1, dz: 0, atk: 0 }, { k: 'ctl', s: 0, u: ux.ride.id, dx: 1, dz: 0, atk: 0 }, { k: 'ctl', s: 0, dx: 1, dz: 0, atk: 0 },
+    { k: 'ctl', s: 1, u: W, dx: 1, dz: 0, atk: 0 },
+  ];
+  let threw = '';
+  try {
+    for (let i = 0; i < 200; i++) {
+      const cm = i % 5 === 0 ? [...bad.map(b => C(x, 'pa', b)), C(x, 'nobody', { k: 'ord', s: 0, ids: [W], m: 'hold' }), C(x, 'pk', { k: 'ord', s: 0, ids: [W], m: 'hold' })] : undefined;
+      x.step(cm); y.step(undefined);
+    }
+  } catch (err) { threw = String(err); }
+  // the ignored commands still count as the player being here (lastHuman), like any command: compare without it
+  const strip2 = (st: State) => { const j = JSON.parse(JSON.stringify(st)) as State; for (const sd of j.sides) sd.lastHuman = 0; for (const p of Object.values(j.players)) p.last = 0; return hashState(j); };
+  check('invalid ord / ctl: ignored, no throw, world identical', !threw && strip2(x.st) === strip2(y.st) && !x.st.units.some(u => u.o), threw);
+  check('validCmd: ord / ctl shapes', validCmd({ t: 5, id: 'a', p: 'q', k: 'ord', s: 0, ids: [1, 2], m: 'move', x: 1, z: 2 }) && validCmd({ t: 5, id: 'a', p: 'q', k: 'ctl', s: 1, u: 3, dx: 1, dz: -1, atk: 0 })
+    && !validCmd({ t: 5, id: 'a', p: 'q', k: 'ord', s: 0, ids: 'x', m: 'move' }) && !validCmd({ t: 5, id: 'a', p: 'q', k: 'ord', s: 0, ids: many, m: 'hold' }) && !validCmd({ t: 5, id: 'a', p: 'q', k: 'ord', s: 3, ids: [1], m: 'hold' })
+    && !validCmd({ t: 5, id: 'a', p: 'q', k: 'ctl', s: 0, u: 1.5, dx: 0, dz: 0, atk: 0 }) && !validCmd({ t: 5, id: 'a', p: 'q', k: 'ctl', s: 0, u: 1, dx: 20, dz: 0, atk: 0 }));
+  // a save carrying a junk order drops it the same way everywhere
+  const z = JSON.parse(JSON.stringify(x.st)) as State;
+  (z.units[0] as unknown as Record<string, unknown>).o = { m: 9 };
+  (z.units[1] as unknown as Record<string, unknown>).o = 'x';
+  (z.units[2] as unknown as Record<string, unknown>).o = { m: OM.MOVE, x: 1, z: 1, c: 1e9, tg: -1, k: 0 };
+  (z.units[3] as unknown as Record<string, unknown>).o = { m: OM.POSSESS, x: 0, z: 0, c: -1, tg: -1, k: 0, p: 0, dx: 99, dz: 0, fx: 0, fz: 0, a: 0, at: 0 };
+  const zz = new Sim(terrain); zz.load(z);
+  check('junk orders in a save are dropped', !zz.st.units.some(u => u.o));
+  // a side nobody plays for 3 min goes back to auto
+  const s = ctlBox(), w = s.spawn(0, 1, s.st.pts[0].x + 4, s.st.pts[0].z + 3, -1);
+  stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: [w.id], m: 'hold' }));
+  runN(s, ORD_IDLE - 20);
+  const held = w.o?.m === OM.HOLD;
+  runN(s, 40);
+  check('orders of a side with no human for 3 min go back to auto', held && w.o === undefined);
+}
+{
+  // random order / control streams for both sides on a live AI war: JSON and structuredClone
+  // restores, the flow-field cache evicting all the time, and a Session with late commands
+  // (rollback) — all the same world
+  const sort = (l: Cmd[]) => l.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+  function stream(sim: Sim, ticks: number, seed: number) {
+    let r = seed | 0;
+    const rnd = () => { r = (r + 0x6d2b79f5) | 0; let q = Math.imul(r ^ (r >>> 15), r | 1); q ^= q + Math.imul(q ^ (q >>> 7), q | 61); return ((q ^ (q >>> 14)) >>> 0) / 4294967296; };
+    const ri = (n: number) => Math.floor(rnd() * n);
+    const players: [string, Side][] = [['pa', 0], ['pk', 1], ['pb', 0]];
+    const at = new Map<number, Cmd[]>(), hashes: number[] = [];
+    let n = 0, ords = 0, ctls = 0;
+    for (let i = 0; i < ticks; i++) {
+      const st = sim.st, list: Cmd[] = [];
+      const add = (p: string, b: Record<string, unknown>) => list.push({ ...b, t: st.tick, id: `${p}:${String(n++).padStart(6, '0')}`, p } as unknown as Cmd);
+      if (i === 0) for (const [p, s] of players) add(p, { k: 'join', s });
+      for (const [p, s] of players) {
+        if (p === 'pk' && i > 600 && i < 600 + ORD_IDLE + 150) continue; // Курчалой goes quiet: its orders expire
+        if (rnd() > 0.12) continue;
+        const own = st.units.filter(u => u.s === s && u.hp > 0 && canControl(u.t)), foe = st.units.filter(u => u.s !== s && u.hp > 0);
+        if (!own.length) continue;
+        const pick = () => { const k = 1 + ri(Math.min(ORD_MAX, own.length)), out: number[] = []; for (let j = 0; j < k; j++) out.push(own[ri(own.length)].id); return out; };
+        const cx = own[0].x + (rnd() - 0.5) * 120, cz = own[0].z + (rnd() - 0.5) * 120;
+        const pn = st.players[p]?.n ?? -1, mine = own.find(u => u.o?.m === OM.POSSESS && u.o.p === pn);
+        const a = ri(12);
+        if (a < 3) { add(p, { k: 'ord', s, ids: pick(), m: a === 0 ? 'attackMove' : 'move', x: Math.round(cx * 100) / 100, z: Math.round(cz * 100) / 100, ...(rnd() < 0.3 ? { fi: ri(30), fn: 64 } : {}) }); ords++; }
+        else if (a === 3 && foe.length) { add(p, { k: 'ord', s, ids: pick(), m: 'attack', tg: foe[ri(foe.length)].id }); ords++; }
+        else if (a === 4) { add(p, { k: 'ord', s, ids: pick(), m: 'hold' }); ords++; }
+        else if (a === 5) { add(p, { k: 'ord', s, ids: pick(), m: 'auto' }); ords++; }
+        else if (a === 6) { add(p, { k: 'ord', s, ids: [own[ri(own.length)].id], m: 'possessed' }); ords++; }
+        else if (a < 11) {
+          const u = mine ?? own[ri(own.length)];
+          add(p, { k: 'ctl', s, u: u.id, dx: ri(17) - 8, dz: ri(17) - 8, atk: ri(2), ...(rnd() < 0.4 ? { fx: ri(17) - 8, fz: ri(17) - 8 } : {}), ...(rnd() < 0.05 ? { rel: 1 } : {}) }); ctls++;
+        } else add(p, { k: 'ord', s: 1 - s, ids: [own[0].id, 1e9], m: 'hold', x: NaN }); // junk
+      }
+      if (list.length) at.set(st.tick, sort(list));
+      sim.step(list.length ? list : undefined);
+      if (i % 100 === 99) hashes.push(hashState(sim.st));
+    }
+    return { at, hashes, ords, ctls };
+  }
+  const A = runTo(SEED, 3000);
+  const json0 = JSON.stringify(A.st);
+  const tA = performance.now();
+  const ref = stream(A, 3000, 77);
+  const msA = performance.now() - tA;
+  const withOrd = A.st.units.filter(u => u.o).length;
+  const net = new Map([...ref.at].map(([t, l]) => [t, JSON.parse(JSON.stringify(l)) as Cmd[]]));
+  // B: JSON restore at the start and every 300 ticks, commands through JSON
+  const B = new Sim(terrain); B.load(JSON.parse(json0) as State); B.quiet = true;
+  // C: structuredClone restores, a flow cache of one field (evicts on every new destination)
+  const Cs = new Sim(terrain); Cs.load(structuredClone(JSON.parse(json0)) as State); Cs.quiet = true; Cs.flowCap = 1;
+  let okB = true, okC = true;
+  for (let i = 0; i < 3000; i++) {
+    B.step(net.get(B.st.tick)); Cs.step(structuredClone(ref.at.get(Cs.st.tick)));
+    if (i % 100 === 99) {
+      if (hashState(B.st) !== ref.hashes[(i - 99) / 100]) okB = false;
+      if (hashState(Cs.st) !== ref.hashes[(i - 99) / 100]) okC = false;
+      if (i % 300 === 299) { B.load(JSON.parse(JSON.stringify(B.st)) as State); Cs.load(structuredClone(Cs.st)); }
+    }
+  }
+  check(`random ord / ctl streams (${ref.ords} ord, ${ref.ctls} ctl, ${withOrd} units under orders at the end): JSON restores, commands through JSON`, okB);
+  check('… structuredClone restores with a 1-field flow cache (eviction changes nothing)', okC);
+  // D: a Session — every other command arrives 1..25 ticks late and forces a rollback
+  const D = new Sim(terrain); D.load(JSON.parse(json0) as State); D.quiet = true;
+  const backend: Backend = { kind: 'local', send() { /* nobody else */ }, checkpoint() { /* not stored */ } };
+  const sess = new Session(D, backend, 'x');
+  const all = [...ref.at.values()].flat();
+  let late: { c: Cmd; due: number }[] = [];
+  all.forEach((c, i) => { if (i % 2 === 0) sess.receive(c); else late.push({ c, due: c.t + 1 + (i % 25) }); });
+  const t0D = performance.now();
+  let rolled = 0;
+  sess.onRollback = () => { rolled++; };
+  while (D.st.tick < A.st.tick) {
+    (sess as unknown as { stepOnce(): void }).stepOnce();
+    const now = late.filter(l => l.due <= D.st.tick);
+    for (const l of now) sess.receive(l.c);
+    if (now.length) late = late.filter(l => l.due > D.st.tick);
+  }
+  const tail = late.length;
+  for (const l of late) sess.receive(l.c); // the last ones arrive after the reference run ended: one more rollback
+  check(`… a Session with half the commands late (${rolled} rollbacks, ${tail} at the very end): same world`, hashState(D.st) === hashState(A.st) && D.st.tick === A.st.tick, `${(performance.now() - t0D).toFixed(0)} ms`);
+  check('… no NaN / null in the state', !JSON.stringify(A.st).includes('null'));
+  console.log(`  stream run ${msA.toFixed(0)} ms for 3000 ticks (orders + flow fields included)`);
+}
+const ctlFails = fails.slice(ctlFails0);
+console.log(ctlFails.length ? `unit control checks FAILED: ${ctlFails.join('; ')}` : 'unit control checks OK');

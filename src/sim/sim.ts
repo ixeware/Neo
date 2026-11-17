@@ -10,7 +10,7 @@ import {
 } from './defs';
 import { buildFlow, flowDir, type Flow } from './flow';
 import { normAdm, ADM_MAX, type Adm } from './admin';
-import { navIndex, passable, lcAt, LC, type Terrain } from '../world/terrain';
+import { navIndex, passable, lcAt, LC, NAV, type Terrain } from '../world/terrain';
 import { CAPTURE_PLACES } from '../data/places';
 
 export interface U {
@@ -22,7 +22,41 @@ export interface U {
   ld: number; // link: Мохьмад ↔ его Голем
   f: number; // UF flags
   fr: number; // scared until tick (админ «Курение убивает»): runs from the pack, never attacks
+  /** Player order (absent = auto: the unit picks its own goals). Only units canControl() may carry one. */
+  o?: Ord;
 }
+/**
+ * A player order on a unit (U.o). m: OM.*. Every field is a plain number (JSON-safe); the
+ * possession fields exist only while m is OM.POSSESS.
+ */
+export interface Ord {
+  m: number;
+  /** move / attackMove: this unit's own destination (its slot of the group's formation); hold: the spot it guards. */
+  x: number; z: number;
+  /** move / attackMove: nav cell of the group's destination (the flow field it follows); -1 otherwise. */
+  c: number;
+  /** attack: the target unit id; -1 otherwise. */
+  tg: number;
+  /** move / attackMove: ticks spent close to the destination or stuck; arrives after ORD_STUCK. */
+  k: number;
+  /** possessed: player number (Player.n) of whoever drives the unit. */
+  p?: number;
+  /** possessed: stick (ints −8..8), facing (ints −8..8, 0 0 = none yet), attack button 0|1, tick of the last 'ctl'. */
+  dx?: number; dz?: number; fx?: number; fz?: number; a?: number; at?: number;
+}
+/** Order modes (Ord.m). Auto is no order at all. */
+export const OM = { MOVE: 1, ATTACK: 2, AMOVE: 3, HOLD: 4, POSSESS: 5 } as const;
+/** 'ord' modes as sent in commands. */
+export type OrdMode = 'auto' | 'move' | 'attack' | 'attackMove' | 'hold' | 'possessed';
+/** At most this many unit ids per 'ord' command (the UI splits a bigger selection, see Cmd 'ord' fi / fn). */
+export const ORD_MAX = 64;
+/** A possessed unit goes back to auto after this many ticks without a 'ctl' from its player (30 s). */
+export const POSS_IDLE = 300;
+/** Orders of a side are dropped (back to auto) when no human of that side has sent anything for this long (3 min). */
+export const ORD_IDLE = 1800;
+const ORD_STUCK = 40;
+/** Formation spacing of a group move. */
+const ORD_SP = 1.2;
 /** Unit flags (U.f). */
 export const UF = { LAGMAN: 1, GONE: 2, UNLOADED: 4, FLEE: 8, ADM: 16 } as const; // ADM: removed by the admin (no bounty, no burst, no spill)
 export interface P {
@@ -96,6 +130,23 @@ export type Cmd =
   | { t: number; id: string; p: string; k: 'dep'; s: Side; u: number; x: number; z: number }
   | { t: number; id: string; p: string; k: 'vote'; s: Side; o: number }
   | { t: number; id: string; p: string; k: 'cfg'; d: number; hs: -1 | 0 | 1; mp: number }
+  /**
+   * Order for own units (any player of side s may order the side's units). ids: ≤ ORD_MAX unit ids;
+   * ids that are not alive, not of side s, not canControl() or possessed by another player are skipped.
+   * m 'move' / 'attackMove': x, z the destination (snapped to the nearest passable spot); the units
+   * take formation slots fi.. (default 0) of a formation of fn units (default ids.length) in ids order,
+   * so a selection split over several commands keeps one formation. m 'attack': tg an enemy unit id.
+   * m 'hold': stand and hit what comes in reach. m 'auto': back to picking goals. m 'possessed': the
+   * first valid id becomes this player's possessed unit (driven by 'ctl'). Invalid commands do nothing.
+   */
+  | { t: number; id: string; p: string; k: 'ord'; s: Side; ids: number[]; m: OrdMode; x?: number; z?: number; tg?: number; fi?: number; fn?: number }
+  /**
+   * Drive this player's possessed unit u (taking it first if it is free): dx, dz the stick (ints −8..8,
+   * normalised; 0 0 stands), atk 0|1 the attack button, fx, fz the facing for «attack in front» (ints
+   * −8..8, optional: defaults to the stick). rel: 1 lets go (the unit holds where it stands).
+   * The unit id is `u` because `id` is the command id.
+   */
+  | { t: number; id: string; p: string; k: 'ctl'; s: Side; u: number; dx: number; dz: number; atk: number; fx?: number; fz?: number; rel?: 1 }
   /** Admin command (src/sim/admin.ts normAdm documents the fields per op). Shared war: only from the 'adm' channels. */
   | { t: number; id: string; p: string; k: 'adm'; op: string; s?: number; v?: number; n?: number; u?: number; x?: number; z?: number; r?: number; key?: string; txt?: string };
 
@@ -156,7 +207,23 @@ export type FxEv =
   /** Announcement from the admin: plain text, ≤ 140 characters, for everyone. */
   | { e: 'adminSay'; txt: string }
   /** An admin command took effect. s: side (-1 both / none), n: amount, count or index, v: value. */
-  | { e: 'adm'; op: string; s: number; n: number; v: number };
+  | { e: 'adm'; op: string; s: number; n: number; v: number }
+  // ---- unit control ---------------------------------------------------------------------
+  /** Player number n (Player.n) took (on 1) or let go of (on 0) unit id of type t, side s. */
+  | { e: 'possess'; s: Side; id: number; t: number; n: number; on: 0 | 1 };
+
+/** Unit types players may order and possess: not the boss, the rides or summons (Голем follows Мохьмад, Курицы are a swarm). */
+export function canControl(t: number): boolean { return t !== BOSS && t !== RIDE && !UNITS[t]?.summon; }
+const isInt = (v: unknown, lo: number, hi: number): v is number => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+/** A loaded order is well-formed (see Ord); anything else is dropped by Sim.load. */
+function okOrd(u: U, cells: number): boolean {
+  const o = u.o as unknown as Record<string, unknown> | null;
+  if (!o || typeof o !== 'object' || Array.isArray(o) || !isInt(o.m, 1, 5) || !canControl(u.t)) return false;
+  if (!isNum(o.x) || !isNum(o.z) || !isInt(o.c, -1, cells - 1) || !Number.isInteger(o.tg) || !isInt(o.k, 0, 1e6)) return false;
+  if (o.m !== OM.POSSESS) return true;
+  return Number.isInteger(o.p) && isInt(o.dx, -8, 8) && isInt(o.dz, -8, 8) && isInt(o.fx, -8, 8) && isInt(o.fz, -8, 8) && isInt(o.a, 0, 1) && Number.isInteger(o.at);
+}
 
 export const PT_ARGUN = 7;
 export const PT_DONER = 8;
@@ -191,6 +258,9 @@ export class Sim {
   private tmp = { x: 0, z: 0 };
   private sc = { dmg: 0, range: 0, spd: 0, cd: 0, d: UNITS[0] };
   private donerSpot: { x: number; z: number };
+  /** Flow fields to the cells player orders go to: an LRU of at most flowCap, not part of the state (rebuilt identically anywhere). */
+  private oflows = new Map<number, Flow>();
+  flowCap = 24;
 
   constructor(public terrain: Terrain) {
     this.hw = Math.ceil(terrain.W / 4); this.hh = Math.ceil(terrain.H / 4);
@@ -308,6 +378,7 @@ export class Sim {
       if (u.t === ERSNO && u.mhp > UNITS[ERSNO].hp) { // pre-v3 tank ersno
         u.hp = Math.max(1, Math.floor((u.hp * UNITS[ERSNO].hp) / u.mhp)); u.mhp = UNITS[ERSNO].hp;
       }
+      if (u.o !== undefined && !okOrd(u, this.terrain.nw * this.terrain.nh)) delete u.o; // a malformed order is dropped the same way everywhere
     }
     if (oldSave) for (const s of [0, 1] as Side[]) {
       const sd = st.sides[s];
@@ -337,6 +408,7 @@ export class Sim {
     if (c.k === 'cfg') { st.diff = c.d; st.humanSide = c.hs; st.mp = c.mp; return; }
     if (c.k === 'join') {
       const pl = st.players[c.p];
+      if (pl && pl.s !== c.s) this.release(pl.n, false); // changed sides: let go of the old side's unit
       if (pl) pl.s = c.s; else st.players[c.p] = { s: c.s, cd: 0, joined: st.tick, last: st.tick, n: Object.keys(st.players).length };
       st.sides[c.s].lastHuman = st.tick;
       return;
@@ -351,6 +423,8 @@ export class Sim {
       if (v.open && c.o >= 0 && c.o < v.opts.length) v.ballots[c.p] = c.o;
       return;
     }
+    if (c.k === 'ord') { this.order(c, pl); return; }
+    if (c.k === 'ctl') { this.control(c, pl); return; }
     if (c.k === 'dep') {
       const why = this.canDeploy(c.s, c.u, c.x, c.z, pl);
       if (why) { this.emit({ e: 'deny', p: c.p, why }); return; }
@@ -541,6 +615,231 @@ export class Sim {
     }
   }
 
+  // ---- player orders (Cmd 'ord' / 'ctl') ----------------------------------------------------
+  /** Unit id → the unit, when player pn of side s may order it now (alive, own, controllable, not driven by someone else). */
+  private orderable(id: unknown, s: Side, pn: number): U | null {
+    if (!Number.isInteger(id)) return null;
+    const u = this.byId.get(id as number);
+    if (!u || u.hp <= 0 || u.s !== s || !canControl(u.t)) return null;
+    if (u.o && u.o.m === OM.POSSESS && u.o.p !== pn) return null;
+    return u;
+  }
+
+  private order(c: Extract<Cmd, { k: 'ord' }>, pl: Player) {
+    const T = this.terrain;
+    const ids = c.ids;
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > ORD_MAX) return;
+    const list: U[] = [], slot: number[] = [], seen = new Set<number>();
+    for (let i = 0; i < ids.length; i++) {
+      const u = this.orderable(ids[i], c.s, pl.n);
+      if (!u || seen.has(u.id)) continue;
+      seen.add(u.id); list.push(u); slot.push(i);
+    }
+    if (!list.length) return;
+    const mine = (u: U) => u.o !== undefined && u.o.m === OM.POSSESS; // orderable() already checked whose
+    const set = (u: U, o: Ord) => { if (mine(u)) this.emit({ e: 'possess', s: u.s, id: u.id, t: u.t, n: pl.n, on: 0 }); u.o = o; };
+    switch (c.m) {
+      case 'auto':
+        for (const u of list) { if (mine(u)) this.emit({ e: 'possess', s: u.s, id: u.id, t: u.t, n: pl.n, on: 0 }); delete u.o; u.rt = 0; }
+        return;
+      case 'hold':
+        for (const u of list) set(u, { m: OM.HOLD, x: u.x, z: u.z, c: -1, tg: -1, k: 0 });
+        return;
+      case 'attack': {
+        const t = Number.isInteger(c.tg) ? this.byId.get(c.tg as number) : undefined;
+        if (!t || t.hp <= 0 || t.s === c.s) return;
+        for (const u of list) { set(u, { m: OM.ATTACK, x: 0, z: 0, c: -1, tg: t.id, k: 0 }); u.tg = t.id; }
+        return;
+      }
+      case 'move': case 'attackMove': {
+        if (!isNum(c.x) || !isNum(c.z) || c.x < 0 || c.z < 0 || c.x > T.W || c.z > T.H) return;
+        const spot = this.admSpot(c.x, c.z);
+        if (!spot) return;
+        const cell = navIndex(T, spot.x, spot.z), m = c.m === 'move' ? OM.MOVE : OM.AMOVE;
+        const fn = isInt(c.fn, 1, 1024) ? c.fn : ids.length, fi = isInt(c.fi, 0, 1023) ? c.fi : 0;
+        const cols = Math.ceil(Math.sqrt(Math.max(fn, fi + ids.length))), rows = Math.ceil(Math.max(fn, fi + ids.length) / cols);
+        for (let k = 0; k < list.length; k++) {
+          const n = fi + slot[k], col = n % cols, row = Math.floor(n / cols);
+          let x = spot.x + (col - (cols - 1) / 2) * ORD_SP, z = spot.z + (row - (rows - 1) / 2) * ORD_SP;
+          if (!passable(T, x, z)) { x = spot.x; z = spot.z; }
+          set(list[k], { m, x, z, c: cell, tg: -1, k: 0 });
+          if (m === OM.MOVE) list[k].tg = -1;
+        }
+        return;
+      }
+      case 'possessed': this.possess(list[0], pl.n); return;
+    }
+  }
+
+  private control(c: Extract<Cmd, { k: 'ctl' }>, pl: Player) {
+    if (!isInt(c.dx, -8, 8) || !isInt(c.dz, -8, 8) || !isInt(c.atk, 0, 1)) return;
+    if (c.rel !== undefined && c.rel !== 1) return;
+    if ((c.fx !== undefined && !isInt(c.fx, -8, 8)) || (c.fz !== undefined && !isInt(c.fz, -8, 8)) || ((c.fx === undefined) !== (c.fz === undefined))) return;
+    const u = this.orderable(c.u, c.s, pl.n);
+    if (!u) return;
+    const o0 = u.o;
+    if (c.rel === 1) { // «Выйти»: the unit stays where it is
+      if (o0 && o0.m === OM.POSSESS) { u.o = { m: OM.HOLD, x: u.x, z: u.z, c: -1, tg: -1, k: 0 }; this.emit({ e: 'possess', s: u.s, id: u.id, t: u.t, n: pl.n, on: 0 }); }
+      return;
+    }
+    const o = o0 && o0.m === OM.POSSESS ? o0 : this.possess(u, pl.n);
+    o.dx = c.dx; o.dz = c.dz; o.a = c.atk; o.at = this.st.tick;
+    if (c.fx !== undefined && (c.fx || c.fz)) { o.fx = c.fx; o.fz = c.fz!; }
+    else if (c.fx === undefined && (c.dx || c.dz)) { o.fx = c.dx; o.fz = c.dz; }
+  }
+
+  /** Player pn drives u from now on; the unit that player drove before stays where it is. */
+  private possess(u: U, pn: number): Ord {
+    this.release(pn, true, u.id);
+    if (u.o && u.o.m === OM.POSSESS) return u.o;
+    const o: Ord = { m: OM.POSSESS, x: 0, z: 0, c: -1, tg: -1, k: 0, p: pn, dx: 0, dz: 0, fx: 0, fz: 0, a: 0, at: this.st.tick };
+    u.o = o; u.tg = -1;
+    this.emit({ e: 'possess', s: u.s, id: u.id, t: u.t, n: pn, on: 1 });
+    return o;
+  }
+
+  /** Lets go of player pn's possessed unit(s) (except `keep`): hold where they stand, or auto. */
+  private release(pn: number, hold: boolean, keep = -1) {
+    for (const u of this.st.units) {
+      const o = u.o;
+      if (!o || o.m !== OM.POSSESS || o.p !== pn || u.id === keep || u.hp <= 0) continue;
+      if (hold) u.o = { m: OM.HOLD, x: u.x, z: u.z, c: -1, tg: -1, k: 0 }; else { delete u.o; u.rt = 0; }
+      this.emit({ e: 'possess', s: u.s, id: u.id, t: u.t, n: pn, on: 0 });
+    }
+  }
+
+  /** Stale orders (every second): possessed units nobody drives go back to auto, and so does a side nobody plays. */
+  private ordIdle() {
+    const st = this.st, now = st.tick;
+    for (const u of st.units) {
+      const o = u.o;
+      if (!o || u.hp <= 0) continue;
+      if (o.m === OM.POSSESS && now - o.at! > POSS_IDLE) { delete u.o; u.rt = 0; this.emit({ e: 'possess', s: u.s, id: u.id, t: u.t, n: o.p!, on: 0 }); continue; }
+      if (now - st.sides[u.s].lastHuman > ORD_IDLE) { delete u.o; u.rt = 0; }
+    }
+  }
+
+  /** Flow field to nav cell `cell` (cached; any client rebuilds the identical field after an eviction). */
+  private oflow(cell: number): Flow {
+    const m = this.oflows;
+    let f = m.get(cell);
+    if (f) { m.delete(cell); m.set(cell, f); return f; }
+    const T = this.terrain, i = cell % T.nw, j = (cell - i) / T.nw;
+    f = buildFlow(T, (i + 0.5) * NAV, (j + 0.5) * NAV, 0.5);
+    m.set(cell, f);
+    while (m.size > Math.max(1, this.flowCap)) m.delete(m.keys().next().value as number);
+    return f;
+  }
+
+  private holdHere(u: U) { u.o = { m: OM.HOLD, x: u.x, z: u.z, c: -1, tg: -1, k: 0 }; }
+
+  /** Target choice of an ordered unit (instead of the auto rules). */
+  private ordTarget(u: U, o: Ord, S: { range: number; d: typeof UNITS[number] }) {
+    const now = this.st.tick, d = S.d;
+    switch (o.m) {
+      case OM.MOVE: case OM.POSSESS: u.tg = -1; return;
+      case OM.ATTACK: {
+        const t = this.byId.get(o.tg);
+        if (t && t.hp > 0 && t.s !== u.s) u.tg = t.id;
+        else { this.holdHere(u); u.tg = -1; } // the target is gone: stand here
+        return;
+      }
+    }
+    // attackMove: what the auto rules would pick on the way; hold: only what is in reach
+    const r = o.m === OM.AMOVE ? d.aggro : S.range + d.radius + 1.3;
+    if (d.bldg) {
+      const e = this.st.pts[1 - u.s], dx = e.x - u.x, dz = e.z - u.z, rr = r + HQ.radius[1 - u.s] + (o.m === OM.AMOVE ? 3 : 0);
+      u.tg = dx * dx + dz * dz <= rr * rr ? -2 : -1;
+      return;
+    }
+    const tgU = u.tg >= 0 ? this.byId.get(u.tg) : undefined;
+    if ((u.tg >= 0 && (!tgU || tgU.hp <= 0)) || (now + u.id) % 4 === 0) this.acquire(u, r);
+  }
+
+  /** Movement and attacks of an ordered unit. */
+  private ordAct(u: U, o: Ord, S: { dmg: number; range: number; spd: number; cd: number; d: typeof UNITS[number] }) {
+    if (o.m === OM.POSSESS) { this.possStep(u, o, S); return; }
+    const st = this.st, d = S.d;
+    // in reach of the target: hit it
+    let tx = 0, tz = 0, has = false;
+    if (u.tg >= 0) {
+      const t = this.byId.get(u.tg);
+      if (t && t.hp > 0) {
+        tx = t.x; tz = t.z; has = true;
+        const dx = t.x - u.x, dz = t.z - u.z, reach = S.range + d.radius + UNITS[t.t].radius;
+        if (dx * dx + dz * dz <= reach * reach) { if (u.cd === 0) this.attack(u, t, S.dmg, S.cd); return; }
+      } else u.tg = -1;
+    } else if (u.tg === -2) {
+      const e = st.pts[1 - u.s];
+      tx = e.x; tz = e.z; has = true;
+      const dx = e.x - u.x, dz = e.z - u.z, reach = S.range + HQ.radius[1 - u.s] + d.radius;
+      if (dx * dx + dz * dz <= reach * reach) { if (u.cd === 0) this.attackHq(u, (1 - u.s) as Side, S.dmg, S.cd); return; }
+    }
+    switch (o.m) {
+      case OM.HOLD: { // never chase: drift back to the guarded spot when pushed off it
+        const dx = o.x - u.x, dz = o.z - u.z, d2 = dx * dx + dz * dz;
+        if (d2 > 1) { const l = Math.sqrt(d2); this.stepDir(u, dx / l, dz / l, S.spd); }
+        return;
+      }
+      case OM.ATTACK: {
+        if (!has) return;
+        const dx = tx - u.x, dz = tz - u.z, d2 = dx * dx + dz * dz;
+        if (d2 < 100) { const l = Math.sqrt(d2); if (l > 0.001) this.stepDir(u, dx / l, dz / l, S.spd); return; }
+        // far: the flow field to the target's 3×3-cell block (a moving target does not rebuild it every step)
+        const T = this.terrain, ci = Math.max(0, Math.min(T.nw - 1, Math.floor(tx / NAV))), cj = Math.max(0, Math.min(T.nh - 1, Math.floor(tz / NAV)));
+        const bi = Math.min(T.nw - 1, ci - (ci % 3) + 1), bj = Math.min(T.nh - 1, cj - (cj % 3) + 1);
+        if (flowDir(T, this.oflow(bj * T.nw + bi), u.x, u.z, this.tmp)) this.stepDir(u, this.tmp.x, this.tmp.z, S.spd);
+        else { const l = Math.sqrt(d2); this.stepDir(u, dx / l, dz / l, S.spd); }
+        return;
+      }
+      case OM.AMOVE:
+        if (has) { // engaged on the way: chase like the auto rules, then go on
+          const dx = tx - u.x, dz = tz - u.z, l = Math.sqrt(dx * dx + dz * dz);
+          if (l > 0.001) this.stepDir(u, dx / l, dz / l, S.spd);
+          return;
+        }
+        this.ordMove(u, o, S.spd);
+        return;
+      case OM.MOVE: this.ordMove(u, o, S.spd); return;
+    }
+  }
+
+  /** Walk to the order's destination along its flow field; there (or crowded, or stuck) → hold. */
+  private ordMove(u: U, o: Ord, spd: number) {
+    const dx = o.x - u.x, dz = o.z - u.z, d2 = dx * dx + dz * dz;
+    if (d2 < 0.36 || o.k > ORD_STUCK) { this.holdHere(u); return; }
+    let dirx: number, dirz: number;
+    if (d2 < 36) { const l = Math.sqrt(d2); dirx = dx / l; dirz = dz / l; }
+    else if (o.c >= 0 && flowDir(this.terrain, this.oflow(o.c), u.x, u.z, this.tmp)) { dirx = this.tmp.x; dirz = this.tmp.z; }
+    else { const l = Math.sqrt(d2); dirx = dx / l; dirz = dz / l; }
+    const x0 = u.x, z0 = u.z;
+    this.stepDir(u, dirx, dirz, spd);
+    const mx = u.x - x0, mz = u.z - z0;
+    if (d2 < 16 || mx * mx + mz * mz < 1e-4) o.k++; else if (o.k) o.k = 0;
+  }
+
+  /** A possessed unit: the player's stick moves it at its own speed; the attack button hits the nearest enemy in front. */
+  private possStep(u: U, o: Ord, S: { dmg: number; range: number; spd: number; cd: number; d: typeof UNITS[number] }) {
+    const dx = o.dx!, dz = o.dz!;
+    if (dx || dz) { const l = Math.sqrt(dx * dx + dz * dz); this.stepDir(u, dx / l, dz / l, S.spd); }
+    u.tg = -1;
+    if (!o.a || u.cd > 0) return;
+    const st = this.st, us = st.units, d = S.d, fx = o.fx!, fz = o.fz!, fl = Math.sqrt(fx * fx + fz * fz);
+    const r0 = S.range + d.radius + 0.5;
+    let best = -1, bd = Infinity;
+    this.near(u.x, u.z, r0 + 1.4, k => {
+      const e = us[k];
+      if (e.s === u.s || e.hp <= 0) return;
+      const ex = e.x - u.x, ez = e.z - u.z, e2 = ex * ex + ez * ez, r = r0 + UNITS[e.t].radius;
+      if (e2 > r * r || e2 >= bd) return;
+      if (fl > 0 && ex * fx + ez * fz < 0.5 * Math.sqrt(e2) * fl) return; // within 60° of the facing
+      bd = e2; best = k;
+    });
+    if (best >= 0) { const t = us[best]; u.tg = t.id; this.attack(u, t, S.dmg, S.cd); return; }
+    const v = (1 - u.s) as Side, e = st.pts[v], ex = e.x - u.x, ez = e.z - u.z, e2 = ex * ex + ez * ez, r = r0 + HQ.radius[v];
+    if (e2 <= r * r && (fl === 0 || ex * fx + ez * fz >= 0.5 * Math.sqrt(e2) * fl)) { u.tg = -2; this.attackHq(u, v, S.dmg, S.cd); }
+  }
+
   inZone(s: Side, x: number, z: number): boolean {
     for (const p of this.st.pts) {
       if (p.owner !== s) continue;
@@ -657,6 +956,7 @@ export class Sim {
     if (st.tick % PLACE.sportikiEvery === PLACE.sportikiAt) this.placeSquads();
     this.ai(0); this.ai(1);
     this.hash();
+    if (st.tick % 10 === 5) this.ordIdle();
     if (st.tick % 10 === 0) this.donerHeal();
     this.units();
     this.aoes();
@@ -1190,8 +1490,9 @@ export class Sim {
       if (u.t === RIDE) { this.rideStep(u); continue; }
       if (u.t === ADAM) { this.adamStep(u); continue; }
       const S = this.stats(u), d = S.d;
-      // target acquisition
-      if (d.bldg) { // хог райдер: только здания
+      // target acquisition (a player order has its own rules)
+      if (u.o) this.ordTarget(u, u.o, S);
+      else if (d.bldg) { // хог райдер: только здания
         const e = st.pts[1 - u.s], dx = e.x - u.x, dz = e.z - u.z, r = d.aggro + HQ.radius[1 - u.s] + 3;
         u.tg = dx * dx + dz * dz <= r * r ? -2 : -1;
       } else {
@@ -1209,6 +1510,7 @@ export class Sim {
       if (u.t === ADMIN && now >= sd.pack) this.packUlt(u);
       if (u.t === WOU && (now + u.id) % HERO.tauntEvery === 0) this.taunt(u);
       if (d.kind === Kind.Heal && u.cd === 0) this.healAround(u, d.heal![u.s], S.range);
+      if (u.o) { this.ordAct(u, u.o, S); continue; }
       // engage
       let tx = 0, tz = 0, engage = false, inRange = false;
       if (u.tg >= 0) {
@@ -1659,6 +1961,7 @@ export class Sim {
   private adamStep(u: U) {
     const st = this.st, us = st.units, d = UNITS[u.t];
     const S = this.stats(u), R = d.flee! + (u.f & UF.FLEE ? 3 : 0); // keeps running a bit further once scared
+    if (u.o && u.o.m === OM.POSSESS) { u.f &= ~UF.FLEE; this.possStep(u, u.o, S); return; } // the player drives: no bolting
     let fx = 0, fz = 0, n = 0;
     this.near(u.x, u.z, R, k => {
       const o = us[k];
@@ -1683,6 +1986,7 @@ export class Sim {
       return;
     }
     u.f &= ~UF.FLEE;
+    if (u.o) { if (u.o.m === OM.MOVE || u.o.m === OM.AMOVE) this.ordMove(u, u.o, S.spd); else if (u.o.m === OM.ATTACK) this.holdHere(u); return; } // never fights: attack orders just stand
     this.goalMove(u, S.spd, 1);
   }
 

@@ -13,8 +13,9 @@
 //                    { path: 'adm', read: 'view', write: 'admin' } ] },
 //     room: { topics: { cmd: 'interact' } }, user: {} }
 import { Session, type Backend } from './session';
-import { hashState, type Cmd, type Sim, type State } from '../sim/sim';
+import { hashState, ORD_MAX, type Cmd, type Sim, type State } from '../sim/sim';
 import { validAdmCmd } from '../sim/admin';
+import { roomPresence } from './presence';
 import { TICK_MS } from '../sim/defs';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -147,7 +148,10 @@ class SharedWar implements Shared {
     this.side = side;
     for (let i = 0; i < 40 && !(this.gotClock && this.gotCp); i++) await sleep(250);
     const now = Date.now();
-    const backend: Backend = { kind: 'shared', send: c => this.send(c), checkpoint: () => { /* keeper writes */ }, close: () => this.leave() };
+    const backend: Backend = {
+      kind: 'shared', send: c => this.send(c), checkpoint: () => { /* keeper writes */ }, close: () => this.leave(),
+      presence: this.room ? roomPresence(this.room, this.uid, this.user) : undefined, // roster: src/net/presence.ts
+    };
     const session = new Session(sim, backend, this.uid);
     session.lead = 6;
     let st: State, clock: ClockDoc;
@@ -328,6 +332,9 @@ export function validCmd(c: Any): boolean {
     case 'join': return c.s === 0 || c.s === 1;
     case 'vote': return (c.s === 0 || c.s === 1) && Number.isInteger(c.o);
     case 'dep': return (c.s === 0 || c.s === 1) && Number.isInteger(c.u) && Number.isFinite(c.x) && Number.isFinite(c.z);
+    // unit control: the shape only; the sim checks the rest (ownership, bounds, modes) and ignores what does not fit
+    case 'ord': return (c.s === 0 || c.s === 1) && Array.isArray(c.ids) && c.ids.length >= 1 && c.ids.length <= ORD_MAX && c.ids.every(Number.isInteger) && typeof c.m === 'string';
+    case 'ctl': return (c.s === 0 || c.s === 1) && Number.isInteger(c.u) && [c.dx, c.dz].every(v => Number.isInteger(v) && v >= -8 && v <= 8) && (c.atk === 0 || c.atk === 1);
     case 'adm': return false; // admin commands only from the editor-only channels (validAdmCmd)
     default: return false; // cfg is local-only
   }

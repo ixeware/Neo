@@ -1,0 +1,116 @@
+/* Unit control: command bar, rubber band, first-person HUD, roster card, «<ник> ведёт» tags.
+   Same notebook paper as the rest of the HUD; our ink for what is ours, red pen for attacks. */
+
+/* ---------- command bar (only while something is selected) ---------- */
+.cmdbar { position: absolute; left: 50%; bottom: calc(var(--edge-b) + 190px); transform: translateX(-50%); display: flex; align-items: stretch; gap: 6px; z-index: 1; pointer-events: none; }
+.cmdbar > * { pointer-events: auto; }
+.cb-n { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: 44px; font-weight: 600; font-size: 13px; white-space: nowrap; transform: rotate(-1deg); }
+.cb-n .num { font-size: 20px; font-weight: 900; color: var(--pen-a); }
+#hud.s1 .cb-n .num { color: var(--pen-k); }
+.cb-grid { display: flex; gap: 4px; }
+.cb { min-width: 64px; min-height: 48px; padding: 4px 6px 3px; display: grid; justify-items: center; align-content: center; gap: 1px; font-weight: 700; font-size: 10.5px; line-height: 1.05; color: var(--graphite); text-align: center; touch-action: manipulation; }
+.cb svg { width: 20px; height: 20px; }
+.cb span { white-space: nowrap; }
+.cb:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 rgba(20,16,12,.32); }
+.cb-amove { color: var(--pen-k); }
+.cb-amove.on { background: var(--pen-k); color: #fff; }
+.cb-x { color: var(--graphite-2); min-width: 48px; }
+.cb-g { min-width: 44px; position: relative; }
+.cb-g .num { font-size: 18px; font-weight: 900; }
+.cb-g i { position: absolute; right: 3px; top: 1px; font-style: normal; font-family: var(--f-hand); font-weight: 700; font-size: 15px; color: var(--pen-a); }
+#hud.has-sel .hint { bottom: calc(var(--edge-b) + 252px); }
+
+/* the box being dragged */
+.selbox { position: fixed; left: 0; top: 0; border: 2px dashed var(--graphite); background: rgba(242, 217, 74, .16); box-shadow: 0 0 0 1px rgba(255,255,255,.7) inset; pointer-events: none; z-index: 20; }
+
+/* cursor over the map */
+#c.cur-own { cursor: pointer; }
+#c.cur-foe, #c.cur-amove { cursor: crosshair; }
+
+/* ---------- «<ник> ведёт» over a possessed unit ---------- */
+.lbl-drive { font-family: var(--f-hand); font-weight: 700; font-size: 19px; line-height: 1; padding: 0 7px 3px; background: var(--paper); border: 1.5px solid currentColor; box-shadow: 2px 2px 0 rgba(0,0,0,.28); transform-origin: 50% 100%; }
+.lbl-drive.s0 { color: var(--pen-a); } .lbl-drive.s1 { color: var(--pen-k); }
+.lbl-drive.me { background: #fff6b8; }
+
+/* ---------- roster ---------- */
+.tb-roster.on { background: var(--marker); }
+.roster { position: absolute; left: var(--edge-l); top: calc(var(--edge-t) + 142px); width: min(300px, calc(100vw - 24px)); padding: 9px 11px 10px; display: grid; gap: 7px; z-index: 6; transform: rotate(-.5deg); }
+.ro-h { display: flex; align-items: baseline; gap: 8px; }
+.ro-h b { font-family: var(--f-display); font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: .03em; }
+.ro-n { font-family: var(--f-hand); font-weight: 700; font-size: 18px; color: var(--graphite-2); flex: 1; }
+.ro-x { border: 0; background: transparent; font-size: 24px; line-height: 1; width: 44px; height: 32px; margin: -6px -8px -6px 0; color: var(--graphite-2); }
+.ro-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; }
+.ro-row { display: grid; grid-template-columns: 12px auto auto 1fr; align-items: baseline; gap: 6px; padding: 3px 0 4px; border-bottom: 1px dashed var(--grid); }
+.ro-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--graphite-2); align-self: center; }
+.ro-row.s0 .ro-dot { background: var(--pen-a); } .ro-row.s1 .ro-dot { background: var(--pen-k); }
+.ro-row.s0 .ro-name { color: var(--pen-a-deep); } .ro-row.s1 .ro-name { color: var(--pen-k-deep); }
+.ro-name { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
+.ro-me { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; background: var(--marker); padding: 0 4px; }
+.ro-st { font-family: var(--f-hand); font-weight: 700; font-size: 18px; line-height: 1; text-align: right; color: var(--graphite); }
+.ro-ai .ro-name { font-family: var(--f-display); font-size: 12px; }
+.ro-ai .ro-st { color: var(--graphite-2); }
+.ro-nick { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--graphite-2); }
+.ro-nick input { font: 600 15px var(--f-ui); color: var(--graphite); height: 36px; padding: 0 8px; border: 1.5px solid var(--graphite); background: #fff; min-width: 0; user-select: text; -webkit-user-select: text; }
+
+/* ---------- first person ---------- */
+.fp-hud { position: absolute; inset: 0; pointer-events: none; }
+.fp-hud > * { pointer-events: auto; }
+.fp-cross { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; transform: translate(-50%, -50%); pointer-events: none !important; }
+.fp-cross::before, .fp-cross::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 0 1.5px rgba(20,16,12,.75); }
+.fp-cross::before { left: 12px; top: 2px; width: 2px; height: 22px; }
+.fp-cross::after { top: 12px; left: 2px; height: 2px; width: 22px; }
+.fp-hud.tps .fp-cross { top: 44%; }
+.fp-top { position: absolute; left: 50%; top: calc(var(--edge-t) + 70px); transform: translateX(-50%) rotate(-.6deg); display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; }
+.fp-who { display: grid; gap: 4px; min-width: 120px; }
+.fp-name { font-family: var(--f-display); font-weight: 800; font-size: 14px; line-height: 1.1; white-space: nowrap; }
+.fp-hud.s0 .fp-name { color: var(--pen-a); } .fp-hud.s1 .fp-name { color: var(--pen-k); }
+.fp-hp { display: block; height: 7px; border: 1.5px solid var(--graphite); background: #fff; }
+.fp-hp i { display: block; height: 100%; background: var(--ok); }
+.fp-hp i.low { background: var(--pen-k); }
+.fp-btn { min-width: 52px; height: 44px; padding: 0 10px; border: 1.5px solid var(--graphite); background: var(--paper); font-weight: 700; font-size: 13px; touch-action: manipulation; }
+.fp-exit { background: var(--graphite); color: var(--paper); }
+.fp-help { position: absolute; left: 50%; bottom: calc(var(--edge-b) + 14px); transform: translateX(-50%); font-family: var(--f-hand); font-size: 21px; color: #fff; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.7); white-space: nowrap; pointer-events: none !important; }
+.fp-stick { display: none; position: absolute; left: calc(var(--edge-l) + 8px); bottom: calc(var(--edge-b) + 22px); width: 132px; height: 132px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.85); background: rgba(35,38,43,.28); touch-action: none; }
+.fp-knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%; background: var(--paper); border: 2px solid var(--graphite); box-shadow: 2px 2px 0 rgba(0,0,0,.3); pointer-events: none; }
+.fp-hit { display: none; position: absolute; right: calc(var(--edge-r) + 10px); bottom: calc(var(--edge-b) + 34px); width: 104px; height: 104px; border-radius: 50%; border: 3px solid var(--pen-k); background: var(--paper); color: var(--pen-k); font-family: var(--f-display); font-weight: 900; font-size: 15px; letter-spacing: .04em; text-transform: uppercase; box-shadow: 3px 3px 0 rgba(0,0,0,.35); touch-action: none; transform: rotate(-4deg); }
+.fp-hit.on { background: var(--pen-k); color: #fff; transform: rotate(-4deg) scale(.94); }
+@media (pointer: coarse) {
+  .fp-stick, .fp-hit { display: block; }
+  .fp-help { display: none; }
+}
+/* riding: the RTS slips step aside */
+#hud.fp .deck, #hud.fp .bank, #hud.fp .mini, #hud.fp .toolbar, #hud.fp .hint, #hud.fp .cmdbar, #hud.fp .cardinfo, #hud.fp .roster { display: none !important; }
+body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-edge, body.fp-on #labels .lbl-note { display: none !important; }
+
+/* ---------- phones upright: the bar is a 3×3 block at the right edge, under the side slip ---------- */
+@media (max-width: 760px) and (orientation: portrait) {
+  .cmdbar { left: auto; right: var(--edge-r); bottom: auto; top: calc(var(--edge-t) + 136px); transform: none; flex-direction: column; align-items: stretch; gap: 4px; width: 166px; }
+  .cb-n { min-height: 26px; padding: 0 8px; font-size: 12px; justify-content: center; }
+  .cb-n .num { font-size: 16px; }
+  .cb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .cb { min-width: 0; min-height: 46px; padding: 3px 1px 2px; font-size: 9.5px; letter-spacing: -.02em; }
+  .cb svg { width: 18px; height: 18px; }
+  .cb span { white-space: normal; }
+  .cb-amove { order: 0; } .cb-hold { order: 1; } .cb-auto { order: 2; } .cb-all { order: 3; } .cb-fp { order: 4; } .cb-x { order: 5; min-width: 0; } .cb-g { order: 6; min-width: 0; }
+  .roster { top: calc(var(--edge-t) + 112px); left: var(--edge-l); right: var(--edge-r); width: auto; }
+  .fp-top { top: calc(var(--edge-t) + 64px); }
+  .fp-name { font-size: 12.5px; }
+  .lbl-drive { font-size: 16px; }
+}
+/* ---------- phones sideways: one row above the cards, between the bank and the minimap ---------- */
+@media (max-height: 500px) and (min-width: 600px) {
+  .cmdbar { left: calc(var(--edge-l) + 104px); right: calc(var(--edge-r) + 168px); bottom: calc(var(--edge-b) + 100px); transform: none; gap: 3px; justify-content: center; }
+  .cb-n { min-height: 44px; padding: 0 6px; font-size: 0; gap: 0; }
+  .cb-n .num { font-size: 17px; }
+  .cb-grid { gap: 2px; }
+  .cb { min-width: 44px; min-height: 44px; padding: 2px; font-size: 0; }
+  .cb span { display: none; }
+  .cb-x { display: none; }
+  .cb-n { cursor: pointer; }
+  #hud.has-sel .hint { display: none; }
+  .roster { top: calc(var(--edge-t) + 54px); left: calc(var(--edge-l) + 180px); max-height: calc(100vh - 80px); }
+  .ro-list { max-height: calc(100vh - 170px); }
+  .fp-top { top: calc(var(--edge-t) + 54px); }
+  .fp-stick { width: 116px; height: 116px; bottom: calc(var(--edge-b) + 12px); }
+  .fp-hit { width: 92px; height: 92px; bottom: calc(var(--edge-b) + 16px); }
+}

@@ -89,7 +89,11 @@ export class Stage {
     this.target.z = Math.max(0, Math.min(this.t.H, this.target.z));
   }
 
+  /** First person (src/render/fpcam.ts): places the camera and `target` itself instead of the RTS rig. */
+  fp: ((dt: number) => void) | null = null;
+
   update(dt: number) {
+    if (this.fp) { this.fp(dt); this.light(); return; }
     if (this.goal) {
       const k = 1 - Math.exp(-dt * 5);
       this.target.x += (this.goal.x - this.target.x) * k;
@@ -119,6 +123,11 @@ export class Stage {
       }
     }
     this.camera.lookAt(this.target);
+    this.light();
+  }
+
+  /** Sun, shadows and fog follow `target` and the zoom. */
+  private light() {
     // sun follows the view so shadows stay crisp where you look
     const span = Math.min(90, 18 + this.dist * 0.55);
     const s = this.sun.shadow.camera as THREE.OrthographicCamera;
@@ -169,17 +178,65 @@ export class Stage {
   }
 }
 
-/** Mouse, touch and keyboard → camera moves and taps. */
-export function bindInput(stage: Stage, el: HTMLElement, onTap: (x: number, y: number) => void, onHover: (x: number, y: number) => void) {
+/** Modifier keys and pointer kind of a click / tap. */
+export interface InputMods { shift: boolean; ctrl: boolean; touch: boolean }
+
+/** What the game does with pointer and keyboard input beyond moving the camera (src/ui/control.ts). */
+export interface InputHooks {
+  /** Left click or tap (no drag, under 600 ms). */
+  tap(x: number, y: number, m: InputMods): void;
+  /** Short right click (mouse): an order for the selection. */
+  order?(x: number, y: number, m: InputMods): void;
+  /** Rubber band: mouse left-drag, or touch long-press (350 ms) then drag. */
+  box?(phase: 'start' | 'move' | 'end' | 'cancel', x0: number, y0: number, x1: number, y1: number, m: InputMods): void;
+  /** Mouse moved over the map with no button down. */
+  hover?(x: number, y: number): void;
+  /** This key is a command right now: it must not pan, rotate or zoom the camera. */
+  keyBusy?(code: string): boolean;
+  /** First person: drags on the map look around, the left button / a tap on the map hits. */
+  look?: { on(): boolean; drag(dx: number, dy: number, touch: boolean): void; press(down: boolean): void };
+}
+
+/**
+ * Mouse, touch and keyboard → camera moves, taps, orders and rubber bands.
+ * Mouse: left click = tap, left drag = box, right click = order, right / middle drag = pan,
+ * Alt + drag = rotate, wheel = zoom, a pointer at the window edge scrolls. Touch: one finger pans,
+ * two zoom and rotate, a long press then drag draws a box. Keys: WASD / arrows pan (unless
+ * keyBusy), Q / E rotate, R F + − zoom.
+ */
+export function bindInput(stage: Stage, el: HTMLElement, hooks: InputHooks) {
   const pts = new Map<number, { x: number; y: number; sx: number; sy: number; t: number }>();
-  let pinch0 = 0, ang0 = 0, moved = false, button = 0;
+  let pinch0 = 0, ang0 = 0, moved = false, button = 0, touch = false;
+  let mode: 'none' | 'pan' | 'rot' | 'box' | 'pinch' | 'look' = 'none';
+  let lp = 0, mods: InputMods = { shift: false, ctrl: false, touch: false };
+  const first = () => pts.values().next().value!;
   el.addEventListener('contextmenu', e => e.preventDefault());
   el.addEventListener('pointerdown', e => {
-    el.setPointerCapture(e.pointerId);
+    try { el.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() });
-    button = e.button;
-    if (pts.size === 1) moved = false;
+    if (hooks.look?.on()) {
+      mode = 'look'; touch = e.pointerType !== 'mouse'; button = e.button; moved = false;
+      if (!touch && e.button === 0) hooks.look.press(true);
+      return;
+    }
+    if (pts.size === 1) {
+      moved = false; button = e.button; touch = e.pointerType !== 'mouse'; mode = 'none';
+      mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, touch };
+      clearTimeout(lp);
+      if (touch && hooks.box) {
+        lp = window.setTimeout(() => {
+          if (moved || pts.size !== 1 || mode !== 'none') return;
+          const p = first();
+          mode = 'box';
+          try { navigator.vibrate?.(10); } catch { /* not allowed */ }
+          hooks.box!('start', p.sx, p.sy, p.x, p.y, mods);
+        }, 350);
+      }
+    }
     if (pts.size === 2) {
+      clearTimeout(lp);
+      if (mode === 'box') hooks.box?.('cancel', 0, 0, 0, 0, mods);
+      mode = 'pinch';
       const [a, b] = [...pts.values()];
       pinch0 = Math.hypot(a.x - b.x, a.y - b.y); ang0 = Math.atan2(b.y - a.y, b.x - a.x);
       moved = true;
@@ -187,13 +244,22 @@ export function bindInput(stage: Stage, el: HTMLElement, onTap: (x: number, y: n
   });
   el.addEventListener('pointermove', e => {
     const p = pts.get(e.pointerId);
-    if (!p) { if (e.pointerType === 'mouse') onHover(e.clientX, e.clientY); return; }
+    if (!p) { if (e.pointerType === 'mouse' && !e.buttons) hooks.hover?.(e.clientX, e.clientY); return; }
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
     if (Math.hypot(p.x - p.sx, p.y - p.sy) > 7) moved = true;
+    if (mode === 'look') { hooks.look?.drag(dx, dy, touch); return; }
     if (pts.size === 1) {
-      if (button === 2 || button === 1) stage.rotate(-dx * 0.006);
-      else if (moved) stage.pan(-dx, -dy);
+      if (mode === 'box') { hooks.box?.('move', p.sx, p.sy, p.x, p.y, mods); return; }
+      if (!moved) return;
+      clearTimeout(lp);
+      if (mode === 'none') {
+        if (!touch && e.altKey) mode = 'rot';
+        else if (!touch && button === 0 && hooks.box) { mode = 'box'; hooks.box('start', p.sx, p.sy, p.x, p.y, mods); return; }
+        else mode = 'pan';
+      }
+      if (mode === 'rot') stage.rotate(-dx * 0.006);
+      else if (mode === 'pan') stage.pan(-dx, -dy);
     } else if (pts.size === 2) {
       const [a, b] = [...pts.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y), ang = Math.atan2(b.y - a.y, b.x - a.x);
@@ -205,25 +271,57 @@ export function bindInput(stage: Stage, el: HTMLElement, onTap: (x: number, y: n
   const end = (e: PointerEvent) => {
     const p = pts.get(e.pointerId);
     pts.delete(e.pointerId);
-    if (p && !moved && pts.size === 0 && performance.now() - p.t < 600 && button === 0) onTap(e.clientX, e.clientY);
+    clearTimeout(lp);
+    if (mode === 'look') {
+      if (!touch && button === 0) hooks.look?.press(false);
+      else if (touch && p && !moved && performance.now() - p.t < 400) { hooks.look?.press(true); setTimeout(() => hooks.look?.press(false), 220); }
+      if (!pts.size) mode = 'none';
+      return;
+    }
+    if (mode === 'box') {
+      if (!pts.size) { if (p) hooks.box?.('end', p.sx, p.sy, e.clientX, e.clientY, mods); mode = 'none'; }
+      return;
+    }
+    if (p && !moved && pts.size === 0 && performance.now() - p.t < 600) {
+      if (button === 0) hooks.tap(e.clientX, e.clientY, mods);
+      else if (button === 2) hooks.order?.(e.clientX, e.clientY, mods);
+    }
     if (pts.size < 2) pinch0 = 0;
+    if (pts.size === 1 && mode === 'pinch') mode = 'pan';
+    if (!pts.size) mode = 'none';
   };
   el.addEventListener('pointerup', end);
-  el.addEventListener('pointercancel', e => { pts.delete(e.pointerId); });
-  el.addEventListener('wheel', e => { e.preventDefault(); stage.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
+  el.addEventListener('pointercancel', e => {
+    pts.delete(e.pointerId);
+    clearTimeout(lp);
+    if (mode === 'box') hooks.box?.('cancel', 0, 0, 0, 0, mods);
+    if (mode === 'look') hooks.look?.press(false);
+    if (!pts.size) mode = 'none';
+  });
+  el.addEventListener('wheel', e => { e.preventDefault(); if (!hooks.look?.on()) stage.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
+  // edge scroll: the mouse resting in the outer few pixels of the window
+  const mouse = { x: 0, y: 0, in: false };
+  addEventListener('pointermove', e => { if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.in = true; } }, { passive: true });
+  document.addEventListener('mouseout', e => { if (!e.relatedTarget) mouse.in = false; });
   const keys = new Set<string>();
   addEventListener('keydown', e => { if ((e.target as HTMLElement)?.tagName === 'INPUT') return; keys.add(e.code); });
   addEventListener('keyup', e => keys.delete(e.code));
-  addEventListener('blur', () => keys.clear());
+  addEventListener('blur', () => { keys.clear(); mouse.in = false; });
+  const k = (code: string) => keys.has(code) && !hooks.keyBusy?.(code);
   return (dt: number) => {
     const sp = 900 * dt;
-    if (keys.has('KeyW') || keys.has('ArrowUp')) stage.pan(0, -sp);
-    if (keys.has('KeyS') || keys.has('ArrowDown')) stage.pan(0, sp);
-    if (keys.has('KeyA') || keys.has('ArrowLeft')) stage.pan(-sp, 0);
-    if (keys.has('KeyD') || keys.has('ArrowRight')) stage.pan(sp, 0);
-    if (keys.has('KeyQ')) stage.rotate(dt * 1.6);
-    if (keys.has('KeyE')) stage.rotate(-dt * 1.6);
-    if (keys.has('KeyR') || keys.has('Equal')) stage.zoom(1 - dt * 1.5);
-    if (keys.has('KeyF') || keys.has('Minus')) stage.zoom(1 + dt * 1.5);
+    if (k('KeyW') || k('ArrowUp')) stage.pan(0, -sp);
+    if (k('KeyS') || k('ArrowDown')) stage.pan(0, sp);
+    if (k('KeyA') || k('ArrowLeft')) stage.pan(-sp, 0);
+    if (k('KeyD') || k('ArrowRight')) stage.pan(sp, 0);
+    if (k('KeyQ')) stage.rotate(dt * 1.6);
+    if (k('KeyE')) stage.rotate(-dt * 1.6);
+    if (k('KeyR') || k('Equal')) stage.zoom(1 - dt * 1.5);
+    if (k('KeyF') || k('Minus')) stage.zoom(1 + dt * 1.5);
+    if (mouse.in && !pts.size && !hooks.look?.on() && document.hasFocus()) {
+      const E = 6, w = innerWidth, h = innerHeight;
+      if (mouse.x <= E) stage.pan(-sp, 0); else if (mouse.x >= w - 1 - E) stage.pan(sp, 0);
+      if (mouse.y <= E) stage.pan(0, -sp); else if (mouse.y >= h - 1 - E) stage.pan(0, sp);
+    }
   };
 }

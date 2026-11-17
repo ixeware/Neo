@@ -94,12 +94,13 @@
 }
 /* ---------- phones upright: the summary on its own line, five chips across, cards as wide as unit cards ---------- */
 @media (max-width: 760px) and (min-height: 501px) {
-  .bfams { flex-wrap: wrap; }
-  .bsum { order: -2; flex: 1 1 60%; font-size: 16px; padding: 0 2px; }
-  .bchip-rep { order: -1; height: 30px; font-size: 12px; padding: 0 8px; }
-  .bchip { flex: 1 1 0; min-width: 0; height: 44px; padding: 2px 2px 1px; flex-direction: column; gap: 0; font-size: 9.5px; letter-spacing: -.02em; }
+  .bfams { display: grid; grid-template-columns: 44px repeat(5, minmax(0, 1fr)); }
+  .bsum { grid-column: 1 / -1; grid-row: 1; font-size: 16px; padding: 0 2px; }
+  .bfams:has(> .bchip-rep:not([hidden])) .bsum { grid-column: 1 / 4; }
+  .bchip-rep { grid-column: 4 / -1; grid-row: 1; height: 44px; font-size: 12px; padding: 0 6px; }
+  .bchip { min-width: 0; height: 44px; padding: 2px 1px 1px; flex-direction: column; gap: 0; font-size: 9.5px; letter-spacing: -.03em; overflow: hidden; }
   .bchip svg { width: 20px; height: 20px; }
-  .bchip-x { flex: 0 0 40px; }
+  .bchip.need::after { top: -2px; }
   .bcards { gap: 5px; padding: 8px 1px 3px; }
   .bcard { flex: none; width: clamp(64px, calc((100vw - var(--edge-l) - var(--edge-r) - 22px) / 4.5), 88px); height: 100px; padding: 3px 2px 4px; gap: 1px; }
   .bi { width: 36px; height: 36px; }

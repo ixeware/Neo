@@ -10,7 +10,7 @@ import {
 } from './defs';
 import { buildFlow, flowDir, type Flow } from './flow';
 import { normAdm, ADM_MAX, type Adm } from './admin';
-import { navIndex, passable, lcAt, LC, NAV, type Terrain } from '../world/terrain';
+import { navIndex, passable, lcAt, LC, NAV, cellX, cellZ, type Terrain } from '../world/terrain';
 import { CAPTURE_PLACES } from '../data/places';
 
 export interface U {
@@ -302,6 +302,8 @@ export class Sim {
   private head: Int32Array;
   private nxt = new Int32Array(4096);
   private hw: number; private hh: number;
+  /** Hash rows north of z = 0 (the map's z0 / 4): row = floor(z / 4) + hz, so the old rows keep their maths. */
+  private hz: number;
   private tmp = { x: 0, z: 0 };
   private sc = { dmg: 0, range: 0, spd: 0, cd: 0, d: UNITS[0] };
   private donerSpot: { x: number; z: number };
@@ -316,7 +318,8 @@ export class Sim {
   private picks = 0;
 
   constructor(public terrain: Terrain) {
-    this.hw = Math.ceil(terrain.W / 4); this.hh = Math.ceil(terrain.H / 4);
+    this.hz = -terrain.z0 / 4;
+    this.hw = Math.ceil(terrain.W / 4); this.hh = Math.ceil(terrain.H / 4) + this.hz;
     this.head = new Int32Array(this.hw * this.hh).fill(-1);
     this.donerSpot = this.findDoner();
     // flow fields depend only on the terrain and the fixed point layout: build once per terrain, share read-only
@@ -433,6 +436,13 @@ export class Sim {
       if (oldSave && u.t === ERSNO && u.mhp > UNITS[ERSNO].hp) { u.hp = tank(u.hp, u.mhp); u.mhp = UNITS[ERSNO].hp; }
       if (u.fr === undefined) u.fr = 0;
       if (u.o !== undefined && !okOrd(u, this.terrain.nw * this.terrain.nh)) delete u.o; // a malformed order is dropped the same way everywhere
+      else if (u.o && (u.o.m === OM.MOVE || u.o.m === OM.AMOVE) && u.o.c >= 0) {
+        // v4 map: nav cells now count from the north edge z0 (−36), so a move order saved before the map
+        // grew holds a cell −z0/NAV rows short (its centre ~36 north of the order's own spot). Re-anchor
+        // it; a current order sits next to its cell, so this never touches one (idempotent).
+        const T = this.terrain, c2 = u.o.c + (-T.z0 / NAV) * T.nw;
+        if (c2 > u.o.c && c2 < T.nw * T.nh && Math.abs(cellZ(T, c2) - u.o.z) + 4 < Math.abs(cellZ(T, u.o.c) - u.o.z)) u.o.c = c2;
+      }
     }
     if (oldSave) {
       for (const w of st.away) if (w.t === ERSNO && w.mhp > UNITS[ERSNO].hp) { w.hp = tank(w.hp, w.mhp); w.mhp = UNITS[ERSNO].hp; } // «на парах»
@@ -505,12 +515,12 @@ export class Sim {
   /** A passable spot near (x, z) on the map, or null: rings of 8 directions, deterministic. */
   private admSpot(x: number, z: number): { x: number; z: number } | null {
     const T = this.terrain;
-    x = Math.max(1, Math.min(T.W - 1, x)); z = Math.max(1, Math.min(T.H - 1, z));
+    x = Math.max(1, Math.min(T.W - 1, x)); z = Math.max(T.z0 + 1, Math.min(T.H - 1, z));
     if (passable(T, x, z)) return { x, z };
     for (let r = 1; r <= 8; r++) {
       for (let k = 0; k < 8; k++) {
         const D = RING8[k], px = x + D[0] * r, pz = z + D[1] * r;
-        if (px > 0 && pz > 0 && px < T.W && pz < T.H && passable(T, px, pz)) return { x: px, z: pz };
+        if (px > 0 && pz > T.z0 && px < T.W && pz < T.H && passable(T, px, pz)) return { x: px, z: pz };
       }
     }
     return null;
@@ -715,7 +725,7 @@ export class Sim {
         return;
       }
       case 'move': case 'attackMove': {
-        if (!isNum(c.x) || !isNum(c.z) || c.x < 0 || c.z < 0 || c.x > T.W || c.z > T.H) return;
+        if (!isNum(c.x) || !isNum(c.z) || c.x < 0 || c.z < T.z0 || c.x > T.W || c.z > T.H) return;
         const spot = this.admSpot(c.x, c.z);
         if (!spot) return;
         const cell = navIndex(T, spot.x, spot.z), m = c.m === 'move' ? OM.MOVE : OM.AMOVE;
@@ -794,8 +804,8 @@ export class Sim {
     const m = this.oflows;
     let f = m.get(cell);
     if (f) { m.delete(cell); m.set(cell, f); return f; }
-    const T = this.terrain, i = cell % T.nw, j = (cell - i) / T.nw;
-    f = buildFlow(T, (i + 0.5) * NAV, (j + 0.5) * NAV, 0.5);
+    const T = this.terrain;
+    f = buildFlow(T, cellX(T, cell), cellZ(T, cell), 0.5);
     this.flowBuilds++;
     m.set(cell, f);
     while (m.size > Math.max(1, this.flowCap)) m.delete(m.keys().next().value as number);
@@ -1540,13 +1550,13 @@ export class Sim {
   }
   private cellOf(x: number, z: number) {
     const i = Math.max(0, Math.min(this.hw - 1, Math.floor(x / 4)));
-    const j = Math.max(0, Math.min(this.hh - 1, Math.floor(z / 4)));
+    const j = Math.max(0, Math.min(this.hh - 1, Math.floor(z / 4) + this.hz));
     return j * this.hw + i;
   }
   /** Calls fn(index) for units in cells overlapping the radius (caller filters). */
   private near(x: number, z: number, r: number, fn: (i: number) => void) {
     const i0 = Math.max(0, Math.floor((x - r) / 4)), i1 = Math.min(this.hw - 1, Math.floor((x + r) / 4));
-    const j0 = Math.max(0, Math.floor((z - r) / 4)), j1 = Math.min(this.hh - 1, Math.floor((z + r) / 4));
+    const j0 = Math.max(0, Math.floor((z - r) / 4) + this.hz), j1 = Math.min(this.hh - 1, Math.floor((z + r) / 4) + this.hz);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       for (let k = this.head[j * this.hw + i]; k !== -1; k = this.nxt[k]) fn(k);
     }
@@ -1671,13 +1681,13 @@ export class Sim {
       } else this.goalMove(u, S.spd, d.bldg ? 2 : d.steal ? 3 : 0);
     }
     // separation (the near() walk inlined: same cells, same order, no closure per unit)
-    const hw = this.hw, hh = this.hh, head = this.head, nxt = this.nxt;
+    const hw = this.hw, hh = this.hh, hz = this.hz, head = this.head, nxt = this.nxt;
     for (let i = 0; i < us.length; i++) {
       const a = us[i];
       if (a.hp <= 0) continue;
       const ra = UNITS[a.t].radius, ma = MASS[a.t];
       const i0 = Math.max(0, Math.floor((a.x - 3) / 4)), i1 = Math.min(hw - 1, Math.floor((a.x + 3) / 4));
-      const j0 = Math.max(0, Math.floor((a.z - 3) / 4)), j1 = Math.min(hh - 1, Math.floor((a.z + 3) / 4));
+      const j0 = Math.max(0, Math.floor((a.z - 3) / 4) + hz), j1 = Math.min(hh - 1, Math.floor((a.z + 3) / 4) + hz);
       for (let cj = j0; cj <= j1; cj++) for (let ci = i0; ci <= i1; ci++) {
         for (let k = head[cj * hw + ci]; k !== -1; k = nxt[k]) {
           if (k <= i) continue;
@@ -1741,7 +1751,7 @@ export class Sim {
     { // near() inlined
       const r = Math.sqrt(bd), hw = this.hw, head = this.head, nxt = this.nxt, ux = u.x, uz = u.z, us_ = u.s;
       const i0 = Math.max(0, Math.floor((ux - r) / 4)), i1 = Math.min(hw - 1, Math.floor((ux + r) / 4));
-      const j0 = Math.max(0, Math.floor((uz - r) / 4)), j1 = Math.min(this.hh - 1, Math.floor((uz + r) / 4));
+      const j0 = Math.max(0, Math.floor((uz - r) / 4) + this.hz), j1 = Math.min(this.hh - 1, Math.floor((uz + r) / 4) + this.hz);
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
         for (let k = head[j * hw + i]; k !== -1; k = nxt[k]) {
           const o = us[k];

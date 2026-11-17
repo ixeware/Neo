@@ -1,5 +1,7 @@
-// Real terrain between Starye Atagi and Kurchaloy.
-// World units: 1 unit = 100 m. x grows east, z grows south.
+// Real terrain between Starye Atagi and Kurchaloy, and (v4) central Grozny north of the old edge.
+// World units: 1 unit = 100 m. x grows east, z grows south. The map spans x 0..W and z z0..H: the
+// origin never moved when the map grew north (v4: z0 = −36), so every point, place, road and save
+// keeps its coordinates. Every grid (heights, land cover, nav) starts at row z = z0.
 import { TERRAIN_META as M, HEIGHTS_B64, LANDCOVER_B64, BUILT_B64 } from '../data/terrain';
 
 export const LC = { TREE: 0, GRASS: 1, CROP: 2, BUILT: 3, BARE: 4, WATER: 5, WET: 6 } as const;
@@ -9,8 +11,10 @@ export const NAV = 2; // world units per nav cell
 export interface Village { key: string; name: string; x: number; z: number; r: number; cells: number }
 
 export interface Terrain {
-  W: number; H: number; // world size in units
-  gw: number; gh: number; // height grid cells (vertices = gw+1 x gh+1)
+  W: number; H: number; // east and south edges in world units (x 0..W, z z0..H)
+  /** North edge (world z of every grid's first row): −36 since v4, 0 before. */
+  z0: number;
+  gw: number; gh: number; // height grid cells (vertices = gw+1 x gh+1), gh = H − z0
   heightsM: Float32Array; // metres at vertices
   lcw: number; lch: number; lcCell: number; // land cover grid (cells of lcCell metres)
   lc: Uint8Array; built: Uint8Array;
@@ -36,13 +40,15 @@ async function inflate(b64: string): Promise<Uint8Array> {
 
 export async function loadTerrain(): Promise<Terrain> {
   const [hRaw, lc, built] = await Promise.all([inflate(HEIGHTS_B64), inflate(LANDCOVER_B64), inflate(BUILT_B64)]);
-  const gw = M.gw, gh = M.gh;
+  const z0 = M.z0, gw = M.gw, gh = M.gh - z0;
+  // z0 must keep the 3×3 order blocks (6 units) and the sim's 4-unit hash aligned to the origin
+  if (z0 % 12 !== 0) throw new Error('terrain z0 must be a multiple of 12');
   const h16 = new Uint16Array(hRaw.buffer, hRaw.byteOffset, (gw + 1) * (gh + 1));
   const heightsM = new Float32Array(h16.length);
   for (let i = 0; i < h16.length; i++) heightsM[i] = h16[i] / 4;
   const t: Terrain = {
-    W: gw, H: gh, gw, gh, heightsM,
-    lcw: M.lcw, lch: M.lch, lcCell: M.lcCell, lc, built,
+    W: gw, H: M.gh, z0, gw, gh, heightsM,
+    lcw: M.lcw, lch: lc.length / M.lcw, lcCell: M.lcCell, lc, built,
     nw: Math.ceil(gw / NAV), nh: Math.ceil(gh / NAV),
     navCost: new Uint16Array(0),
     villages: M.villages.map(v => ({ ...v })),
@@ -70,7 +76,8 @@ function layBridge(t: Terrain, b: Bridge) {
   }
 }
 
-// Integer-only nav cost so every client builds the identical grid.
+// Integer-only nav cost so every client builds the identical grid. Row j is z = z0 + j·NAV; the rows
+// with z >= 0 come from the pre-v4 data unchanged, so their costs are exactly the pre-v4 grid's.
 function buildNav(t: Terrain, h16: Uint16Array): Uint16Array {
   const { nw, nh, gw, lcw, lch } = t;
   const cost = new Uint16Array(nw * nh);
@@ -110,7 +117,7 @@ function buildNav(t: Terrain, h16: Uint16Array): Uint16Array {
 /** Height in metres, bilinear, world coords. */
 export function heightM(t: Terrain, x: number, z: number): number {
   const gx = Math.max(0, Math.min(t.gw - 0.0001, x));
-  const gz = Math.max(0, Math.min(t.gh - 0.0001, z));
+  const gz = Math.max(0, Math.min(t.gh - 0.0001, z - t.z0));
   const i = Math.floor(gx), j = Math.floor(gz);
   const fx = gx - i, fz = gz - j;
   const W = t.gw + 1, h = t.heightsM;
@@ -129,19 +136,50 @@ export function heightY(t: Terrain, x: number, z: number): number {
   return (heightM(t, x, z) / 100) * EXAG;
 }
 
+// Grid rows are counted from z0, but every lookup floors the plain world coordinate first and then adds
+// a whole number of rows (−z0 / cell): the same float maths as before the map grew, so a unit standing
+// south of z = 0 lands in exactly the cell it did before v4 (bit-identical flow fields and replays).
+const lcRow = (t: Terrain, z: number) => Math.floor((z * 100) / t.lcCell) - (t.z0 * 100) / t.lcCell;
+/** Nav row under world z (not clamped). */
+export const navRow = (t: Terrain, z: number) => Math.floor(z / NAV) - t.z0 / NAV;
+
 export function lcAt(t: Terrain, x: number, z: number): number {
+  return t.lc[lcIndex(t, x, z)];
+}
+
+/** Land-cover / built-up grid cell under (x, z) (clamped to the map). */
+export function lcIndex(t: Terrain, x: number, z: number): number {
   const i = Math.max(0, Math.min(t.lcw - 1, Math.floor((x * 100) / t.lcCell)));
-  const j = Math.max(0, Math.min(t.lch - 1, Math.floor((z * 100) / t.lcCell)));
-  return t.lc[j * t.lcw + i];
+  const j = Math.max(0, Math.min(t.lch - 1, lcRow(t, z)));
+  return j * t.lcw + i;
 }
 
 export function navIndex(t: Terrain, x: number, z: number): number {
   const i = Math.max(0, Math.min(t.nw - 1, Math.floor(x / NAV)));
-  const j = Math.max(0, Math.min(t.nh - 1, Math.floor(z / NAV)));
+  const j = Math.max(0, Math.min(t.nh - 1, navRow(t, z)));
   return j * t.nw + i;
 }
 
+/** World x of the centre of nav cell `cell`. */
+export function cellX(t: Terrain, cell: number): number { return ((cell % t.nw) + 0.5) * NAV; }
+/** World z of the centre of nav cell `cell` (exact: whole and half units only). */
+export function cellZ(t: Terrain, cell: number): number { return (Math.floor(cell / t.nw) + 0.5) * NAV + t.z0; }
+
+/**
+ * Nav cell in the middle of the 3×3-cell block around (x, z). The blocks are aligned to the world
+ * origin (z0 is a multiple of 3 cells), so they cover the same ground as before the map grew north.
+ */
+export function blockCell(t: Terrain, x: number, z: number): number {
+  const ci = Math.max(0, Math.min(t.nw - 1, Math.floor(x / NAV))), cj = Math.max(0, Math.min(t.nh - 1, navRow(t, z)));
+  return Math.min(t.nh - 1, cj - (cj % 3) + 1) * t.nw + Math.min(t.nw - 1, ci - (ci % 3) + 1);
+}
+
+/** Inside the map with a one-unit margin (where units may stand). */
+export function inMap(t: Terrain, x: number, z: number): boolean {
+  return x >= 1 && z >= t.z0 + 1 && x <= t.W - 1 && z <= t.H - 1;
+}
+
 export function passable(t: Terrain, x: number, z: number): boolean {
-  if (x < 1 || z < 1 || x > t.W - 1 || z > t.H - 1) return false;
+  if (x < 1 || z < t.z0 + 1 || x > t.W - 1 || z > t.H - 1) return false;
   return t.navCost[navIndex(t, x, z)] > 0;
 }

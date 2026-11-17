@@ -1,6 +1,6 @@
 // Villages, forests, landmarks and the two high-rises the whole war is about.
 import * as THREE from 'three';
-import { LC, BRIDGES, heightY, passable, lcAt, type Terrain } from '../world/terrain';
+import { LC, BRIDGES, heightY, passable, lcAt, lcIndex, type Terrain } from '../world/terrain';
 import { hash2 } from './terrainMesh';
 import type { Tin } from './lowpoly';
 import { treeGeometries, treeSpots } from './trees';
@@ -10,19 +10,46 @@ import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
 import type { Pt } from '../sim/sim';
 import { landmarkSpots, fudziSpot } from './landmarks'; // v3 real places (decor.ts builds them)
+import { cityPlan, cityOccupied, cityQ, cityKeepOut, siteRect, inRect, CITY_SITES, CITY_HOUSES_FROM } from './city'; // v4 Грозный
 
 const WALLS = ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
 const ROOFS = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
 
 interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color; c2?: THREE.Color; v?: number }
 
-function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true) {
+// ---- distance LOD for the instanced houses and trees --------------------------------------------
+/**
+ * Every chunk's instances are shuffled when it is built (a hash of the position), so any prefix of them is
+ * an even sample of the chunk. updateWorldLod() draws a prefix whose length falls off with the distance
+ * from the camera: all of a chunk up to K units away, K / distance of it further out (at least `min`).
+ * From the overview (camera ~285 up) that is about half the houses and trees; at play zoom nothing near
+ * changes. Render-only, so the order is free to differ from the build order.
+ */
+interface LodChunk { im: THREE.InstancedMesh; n: number; x: number; z: number; K: number; min: number }
+const lodChunks: LodChunk[] = [];
+const LOD_K: Record<string, [number, number]> = { houses: [155, 0.3], trees: [130, 0.25] };
+
+/** Re-count every LOD chunk for a camera position (cheap: a few hundred chunks). */
+export function updateWorldLod(cam: { x: number; y: number; z: number }) {
+  for (const c of lodChunks) {
+    const d = Math.hypot(c.x - cam.x, c.z - cam.z, cam.y);
+    const n = d <= c.K ? c.n : Math.max(Math.ceil(c.n * c.min), Math.ceil((c.n * c.K) / d));
+    if (c.im.count !== n) c.im.count = n;
+  }
+}
+
+function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true, name = '') {
   const buckets = new Map<number, Item[]>();
   for (const it of items) {
     const k = Math.floor(it.x / chunk) * 1000 + Math.floor(it.z / chunk);
     let b = buckets.get(k);
     if (!b) buckets.set(k, (b = []));
     b.push(it);
+  }
+  const lod = LOD_K[name];
+  if (lod) for (const list of buckets.values()) {
+    const key = (it: Item) => hash2(Math.floor(it.x * 97), Math.floor(it.z * 89));
+    list.sort((a, b) => key(a) - key(b));
   }
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
   for (const list of buckets.values()) {
@@ -37,7 +64,13 @@ function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Materi
       });
       im.castShadow = shadows; im.receiveShadow = true;
       im.computeBoundingSphere();
+      im.name = name;
       parent.add(im);
+      if (lod) {
+        let cx = 0, cz = 0;
+        for (const it of list) { cx += it.x; cz += it.z; }
+        lodChunks.push({ im, n: list.length, x: cx / list.length, z: cz / list.length, K: lod[0], min: lod[1] });
+      }
     });
   }
 }
@@ -95,7 +128,7 @@ export function decorSpots(t: Terrain): DecorSpot[] {
       }
       if (!ok || hi - lo > 0.45) continue;
       // built-up density around the spot (5×5 land-cover cells, about 2.5 units): stay in the village
-      const ci = Math.floor((x * 100) / t.lcCell), cj = Math.floor((z * 100) / t.lcCell);
+      const c0 = lcIndex(t, x, z), ci = c0 % t.lcw, cj = (c0 - ci) / t.lcw;
       let built = 0;
       for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
         const bi = Math.max(0, Math.min(t.lcw - 1, ci + i)), bj = Math.max(0, Math.min(t.lch - 1, cj + j));
@@ -143,19 +176,20 @@ export function keepOut(t: Terrain, pts: Pt[]): KeepOut[] {
   const doner = pts.find(p => p.key === 'doner');
   if (doner) k.push({ x: doner.x, z: doner.z, r: DONER_CLEAR - 0.3 });
   for (const p of pts) if (p.kind === 3) k.push({ x: p.x, z: p.z, r: 3, cls: [RC.STREET, RC.TRACK] });
+  k.push(...cityKeepOut()); // v4: no street ribbons under the Grozny landmarks
   return k;
 }
 
-/** Oriented house footprints placed so far (1-unit spatial hash), for the overlap test. */
+/** Oriented house footprints placed so far (1-unit spatial hash from z0), for the overlap test. */
 class Lots {
   private x: number[] = []; private z: number[] = []; private c: number[] = []; private s: number[] = [];
   private hx: number[] = []; private hz: number[] = []; private next: number[] = [];
   private head: Int32Array;
-  constructor(private gw: number, private gh: number) { this.head = new Int32Array(gw * gh).fill(-1); }
+  constructor(private gw: number, private gh: number, private z0 = 0) { this.head = new Int32Array(gw * gh).fill(-1); }
   /** True when the rectangle (centre, cos/sin of rotation.y, half sizes) keeps `gap` from every placed one. */
   fits(x: number, z: number, c: number, s: number, hx: number, hz: number, gap: number): boolean {
     const i0 = Math.max(0, Math.floor(x - 0.8)), i1 = Math.min(this.gw - 1, Math.floor(x + 0.8));
-    const j0 = Math.max(0, Math.floor(z - 0.8)), j1 = Math.min(this.gh - 1, Math.floor(z + 0.8));
+    const j0 = Math.max(0, Math.floor(z - this.z0 - 0.8)), j1 = Math.min(this.gh - 1, Math.floor(z - this.z0 + 0.8));
     // local x and z axes in world (x, z): (c, −s) and (s, c)
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       for (let p = this.head[j * this.gw + i]; p >= 0; p = this.next[p]) {
@@ -166,7 +200,7 @@ class Lots {
     return true;
   }
   add(x: number, z: number, c: number, s: number, hx: number, hz: number) {
-    const id = this.x.length, k = Math.min(this.gh - 1, Math.max(0, Math.floor(z))) * this.gw + Math.min(this.gw - 1, Math.max(0, Math.floor(x)));
+    const id = this.x.length, k = Math.min(this.gh - 1, Math.max(0, Math.floor(z - this.z0))) * this.gw + Math.min(this.gw - 1, Math.max(0, Math.floor(x)));
     this.x.push(x); this.z.push(z); this.c.push(c); this.s.push(s); this.hx.push(hx); this.hz.push(hz);
     this.next.push(this.head[k]); this.head[k] = id;
   }
@@ -208,17 +242,17 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   avoid.push(...clearSpots);
 
   const net = roadNet();
-  const lots = new Lots(Math.ceil(t.W), Math.ceil(t.H));
-  const builtAt = (x: number, z: number) => {
-    const i = Math.max(0, Math.min(t.lcw - 1, Math.floor(x / cw))), j = Math.max(0, Math.min(t.lch - 1, Math.floor(z / cw)));
-    return t.built[j * t.lcw + i];
-  };
+  const lots = new Lots(Math.ceil(t.W), Math.ceil(t.H - t.z0), t.z0);
+  // v4 Грозный: apartment blocks (city.ts) own the city's centre and middle ring; houses keep off them
+  const city = cityPlan(t), siteRects = CITY_SITES.map(s => siteRect(s, 0.3));
+  const builtAt = (x: number, z: number) => t.built[lcIndex(t, x, z)];
   const CORNERS = [[1, 1], [-1, 1], [1, -1], [-1, -1], [0, 1], [0, -1], [1, 0], [-1, 0]];
   let lo = 0;
   /** Can a 2hx × 2hz house (rotation.y = ry) stand at (x, z)? Leaves the lowest corner height in `lo`. */
   const site = (x: number, z: number, ry: number, hx: number, hz: number): boolean => {
-    if (x < 1 || z < 1 || x > t.W - 1 || z > t.H - 1) return false;
+    if (x < 1 || z < t.z0 + 1 || x > t.W - 1 || z > t.H - 1) return false;
     if (!passable(t, x, z) || lcAt(t, x, z) === LC.WATER) return false;
+    if (cityQ(x, z) < CITY_HOUSES_FROM || cityOccupied(city, x, z) || siteRects.some(r => inRect(r, x, z, Math.max(hx, hz)))) return false;
     const R = Math.max(hx, hz);
     for (const a of avoid) if ((a.x - x) ** 2 + (a.z - z) ** 2 < (a.r + R * 0.5) ** 2) return false;
     for (const br of BRIDGES) if (segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.2) return false;
@@ -309,7 +343,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     if (b < 95) continue;
     const r = hash2(i * 3 + 11, j * 7 + 5);
     if (r > (b / 255) * (hq ? 0.5 : 0.3)) continue;
-    const x = (i + 0.2 + hash2(i, j + 99) * 0.6) * cw, z = (j + 0.2 + hash2(i + 77, j) * 0.6) * cw;
+    const x = (i + 0.2 + hash2(i, j + 99) * 0.6) * cw, z = (j + 0.2 + hash2(i + 77, j) * 0.6) * cw + t.z0;
     if (roadClearance(x, z, STREETS) < 9) continue;
     const blockRot = Math.floor(hash2(Math.floor(i / 10), Math.floor(j / 10)) * 4) * (Math.PI / 2) + hash2(Math.floor(i / 10), 3) * 0.5;
     const w = 0.3 + hash2(i, j + 1) * 0.14, d = 0.3 + hash2(i + 3, j) * 0.14;
@@ -321,7 +355,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   const mat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
   variants.forEach((kit, vi) => {
     const list = items.filter(it => (it.v ?? 0) === vi);
-    if (list.length) chunked(list, [kit.body, kit.roof], [mat, mat], [false, true], parent, 50, hq);
+    if (list.length) chunked(list, [kit.body, kit.roof], [mat, mat], [false, true], parent, 50, hq, 'houses');
   });
   return items.length;
 }
@@ -334,14 +368,16 @@ export function buildTrees(t: Terrain, parent: THREE.Object3D, hq: boolean, tin:
   for (const d of decorSpots(t)) marks.push({ x: d.x, z: d.z, r2: (d.r + 0.6) ** 2 });
   for (const c of clearSpots) marks.push({ x: c.x, z: c.z, r2: (c.r + 0.4) ** 2 });
   // ... and every road, rail and stream ribbon
+  // v4 Грозный: off the apartment blocks and the city landmarks
+  const city = cityPlan(t), siteRects = CITY_SITES.map(s => siteRect(s, 0.4));
   const clear = (x: number, z: number) =>
     marks.some(m => (m.x - x) ** 2 + (m.z - z) ** 2 < m.r2) || BRIDGES.some(br => segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.8) ||
-    roadClearance(x, z, ALL_MASK) < 0.18;
+    roadClearance(x, z, ALL_MASK) < 0.18 || cityOccupied(city, x, z) || siteRects.some(r => inRect(r, x, z));
   const spots = treeSpots(t, tin, hq, clear);
   const geo = treeGeometries();
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  chunked(spots.broad, [geo.broad], [mat], [false], parent, 60, hq);
-  chunked(spots.fir, [geo.fir], [mat], [false], parent, 60, hq);
+  chunked(spots.broad, [geo.broad], [mat], [false], parent, 60, hq, 'trees');
+  chunked(spots.fir, [geo.fir], [mat], [false], parent, 60, hq, 'trees');
   return spots.broad.length + spots.fir.length;
 }
 

@@ -29,17 +29,23 @@ export interface RoadNet {
   lines: RoadLine[];
   /** OSM house footprints (Старые Атаги, Курчалой): centre, rotation.y of the long side, size. */
   houses: RealHouse[];
-  /** Segment soup + uniform 1-unit grid (CSR) for clearance queries. */
+  /** Segment soup + uniform 1-unit grid (CSR, rows from z0) for clearance queries. */
   sx0: Float32Array; sz0: Float32Array; sx1: Float32Array; sz1: Float32Array; sc: Uint8Array;
-  gw: number; gh: number; cellStart: Uint32Array; cellSeg: Uint32Array;
+  gw: number; gh: number; z0: number; cellStart: Uint32Array; cellSeg: Uint32Array;
 }
 
 /** A keep-clear disc (HQ, mosques, decor) or, with `hx`/`hz`/`ry`, an oriented rectangle. `cls`: classes it cuts (default all). */
 export interface KeepOut { x: number; z: number; r: number; hx?: number; hz?: number; ry?: number; cls?: number[] }
 
 let net: RoadNet | null = null;
-/** The crop the bake clips to (Terrain W × H). */
-const ROADS_W = 398, ROADS_H = 272;
+/** Street and track ribbons: sub-pixel from far out, so updateRoadLod() hides them there. */
+const lodMeshes: { m: THREE.Mesh; far: number }[] = [];
+/** Hide the street-level ribbons (streets beyond `dist` 175, tracks beyond 140): the overview keeps the roads. */
+export function updateRoadLod(dist: number) {
+  for (const l of lodMeshes) { const on = dist < l.far; if (l.m.visible !== on) l.m.visible = on; }
+}
+/** The crop the bake clips to (Terrain W × H, from z0: the map grew north in v4). */
+const ROADS_W = 398, ROADS_H = 272, ROADS_Z0: number = (ROADS_META as { z0?: number }).z0 ?? 0;
 
 function b64(s: string): Uint8Array {
   const bin = atob(s), out = new Uint8Array(bin.length);
@@ -60,15 +66,15 @@ export function roadNet(): RoadNet {
     const c = buf[p++], n = vi();
     const x = new Float32Array(n), z = new Float32Array(n);
     let qx = vi(), qz = vi();
-    x[0] = qx / q; z[0] = qz / q;
-    for (let i = 1; i < n; i++) { qx += zz(); qz += zz(); x[i] = qx / q; z[i] = qz / q; }
+    x[0] = qx / q; z[0] = qz / q + ROADS_Z0;
+    for (let i = 1; i < n; i++) { qx += zz(); qz += zz(); x[i] = qx / q; z[i] = qz / q + ROADS_Z0; }
     lines.push({ c, x, z });
     nseg += n - 1;
   }
   const hb = b64(HOUSES_B64), houses: RealHouse[] = [];
   for (let i = 0; i + 7 <= hb.length; i += 7) {
     houses.push({
-      x: (hb[i] | (hb[i + 1] << 8)) / q, z: (hb[i + 2] | (hb[i + 3] << 8)) / q,
+      x: (hb[i] | (hb[i + 1] << 8)) / q, z: (hb[i + 2] | (hb[i + 3] << 8)) / q + ROADS_Z0,
       ry: (hb[i + 4] / 255) * Math.PI, w: hb[i + 5] / 100, d: hb[i + 6] / 100,
     });
   }
@@ -81,18 +87,18 @@ export function roadNet(): RoadNet {
   for (const l of lines) {
     for (let i = 0; i + 1 < l.x.length; i++, k++) { sx0[k] = l.x[i]; sz0[k] = l.z[i]; sx1[k] = l.x[i + 1]; sz1[k] = l.z[i + 1]; sc[k] = l.c; }
   }
-  const gw = Math.ceil(ROADS_W), gh = Math.ceil(ROADS_H), pad = 0.45;
+  const gw = Math.ceil(ROADS_W), gh = Math.ceil(ROADS_H - ROADS_Z0), pad = 0.45, z0 = ROADS_Z0;
   // one pass over the segments collects (cell, segment) pairs, a counting sort turns them into CSR
   let pc = new Int32Array(nseg * 6), ps = new Int32Array(nseg * 6), np = 0;
   const cellStart = new Uint32Array(gw * gh + 1);
   for (let s = 0; s < nseg; s++) {
     const ax = sx0[s], az = sz0[s], bx = sx1[s], bz = sz1[s];
     const i0 = Math.max(0, Math.floor(Math.min(ax, bx) - pad)), i1 = Math.min(gw - 1, Math.floor(Math.max(ax, bx) + pad));
-    const j0 = Math.max(0, Math.floor(Math.min(az, bz) - pad)), j1 = Math.min(gh - 1, Math.floor(Math.max(az, bz) + pad));
+    const j0 = Math.max(0, Math.floor(Math.min(az, bz) - z0 - pad)), j1 = Math.min(gh - 1, Math.floor(Math.max(az, bz) - z0 + pad));
     const small = i1 - i0 <= 1 && j1 - j0 <= 1;
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       // only cells the (padded) segment really passes
-      if (!small && segDist(i + 0.5, j + 0.5, ax, az, bx, bz) >= 0.71 + pad) continue;
+      if (!small && segDist(i + 0.5, j + z0 + 0.5, ax, az, bx, bz) >= 0.71 + pad) continue;
       if (np === pc.length) { const a = new Int32Array(np * 2); a.set(pc); pc = a; const b = new Int32Array(np * 2); b.set(ps); ps = b; }
       const c = j * gw + i;
       pc[np] = c; ps[np++] = s; cellStart[c + 1]++;
@@ -101,7 +107,7 @@ export function roadNet(): RoadNet {
   for (let c = 0; c < gw * gh; c++) cellStart[c + 1] += cellStart[c];
   const fill = cellStart.slice(0, gw * gh), cellSeg = new Uint32Array(np);
   for (let e = 0; e < np; e++) cellSeg[fill[pc[e]]++] = ps[e];
-  net = { lines, houses, sx0, sz0, sx1, sz1, sc, gw, gh, cellStart, cellSeg };
+  net = { lines, houses, sx0, sz0, sx1, sz1, sc, gw, gh, z0, cellStart, cellSeg };
   return net;
 }
 
@@ -157,7 +163,7 @@ export const LAND_MASK = 0b11111, ALL_MASK = 0b1111111;
  */
 export function roadClearance(x: number, z: number, mask = LAND_MASK, far = 9, out?: { seg: number }): number {
   const n = roadNet();
-  const i = Math.floor(x), j = Math.floor(z);
+  const i = Math.floor(x), j = Math.floor(z - n.z0);
   if (out) out.seg = -1;
   if (i < 0 || j < 0 || i >= n.gw || j >= n.gh) return far;
   const c = j * n.gw + i;
@@ -207,7 +213,7 @@ function grow(n: number) {
   const f = new Uint8Array(m); f.set(SF); SF = f;
 }
 
-interface Ctx { t: Terrain; tin?: Tin; W: number; H: number; step: number; tolH: number; keep: KeepOut[] }
+interface Ctx { t: Terrain; tin?: Tin; W: number; H: number; Z0: number; step: number; tolH: number; keep: KeepOut[] }
 
 function isWater(cx: Ctx, x: number, z: number) {
   return cx.tin ? tinClass(cx.tin, x, z) === LC.WATER : lcAt(cx.t, x, z) === LC.WATER;
@@ -335,10 +341,10 @@ function ribbon(cx: Ctx, a: Acc, l: RoadLine, rgb: THREE.Color, uMode: 'len' | '
         const ex = k === 0 ? -dx1 : dx0, ez = k === 0 ? -dz1 : dz0;
         const ext = l.c <= RC.ROAD ? hw * 0.6 : hw;
         const ox = x + ex * ext, oz = z + ez * ext;
-        if (ox > 0.05 && oz > 0.05 && ox < cx.W - 0.05 && oz < cx.H - 0.05 && !(start && k === 0)) { x = ox; z = oz; }
+        if (ox > 0.05 && oz > cx.Z0 + 0.05 && ox < cx.W - 0.05 && oz < cx.H - 0.05 && !(start && k === 0)) { x = ox; z = oz; }
       }
-      const lx = Math.max(0, Math.min(cx.W, x + nx)), lz = Math.max(0, Math.min(cx.H, z + nz));
-      const rx = Math.max(0, Math.min(cx.W, x - nx)), rz = Math.max(0, Math.min(cx.H, z - nz));
+      const lx = Math.max(0, Math.min(cx.W, x + nx)), lz = Math.max(cx.Z0, Math.min(cx.H, z + nz));
+      const rx = Math.max(0, Math.min(cx.W, x - nx)), rz = Math.max(cx.Z0, Math.min(cx.H, z - nz));
       let yl: number, yr: number;
       const deck = (SF[p] & 2) && land;
       if (deck || (start && p === 0)) { yl = yr = SH[p]; }
@@ -421,7 +427,7 @@ export function buildRoads(parent: THREE.Object3D, t: Terrain, opts: { lowPower:
   const t0 = performance.now();
   const n = roadNet();
   const low = opts.lowPower;
-  const cx: Ctx = { t, tin: opts.tin, W: t.W, H: t.H, step: low ? 0.7 : 0.5, tolH: low ? 0.03 : 0.014, keep: opts.keep ?? [] };
+  const cx: Ctx = { t, tin: opts.tin, W: t.W, H: t.H, Z0: t.z0, step: low ? 0.7 : 0.5, tolH: low ? 0.03 : 0.014, keep: opts.keep ?? [] };
   const group = new THREE.Group();
   group.name = 'roads';
   const A = { main: acc(), street: acc(), track: acc(), rail: acc(), water: acc() };
@@ -457,23 +463,25 @@ export function buildRoads(parent: THREE.Object3D, t: Terrain, opts: { lowPower:
   ];
   for (const m of meshes) if (m) group.add(m);
   parent.add(group);
+  lodMeshes.length = 0;
+  for (const m of meshes) if (m && (m.name === 'roads-street' || m.name === 'roads-track')) lodMeshes.push({ m, far: m.name === 'roads-street' ? 175 : 140 });
   let tris = 0;
   for (const m of meshes) if (m) tris += (m.geometry.index!.count / 3);
   console.info(`roads: ${n.lines.length} lines, ${tris} triangles, ${(performance.now() - t0).toFixed(0)} ms`);
   return { group };
 }
 
-/** Main roads and village streets, thin, on the minimap base (map pixels: w × h for the whole crop). */
+/** Main roads and village streets, thin, on the minimap base (map pixels: w × h for the whole crop, z0..H). */
 export function paintRoads(g: CanvasRenderingContext2D, w: number, h: number) {
-  const n = roadNet(), kx = w / ROADS_W, kz = h / ROADS_H;
+  const n = roadNet(), kx = w / ROADS_W, kz = h / (ROADS_H - ROADS_Z0), z0 = ROADS_Z0;
   const s = Math.max(0.6, Math.min(2, w / 260));
   const pass = (cls: number[], color: string, width: number) => {
     g.strokeStyle = color; g.lineWidth = width;
     g.beginPath();
     for (const l of n.lines) {
       if (cls.indexOf(l.c) < 0) continue;
-      g.moveTo(l.x[0] * kx, l.z[0] * kz);
-      for (let i = 1; i < l.x.length; i++) g.lineTo(l.x[i] * kx, l.z[i] * kz);
+      g.moveTo(l.x[0] * kx, (l.z[0] - z0) * kz);
+      for (let i = 1; i < l.x.length; i++) g.lineTo(l.x[i] * kx, (l.z[i] - z0) * kz);
     }
     g.stroke();
   };

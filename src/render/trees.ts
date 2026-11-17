@@ -51,7 +51,7 @@ export function treeSpots(t: Terrain, tin: Tin, hq: boolean, skip: (x: number, z
       for (let q = 0; q < size; q++) {
         const ang = hash2(f * 13 + k, q + 5) * Math.PI * 2, rad = q === 0 ? 0 : 0.45 + hash2(f * 17 + k, q + 9) * 0.6;
         const x = cx + Math.cos(ang) * rad, z = cz + Math.sin(ang) * rad;
-        if (x < 0.6 || z < 0.6 || x > tin.W - 0.6 || z > tin.H - 0.6) continue;
+        if (x < 0.6 || z < tin.z0 + 0.6 || x > tin.W - 0.6 || z > tin.H - 0.6) continue;
         if (tinClass(tin, x, z) !== cls || skip(x, z)) continue;
         const h = hash2(Math.floor(x * 31), Math.floor(z * 37));
         const isFir = forest && (hM > 560 || (hM > 380 && h < (hM - 380) / 220));

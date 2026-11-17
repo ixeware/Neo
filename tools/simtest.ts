@@ -18,7 +18,7 @@ import { Session, type Backend } from '../src/net/session';
 import { validCmd, validAdmCmd } from '../src/net/shared';
 import { okPid, bound, checkState, explained, decide, verdicts, stateShape, moneyBound } from '../src/net/guard';
 import { admBody, localChannel } from '../src/net/adminChannel';
-import { baseChecks, fillBases } from './basetest';
+import { baseChecks, fillBases, forceBase } from './basetest';
 
 const MIN = Number(process.argv[2] || 30);
 const SEED = Number(process.argv[3] || 42);
@@ -497,6 +497,7 @@ function forceContent(sim: Sim) {
   for (const t of [WOU, ADMIN, ERSNO, BEKHAN, ADAM, MOHMAD, GELIK, SPORTIK, AMINA]) put(0, t, at.x + 4, at.z + 1);
   for (const t of [CHIMAEV, WOU, ADMIN, ERSNO, ADAM, MOHMAD, GELIK, SPORTIK]) put(1, t, ku.x - 4, ku.z + 1);
   sim.startEvent('jam');
+  forceBase(sim); // v5: towers, a Тесла with its generator, traps, walls, economy on both sides
 }
 /** Short-lived things right before a snapshot: rides, chickens, Фудзи poison, снюс + LOOP, a pack with scared units, a lost place. */
 function forceLate(sim: Sim) {
@@ -521,7 +522,7 @@ const live = (s: Sim) => {
     heroes: n(u => !!UNITS[u.t].hero), away: s.st.away.length, rides: n(u => u.t === RIDE), golems: n(u => u.t === GOLEM), chickens: n(u => u.t === CHICKEN),
     geliks: n(u => u.t === GELIK), sportiki: n(u => u.t === SPORTIK), packs: s.st.packs.length, scared: n(u => u.fr > now), poisoned: n(u => u.psn > now),
     snus: s.st.sides.map(x => x.snus > now ? 1 : x.snus + BUFF.offFor > now && x.snus ? -1 : 0), loop: s.st.sides.map(x => (x.loop > now ? 1 : 0)), aoe: s.st.aoe.length,
-    places: s.st.pts.slice(PT_PLACE0).map(p => p.owner), ev: s.st.ev,
+    places: s.st.pts.slice(PT_PLACE0).map(p => p.owner), ev: s.st.ev, bld: [0, 1].map(sd => s.st.bld.filter(q => q.s === sd).length),
   });
 };
 /** Restores `b` through JSON and structuredClone and runs all three side by side. */
@@ -542,7 +543,7 @@ const same = hashState(runTo(SEED, 6000).st) === hashState(runTo(SEED, 6000).st)
 const b = runTo(SEED, 3060, { 3000: forceContent, 3050: forceLate });
 console.log('content at 5:06', live(b));
 const liveOk = b.st.packs.length > 0 && b.st.units.some(u => u.fr > b.st.tick) && b.st.units.some(u => u.t === GELIK) && b.st.units.some(u => u.t === SPORTIK) && b.st.sides[0].snus > b.st.tick && b.st.sides[1].loop > b.st.tick && b.st.units.some(u => u.t === ERSNO)
-  && b.st.units.some(u => u.t === AMINA);
+  && b.st.units.some(u => u.t === AMINA) && [0, 1].every(sd => b.st.bld.filter(q => q.s === sd).length >= 10);
 if (!liveOk) { console.log('v3 content not alive at the snapshot'); process.exitCode = 1; }
 let ok = twin(b, 600, 'A (heroes, summons, rides, jam, poison, гелики, спортики, пачка, снюс, LOOP)');
 // «Завтра учимся» right now: heroes are away «на парах» in the snapshot and come back after it

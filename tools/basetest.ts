@@ -1062,6 +1062,18 @@ export function baseChecks(ctx: BaseCtx): void {
   }
 }
 
+/** For the determinism snapshots: a working base on both sides (a Тесла with its generator, towers, traps, walls, economy, a hatchery). */
+export function forceBase(s: Sim): void {
+  const T = s.terrain, keys = ['prorab', 'generator', 'tesla', 'rogatka', 'sebozol', 'sperm', 'gantel', 'kamera', 'kuryatnik', 'grabli', 'yama', 'sobaka', 'larek', 'zagon', 'shaurma', 'seyf', 'zabor', 'zabor', 'zabor'];
+  for (const side of [0, 1] as Side[]) {
+    const p = s.st.pts[side], dir = side === 0 ? -1 : 1; // on the far side from the river / the front
+    keys.forEach((k, i) => {
+      const q = snapCell(T, p.x + dir * (7 + (i % 4) * 4), p.z - 8 + Math.floor(i / 4) * 4);
+      if (!s.bldAt(q.x, q.z)) s.apply({ t: s.st.tick, id: `adm:fb${side}${i}`, p: 'admin', k: 'adm', op: 'bgive', s: side, u: BKEY[k], x: q.x, z: q.z, v: 1 + (i % 3) } as Cmd);
+    });
+  }
+}
+
 /** Both bases full for the worst-case state size: 30 buildings and 40 wall segments a side, levels 3, everything busy. */
 export function fillBases(s: Sim): number {
   const T = s.terrain;

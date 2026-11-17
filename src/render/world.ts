@@ -1,6 +1,6 @@
 // Villages, forests, landmarks and the two high-rises the whole war is about.
 import * as THREE from 'three';
-import { LC, BRIDGES, heightY, passable, lcAt, type Terrain } from '../world/terrain';
+import { LC, BRIDGES, heightY, passable, lcAt, lcIndex, type Terrain } from '../world/terrain';
 import { hash2 } from './terrainMesh';
 import type { Tin } from './lowpoly';
 import { treeGeometries, treeSpots } from './trees';
@@ -95,7 +95,7 @@ export function decorSpots(t: Terrain): DecorSpot[] {
       }
       if (!ok || hi - lo > 0.45) continue;
       // built-up density around the spot (5×5 land-cover cells, about 2.5 units): stay in the village
-      const ci = Math.floor((x * 100) / t.lcCell), cj = Math.floor((z * 100) / t.lcCell);
+      const c0 = lcIndex(t, x, z), ci = c0 % t.lcw, cj = (c0 - ci) / t.lcw;
       let built = 0;
       for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
         const bi = Math.max(0, Math.min(t.lcw - 1, ci + i)), bj = Math.max(0, Math.min(t.lch - 1, cj + j));
@@ -146,16 +146,16 @@ export function keepOut(t: Terrain, pts: Pt[]): KeepOut[] {
   return k;
 }
 
-/** Oriented house footprints placed so far (1-unit spatial hash), for the overlap test. */
-class Lots {
+/** Oriented house footprints placed so far (1-unit spatial hash from z0), for the overlap test. */
+export class Lots {
   private x: number[] = []; private z: number[] = []; private c: number[] = []; private s: number[] = [];
   private hx: number[] = []; private hz: number[] = []; private next: number[] = [];
   private head: Int32Array;
-  constructor(private gw: number, private gh: number) { this.head = new Int32Array(gw * gh).fill(-1); }
+  constructor(private gw: number, private gh: number, private z0 = 0) { this.head = new Int32Array(gw * gh).fill(-1); }
   /** True when the rectangle (centre, cos/sin of rotation.y, half sizes) keeps `gap` from every placed one. */
   fits(x: number, z: number, c: number, s: number, hx: number, hz: number, gap: number): boolean {
     const i0 = Math.max(0, Math.floor(x - 0.8)), i1 = Math.min(this.gw - 1, Math.floor(x + 0.8));
-    const j0 = Math.max(0, Math.floor(z - 0.8)), j1 = Math.min(this.gh - 1, Math.floor(z + 0.8));
+    const j0 = Math.max(0, Math.floor(z - this.z0 - 0.8)), j1 = Math.min(this.gh - 1, Math.floor(z - this.z0 + 0.8));
     // local x and z axes in world (x, z): (c, −s) and (s, c)
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       for (let p = this.head[j * this.gw + i]; p >= 0; p = this.next[p]) {
@@ -166,7 +166,7 @@ class Lots {
     return true;
   }
   add(x: number, z: number, c: number, s: number, hx: number, hz: number) {
-    const id = this.x.length, k = Math.min(this.gh - 1, Math.max(0, Math.floor(z))) * this.gw + Math.min(this.gw - 1, Math.max(0, Math.floor(x)));
+    const id = this.x.length, k = Math.min(this.gh - 1, Math.max(0, Math.floor(z - this.z0))) * this.gw + Math.min(this.gw - 1, Math.max(0, Math.floor(x)));
     this.x.push(x); this.z.push(z); this.c.push(c); this.s.push(s); this.hx.push(hx); this.hz.push(hz);
     this.next.push(this.head[k]); this.head[k] = id;
   }
@@ -208,16 +208,13 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   avoid.push(...clearSpots);
 
   const net = roadNet();
-  const lots = new Lots(Math.ceil(t.W), Math.ceil(t.H));
-  const builtAt = (x: number, z: number) => {
-    const i = Math.max(0, Math.min(t.lcw - 1, Math.floor(x / cw))), j = Math.max(0, Math.min(t.lch - 1, Math.floor(z / cw)));
-    return t.built[j * t.lcw + i];
-  };
+  const lots = new Lots(Math.ceil(t.W), Math.ceil(t.H - t.z0), t.z0);
+  const builtAt = (x: number, z: number) => t.built[lcIndex(t, x, z)];
   const CORNERS = [[1, 1], [-1, 1], [1, -1], [-1, -1], [0, 1], [0, -1], [1, 0], [-1, 0]];
   let lo = 0;
   /** Can a 2hx × 2hz house (rotation.y = ry) stand at (x, z)? Leaves the lowest corner height in `lo`. */
   const site = (x: number, z: number, ry: number, hx: number, hz: number): boolean => {
-    if (x < 1 || z < 1 || x > t.W - 1 || z > t.H - 1) return false;
+    if (x < 1 || z < t.z0 + 1 || x > t.W - 1 || z > t.H - 1) return false;
     if (!passable(t, x, z) || lcAt(t, x, z) === LC.WATER) return false;
     const R = Math.max(hx, hz);
     for (const a of avoid) if ((a.x - x) ** 2 + (a.z - z) ** 2 < (a.r + R * 0.5) ** 2) return false;
@@ -309,7 +306,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     if (b < 95) continue;
     const r = hash2(i * 3 + 11, j * 7 + 5);
     if (r > (b / 255) * (hq ? 0.5 : 0.3)) continue;
-    const x = (i + 0.2 + hash2(i, j + 99) * 0.6) * cw, z = (j + 0.2 + hash2(i + 77, j) * 0.6) * cw;
+    const x = (i + 0.2 + hash2(i, j + 99) * 0.6) * cw, z = (j + 0.2 + hash2(i + 77, j) * 0.6) * cw + t.z0;
     if (roadClearance(x, z, STREETS) < 9) continue;
     const blockRot = Math.floor(hash2(Math.floor(i / 10), Math.floor(j / 10)) * 4) * (Math.PI / 2) + hash2(Math.floor(i / 10), 3) * 0.5;
     const w = 0.3 + hash2(i, j + 1) * 0.14, d = 0.3 + hash2(i + 3, j) * 0.14;

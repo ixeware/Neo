@@ -26,7 +26,7 @@ export class Minimap {
     paintRoads(bg, c.width, c.height); // real roads and streets, thin, on the base image
     const move = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
-      const x = ((e.clientX - r.left) / r.width) * t.W, z = ((e.clientY - r.top) / r.height) * t.H;
+      const x = ((e.clientX - r.left) / r.width) * t.W, z = t.z0 + ((e.clientY - r.top) / r.height) * (t.H - t.z0);
       stage.flyTo(x, z, stage.dist, 400);
     };
     let down = false;
@@ -38,18 +38,19 @@ export class Minimap {
   draw(now: number) {
     if (now - this.last < 150) return;
     this.last = now;
-    const g = this.g, W = this.c.width, H = this.c.height, sx = W / this.t.W, sz = H / this.t.H;
+    // the whole map, z0..H (v4: it reaches north to Grozny); oz shifts world z to the canvas top
+    const g = this.g, W = this.c.width, H = this.c.height, sx = W / this.t.W, sz = H / (this.t.H - this.t.z0), oz = -this.t.z0 * sz;
     g.drawImage(this.base, 0, 0);
     const st = this.sim.st;
     for (const p of st.pts) {
-      if (p.kind === 2) { this.kiosk(p.x * sx, p.z * sz, p.owner); continue; }
-      if (p.kind === 3) { this.place(p.x * sx, p.z * sz, p.owner, p.perk ?? ''); continue; } // v3 capture places
+      if (p.kind === 2) { this.kiosk(p.x * sx, p.z * sz + oz, p.owner); continue; }
+      if (p.kind === 3) { this.place(p.x * sx, p.z * sz + oz, p.owner, p.perk ?? ''); continue; } // v3 capture places
       const r = p.kind === 0 ? 11 : 8;
       g.lineWidth = 3;
       g.strokeStyle = p.owner >= 0 ? PEN[p.owner] : '#f4f6f8';
       g.fillStyle = p.owner >= 0 ? PEN[p.owner] + '55' : 'rgba(244,246,248,.35)';
       g.beginPath();
-      if (p.kind === 0) g.rect(p.x * sx - r, p.z * sz - r, r * 2, r * 2); else g.arc(p.x * sx, p.z * sz, r, 0, Math.PI * 2);
+      if (p.kind === 0) g.rect(p.x * sx - r, p.z * sz + oz - r, r * 2, r * 2); else g.arc(p.x * sx, p.z * sz + oz, r, 0, Math.PI * 2);
       g.fill(); g.stroke();
     }
     const heroes: number[] = [];
@@ -58,14 +59,14 @@ export class Minimap {
       if (u.t === 5 || IS_HERO[u.t]) { heroes.push(i); continue; }
       g.fillStyle = PEN[u.s];
       const s = u.t === 13 ? 6 : 4;
-      g.fillRect(u.x * sx - s / 2, u.z * sz - s / 2, s, s);
+      g.fillRect(u.x * sx - s / 2, u.z * sz + oz - s / 2, s, s);
     }
     // heroes and bosses on top: bigger dot with a paper ring
     g.lineWidth = 2; g.strokeStyle = '#f4f6f8';
     for (const i of heroes) {
       const u = st.units[i], r = u.t === 5 ? 6 : 4.2;
       g.fillStyle = PEN[u.s];
-      g.beginPath(); g.arc(u.x * sx, u.z * sz, r, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.beginPath(); g.arc(u.x * sx, u.z * sz + oz, r, 0, Math.PI * 2); g.fill(); g.stroke();
     }
     // camera footprint
     const corners = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => {
@@ -75,11 +76,11 @@ export class Minimap {
     g.strokeStyle = '#23262b'; g.lineWidth = 2.5;
     if (corners.every(c => c)) {
       g.beginPath();
-      corners.forEach((c, i) => (i ? g.lineTo(c!.x * sx, c!.z * sz) : g.moveTo(c!.x * sx, c!.z * sz)));
+      corners.forEach((c, i) => (i ? g.lineTo(c!.x * sx, c!.z * sz + oz) : g.moveTo(c!.x * sx, c!.z * sz + oz)));
       g.closePath(); g.stroke();
     } else {
       const tg = this.stage.target, s = this.stage.dist * 0.6;
-      g.strokeRect((tg.x - s) * sx, (tg.z - s * 0.6) * sz, s * 2 * sx, s * 1.2 * sz);
+      g.strokeRect((tg.x - s) * sx, (tg.z - s * 0.6) * sz + oz, s * 2 * sx, s * 1.2 * sz);
     }
   }
 

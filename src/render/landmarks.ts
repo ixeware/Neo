@@ -7,7 +7,7 @@
 // point when it can; otherwise it moves to the nearest spot (≤ 3.5 units) that clears the
 // high-rises, the idle bosses, the drawn mosques, the bridges, the water, every point's flag and
 // Донер Бей, and the other landmarks. Models face the centre of their village.
-import { BRIDGES, LC, heightM, lcAt, passable, type Terrain } from '../world/terrain';
+import { BRIDGES, LC, heightM, lcAt, lcIndex, passable, type Terrain } from '../world/terrain';
 import { TERRAIN_META } from '../data/terrain';
 import { PLACES, CAPTURE_PLACES, type PlaceKind } from '../data/places';
 import { roadClearance, RC } from './roads';
@@ -110,7 +110,7 @@ function fixedKeep(): Circle[] {
 }
 
 function okSpot(t: Terrain | null, x: number, z: number, r: number, keep: Circle[]): boolean {
-  if (x < r + 1 || z < r + 1 || x > TERRAIN_META.gw - r - 1 || z > TERRAIN_META.gh - r - 1) return false;
+  if (x < r + 1 || z < TERRAIN_META.z0 + r + 1 || x > TERRAIN_META.gw - r - 1 || z > TERRAIN_META.gh - r - 1) return false;
   for (const k of keep) if ((k.x - x) ** 2 + (k.z - z) ** 2 < (k.r + r) ** 2) return false;
   for (const b of BRIDGES) if (segDist(x, z, b.x0, b.z0, b.x1, b.z1) < r + 1.1) return false;
   if (roadClearance(x, z, (1 << RC.MAIN) | (1 << RC.ROAD) | (1 << RC.RAIL)) < r * 0.8) return false; // not on a main road
@@ -147,7 +147,7 @@ function settle(t: Terrain | null, x0: number, z0: number, r: number, keep: Circ
 }
 
 function builtAt(t: Terrain, x: number, z: number) {
-  const ci = Math.floor((x * 100) / t.lcCell), cj = Math.floor((z * 100) / t.lcCell);
+  const c0 = lcIndex(t, x, z), ci = c0 % t.lcw, cj = (c0 - ci) / t.lcw;
   let b = 0;
   for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
     const bi = Math.max(0, Math.min(t.lcw - 1, ci + i)), bj = Math.max(0, Math.min(t.lch - 1, cj + j));

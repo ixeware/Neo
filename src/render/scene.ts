@@ -86,7 +86,7 @@ export class Stage {
 
   clamp() {
     this.target.x = Math.max(0, Math.min(this.t.W, this.target.x));
-    this.target.z = Math.max(0, Math.min(this.t.H, this.target.z));
+    this.target.z = Math.max(this.t.z0, Math.min(this.t.H, this.target.z)); // z0: the map reaches north to Grozny (v4)
   }
 
   /** First person (src/render/fpcam.ts): places the camera and `target` itself instead of the RTS rig. */
@@ -151,7 +151,7 @@ export class Stage {
     const step = Math.max(0.25, this.dist / 300);
     for (let s = 0; s < 2000; s += step) {
       const x = o.x + d.x * s, y = o.y + d.y * s, z = o.z + d.z * s;
-      if (x < -50 || z < -50 || x > this.t.W + 50 || z > this.t.H + 50) { if (s > 50) break; prev = s; continue; }
+      if (x < -50 || z < this.t.z0 - 50 || x > this.t.W + 50 || z > this.t.H + 50) { if (s > 50) break; prev = s; continue; }
       const h = heightY(this.t, x, z);
       if (y <= h) {
         let a = prev, b = s;
@@ -161,7 +161,7 @@ export class Stage {
           if (my <= heightY(this.t, mx, mz)) b = m; else a = m;
         }
         const px = o.x + d.x * b, pz = o.z + d.z * b;
-        if (px < 0 || pz < 0 || px > this.t.W || pz > this.t.H) return null;
+        if (px < 0 || pz < this.t.z0 || px > this.t.W || pz > this.t.H) return null;
         return new THREE.Vector3(px, heightY(this.t, px, pz), pz);
       }
       prev = s;

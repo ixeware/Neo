@@ -18,13 +18,14 @@ export function vnoise(x: number, y: number): number {
 }
 
 export interface Tin {
-  W: number; H: number;
+  /** East and south edges; the north edge is z0 (the map grew north in v4: z runs z0..H). */
+  W: number; H: number; z0: number;
   np: number; x: Float32Array; z: Float32Array; y: Float32Array;
   nt: number; tri: Uint32Array; // counter-clockwise seen from above (+y)
   cls: Uint8Array; // land-cover class per face (LC.*)
   rgb: Float32Array; // sRGB 0..1 per face
   nrm: Float32Array; // unit normal per face
-  /** Border vertex indices per side, sorted along the edge: north (z=0), east (x=W), south (z=H), west (x=0). */
+  /** Border vertex indices per side, sorted along the edge: north (z=z0), east (x=W), south (z=H), west (x=0). */
   border: [number[], number[], number[], number[]];
   /** Uniform grid → faces (CSR) for height lookups. */
   gs: number; gw: number; gh: number; cellStart: Uint32Array; cellTri: Uint32Array;
@@ -190,11 +191,15 @@ function outlinePoints(V: Votes, pts: PointSet, edgeSeed: Uint8Array, W: number,
 // ---- parcels --------------------------------------------------------------------------------------------------
 interface Seeds { xy: Float64Array; n: number; tone: Uint8Array; grid: Int32Array[]; gcell: number; gw: number; gh: number }
 
-/** Field parcels: rows of strips; a few regions each with its own heading and strip size. */
-function parcelSeeds(W: number, H: number): Seeds {
+/**
+ * Field parcels: rows of strips; a few regions each with its own heading and strip size. The regions are
+ * hashed in world coordinates (the pattern south of z = 0 is the pre-v4 one); the seeds come back in the
+ * TIN's local frame (z − z0, so 0..H).
+ */
+function parcelSeeds(W: number, H: number, z0 = 0): Seeds {
   const R = 64;
   const regs: { x: number; z: number; ca: number; sa: number; L: number; D: number }[] = [];
-  for (let j = -1; j <= Math.ceil(H / R) + 1; j++) for (let i = -1; i <= Math.ceil(W / R) + 1; i++) {
+  for (let j = Math.floor(z0 / R) - 1; j <= Math.ceil((H + z0) / R) + 1; j++) for (let i = -1; i <= Math.ceil(W / R) + 1; i++) {
     const h1 = hash2(i + 400, j + 900), h2 = hash2(i + 41, j + 77), h3 = hash2(i + 7, j + 3);
     const ang = 0.32 + (h1 - 0.5) * 0.9;
     regs.push({ x: (i + 0.2 + 0.6 * h2) * R, z: (j + 0.2 + 0.6 * h3) * R, ca: Math.cos(ang), sa: Math.sin(ang), L: 7 + hash2(i, j + 55) * 3, D: 3.4 + hash2(i + 9, j) * 1.4 });
@@ -213,9 +218,9 @@ function parcelSeeds(W: number, H: number): Seeds {
         const lu = u * g.L + rowOff + (hash2(u + 300, v + r * 17) - 0.5) * g.L * 0.3;
         const lv = v * g.D + (hash2(u + r * 13, v + 600) - 0.5) * g.D * 0.25;
         const x = g.x + lu * g.ca - lv * g.sa, z = g.z + lu * g.sa + lv * g.ca;
-        if (x < -10 || z < -10 || x > W + 10 || z > H + 10) continue;
+        if (x < -10 || z < z0 - 10 || x > W + 10 || z > H + z0 + 10) continue;
         if (nearestReg(x, z) !== r) continue;
-        xs.push(x, z);
+        xs.push(x, z - z0);
       }
     }
   });
@@ -343,9 +348,13 @@ function fillPoints(t: Terrain, V: Votes, pts: PointSet, dist: Float32Array, rel
 
 export interface TinOptions { base?: number }
 
+/**
+ * The TIN is built in a local frame (z − z0, so the point sets and grids start at 0) and handed back in
+ * world coordinates. Noise and field patterns are hashed in world coordinates.
+ */
 export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
   const t0 = performance.now();
-  const W = t.W, H = t.H;
+  const z0 = t.z0, W = t.W, H = t.H - z0; // local depth
   const B = opt.base ?? 2.4; // spacing on flat open ground (world units)
   const V = smoothVotes(t);
   const { cw, ch } = V;
@@ -358,7 +367,7 @@ export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
 
   const edgeSeed = new Uint8Array(cw * ch);
   outlinePoints(V, pts, edgeSeed, W, H);
-  const seeds = parcelSeeds(W, H);
+  const seeds = parcelSeeds(W, H, z0);
   parcelPoints(V, seeds, pts, edgeSeed, W, H);
   const dist = outlineDistance(edgeSeed, cw, ch);
   fillPoints(t, V, pts, dist, reliefSpacing(t, B), W, H);
@@ -372,7 +381,7 @@ export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
   const WDEPTH = 0.16;
   for (let i = 0; i < np; i++) {
     X[i] = pts.x[i]; Z[i] = pts.z[i];
-    Y[i] = (heightM(t, X[i], Z[i]) / 100) * EXAG - (pts.kind[i] === K_WATER_IN ? WDEPTH : 0);
+    Y[i] = (heightM(t, X[i], Z[i] + z0) / 100) * EXAG - (pts.kind[i] === K_WATER_IN ? WDEPTH : 0);
   }
   const T0 = dl.triangles, HE = dl.halfedges, nf0 = T0.length / 3;
   const remap = new Int32Array(nf0).fill(-1);
@@ -445,7 +454,7 @@ export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
     nrm[f * 3] = nx; nrm[f * 3 + 1] = ny; nrm[f * 3 + 2] = nz;
     const gx = (X[a] + X[b] + X[c]) / 3, gz = (Z[a] + Z[b] + Z[c]) / 3;
     const hM = ((Y[a] + Y[b] + Y[c]) / 3 / EXAG) * 100;
-    faceColour(col, cls[f], gx, gz, hM, ny, seeds);
+    faceColour(col, cls[f], gx, gz, hM, ny, seeds, z0);
     // ridges a touch lighter, gullies and valleys darker: reads as relief even from straight above
     const bi = Math.min(t.gw - 1, Math.floor(gx)), bj = Math.min(t.gh - 1, Math.floor(gz)), bu = gx - bi, bv = gz - bj;
     const hAvg = (hb[bj * gw1 + bi] * (1 - bu) + hb[bj * gw1 + bi + 1] * bu) * (1 - bv) + (hb[(bj + 1) * gw1 + bi] * (1 - bu) + hb[(bj + 1) * gw1 + bi + 1] * bu) * bv;
@@ -468,7 +477,8 @@ export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
 
   const triOut = tri.slice(0, nt * 3);
   const grid = faceGrid(triOut, nt, X, Z, W, H);
-  return { W, H, np, x: X, z: Z, y: Y, nt, tri: triOut, cls, rgb, nrm, border, ...grid, ms: performance.now() - t0 };
+  for (let i = 0; i < np; i++) Z[i] += z0; // local → world
+  return { W, H: t.H, z0, np, x: X, z: Z, y: Y, nt, tri: triOut, cls, rgb, nrm, border, ...grid, ms: performance.now() - t0 };
 }
 
 /** Box-blurred heightmap (metres), radius r cells, same grid as heightsM. */
@@ -514,8 +524,10 @@ function setMix(o: RGB, a: RGB, b: RGB, k: number) {
 }
 const pickN = (arr: RGB[], v: number) => arr[Math.max(0, Math.min(arr.length - 1, Math.floor(v * arr.length)))];
 
-function faceColour(o: RGB, k: number, x: number, z: number, hM: number, ny: number, seeds: Seeds) {
+/** `z` is local (z − z0) for the parcel seeds; the noise runs on world z. */
+function faceColour(o: RGB, k: number, x: number, zl: number, hM: number, ny: number, seeds: Seeds, z0: number) {
   const hi = Math.max(0, Math.min(1, (hM - 330) / 420)); // 0 in the plain, 1 high in the Black Mountains
+  const z = zl + z0;
   switch (k) {
     case LC.TREE: {
       const n1 = vnoise(x * 0.11, z * 0.11) * 0.6 + vnoise(x * 0.045 + 9, z * 0.045 + 3) * 0.4;
@@ -523,7 +535,7 @@ function faceColour(o: RGB, k: number, x: number, z: number, hM: number, ny: num
       break;
     }
     case LC.CROP: {
-      const s = nearestSeed(seeds, x, z);
+      const s = nearestSeed(seeds, x, zl);
       setMix(o, PAL.crop[s >= 0 ? seeds.tone[s] : 0], PAL.cropBase, 0.12); // one family of tones, not confetti
       setMix(o, o, PAL.meadow, hi * 0.6);
       break;
@@ -553,7 +565,7 @@ function minBary(tin: Tin, f: number, x: number, z: number): number {
 /** Face index under (x, z), or -1 outside the map. */
 export function tinFace(tin: Tin, x: number, z: number): number {
   if (lastFace < tin.nt && minBary(tin, lastFace, x, z) >= -1e-6) return lastFace;
-  const i = Math.floor(x / tin.gs), j = Math.floor(z / tin.gs);
+  const i = Math.floor(x / tin.gs), j = Math.floor((z - tin.z0) / tin.gs);
   if (i < 0 || j < 0 || i >= tin.gw || j >= tin.gh) return -1;
   const c = j * tin.gw + i;
   let best = -1, bm = -1e9;
@@ -569,7 +581,7 @@ export function tinFace(tin: Tin, x: number, z: number): number {
 /** Exact height of the rendered surface (world units), clamped to the map. */
 export function tinHeight(tin: Tin, x: number, z: number): number {
   x = Math.max(0, Math.min(tin.W - 1e-4, x));
-  z = Math.max(0, Math.min(tin.H - 1e-4, z));
+  z = Math.max(tin.z0, Math.min(tin.H - 1e-4, z));
   const f = tinFace(tin, x, z);
   if (f < 0) return 0;
   const T = tin.tri, X = tin.x, Z = tin.z, Y = tin.y;
@@ -598,13 +610,13 @@ export function faceShade(tin: Tin, f: number, out: RGB = [0, 0, 0]): RGB {
   return out;
 }
 
-/** Face index per sample of a (w·ss)×(h·ss) grid of sample centres, by rasterising every face once. */
+/** Face index per sample of a (w·ss)×(h·ss) grid of sample centres (the whole map, z0..H), by rasterising every face once. */
 export function rasterFaces(tin: Tin, w: number, h: number, ss = 2): Int32Array {
   const SW = w * ss, SH = h * ss, buf = new Int32Array(SW * SH).fill(-1);
-  const kx = SW / tin.W, kz = SH / tin.H, T = tin.tri, X = tin.x, Z = tin.z;
+  const kx = SW / tin.W, kz = SH / (tin.H - tin.z0), z0 = tin.z0, T = tin.tri, X = tin.x, Z = tin.z;
   for (let f = 0; f < tin.nt; f++) {
     const a = T[f * 3], b = T[f * 3 + 1], c = T[f * 3 + 2];
-    const ax = X[a] * kx - 0.5, az = Z[a] * kz - 0.5, bx = X[b] * kx - 0.5, bz = Z[b] * kz - 0.5, cx = X[c] * kx - 0.5, cz = Z[c] * kz - 0.5;
+    const ax = X[a] * kx - 0.5, az = (Z[a] - z0) * kz - 0.5, bx = X[b] * kx - 0.5, bz = (Z[b] - z0) * kz - 0.5, cx = X[c] * kx - 0.5, cz = (Z[c] - z0) * kz - 0.5;
     const i0 = Math.max(0, Math.ceil(Math.min(ax, bx, cx))), i1 = Math.min(SW - 1, Math.floor(Math.max(ax, bx, cx)));
     const j0 = Math.max(0, Math.ceil(Math.min(az, bz, cz))), j1 = Math.min(SH - 1, Math.floor(Math.max(az, bz, cz)));
     if (i0 > i1 || j0 > j1) continue;
@@ -618,11 +630,11 @@ export function rasterFaces(tin: Tin, w: number, h: number, ss = 2): Int32Array 
     }
   }
   // any sample a float tie left uncovered: ask the grid
-  for (let j = 0; j < SH; j++) for (let i = 0; i < SW; i++) if (buf[j * SW + i] < 0) buf[j * SW + i] = tinFace(tin, (i + 0.5) / kx, (j + 0.5) / kz);
+  for (let j = 0; j < SH; j++) for (let i = 0; i < SW; i++) if (buf[j * SW + i] < 0) buf[j * SW + i] = tinFace(tin, (i + 0.5) / kx, (j + 0.5) / kz + z0);
   return buf;
 }
 
-/** Paint the TIN into a 2D context: 2×2 samples per pixel, crisp and seamless (minimap base). */
+/** Paint the TIN into a 2D context: 2×2 samples per pixel, crisp and seamless (minimap base: the whole map, z0..H). */
 export function paintTin(tin: Tin, g: CanvasRenderingContext2D, w: number, h: number) {
   const img = g.createImageData(w, h);
   const d = img.data;

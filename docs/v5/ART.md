@@ -353,13 +353,12 @@ SUN_DIR                   // unit vector towards the sun, for baked details
 groundShadow(w, d, h, ry) // fake shadow sheet for the phone tier, or null (see §5)
 ```
 
-For the few places the outline pass does not reach (portraits, your own tool renders):
+For the places the outline pass does not reach (2D renders with a transparent background: portraits,
+thumbnails) there is a sticker outline — the picture's own silhouette in ink behind it:
 
 ```ts
-import { hullOutline } from '../render/toon/hull';
-const hulls = hullOutline(object, 1.6);   // ink hull, 1.6 px wide, around every mesh under `object`
-…render…
-for (const h of hulls) { h.removeFromParent(); h.geometry.dispose(); }
+import { inkSticker } from '../render/toon/hull';
+const url = (TOON ? inkSticker(canvas, 2.5) : canvas).toDataURL('image/png');   // as src/ui/portraits.ts does
 ```
 
 A renderer of your own (a tool page) joins the style with `styleRenderer(renderer)` and

@@ -1,12 +1,37 @@
-// Inverted-hull outline: a copy of the mesh pushed out along smoothed normals by a fixed number of
-// pixels and drawn back-face-only in ink. The game's frame gets its outlines from the depth pass
-// (post.ts) at no per-object cost; this is for the places that pass does not reach — the portrait
-// renderer — and for a deliberate ink on one hero object. It doubles the triangles and the draw calls
-// of what it wraps, so never put it on crowds or scenery. `?ol=hull` hulls the whole scene instead of
-// running the depth pass: that is the comparison mode behind the numbers in docs/v5/ART.md, not a
-// shipping mode.
+// Outlines for the places the game's depth pass (post.ts) does not reach.
+//
+// inkSticker(): the outline for a finished 2D render with a transparent background (portraits,
+// thumbnails) — the picture's own silhouette in ink behind it. Use this one.
+//
+// Inverted hull: a copy of the mesh pushed out along smoothed normals by a fixed number of pixels and
+// drawn back-face-only in ink. It doubles the triangles and the draw calls of what it wraps, inks only
+// silhouettes, and only reads well on closed, roughly convex meshes (open kits such as the house walls
+// and roofs get a partial line). hullOutline() is there for one closed hero object; `?ol=hull` hulls the
+// whole scene instead of running the depth pass — the comparison mode behind the numbers in
+// docs/v5/ART.md §10, not a shipping mode.
 import * as THREE from 'three';
 import { TOON_HEX } from './palette';
+
+/**
+ * Ink outline around a 2D render with a transparent background: returns a new canvas of the same size
+ * with the picture's silhouette drawn in ink `px` pixels around it. Keep a `px` margin free in the source.
+ */
+export function inkSticker(src: HTMLCanvasElement, px = 2): HTMLCanvasElement {
+  const w = src.width, h = src.height;
+  const sil = document.createElement('canvas');
+  sil.width = w; sil.height = h;
+  const sg = sil.getContext('2d')!;
+  sg.drawImage(src, 0, 0);
+  sg.globalCompositeOperation = 'source-in';
+  sg.fillStyle = TOON_HEX.ink;
+  sg.fillRect(0, 0, w, h);
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const g = out.getContext('2d')!;
+  for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; g.drawImage(sil, Math.cos(a) * px, Math.sin(a) * px); }
+  g.drawImage(src, 0, 0);
+  return out;
+}
 
 const cache = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
 const mats = new Map<number, THREE.Material>();

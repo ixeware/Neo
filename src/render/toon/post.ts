@@ -49,7 +49,7 @@ vec3 sky() {
 		vec2 p = ( cam.xz + dir.xz * t ) * 0.0042 + uPx.w * vec2( 0.006, -0.0035 );
 		float n = cloudField( p );
 		float body = smoothstep( 1.25, 1.33, n );
-		float lit = smoothstep( 1.25, 1.33, cloudField( p + vec2( 0.045, -0.03 ) ) + 0.22 );
+		float lit = smoothstep( 1.18, 1.3, cloudField( p + vec2( 0.05, -0.035 ) ) );
 		vec3 c = mix( uCloudShade, uCloud, lit );
 		col = mix( col, c, body * smoothstep( 0.015, 0.1, dir.y ) );
 	}

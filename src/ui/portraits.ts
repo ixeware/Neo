@@ -4,7 +4,7 @@ import { unitGeometry, islamRig, zurabRig } from '../render/models';
 import { heroGeometry } from '../render/heroes';
 import { UNITS } from '../sim/defs';
 import { TOON, styleRenderer, styleLights } from '../render/style';
-import { hullOutline } from '../render/toon/hull';
+import { inkSticker } from '../render/toon/hull';
 
 /**
  * `units[side][type]`: a 172×144 PNG data URL for every unit type 0..15 (UNITS.length), drawn in
@@ -30,12 +30,8 @@ export function makePortraits(): Portraits {
   sun.position.set(-2, 4, 3);
   scene.add(sun);
   styleRenderer(r); styleLights(hemi, sun); // the new graphics style (no-ops in classic)
-  /** Toon: an ink hull around the model for this one render (the game's outline pass does not run here). */
-  const inked = (obj: THREE.Object3D, draw: () => void) => {
-    const hulls = TOON ? hullOutline(obj, 1.6) : [];
-    draw();
-    for (const h of hulls) { h.removeFromParent(); h.geometry.dispose(); }
-  };
+  /** The finished render as a PNG; toon adds an ink outline around the figure (the game's outline pass does not run here). */
+  const png = () => (TOON ? inkSticker(canvas, Math.max(2, canvas.width / 70)) : canvas).toDataURL('image/png');
   const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const box = new THREE.Box3(), c = new THREE.Vector3(), size = new THREE.Vector3();
@@ -52,8 +48,8 @@ export function makePortraits(): Portraits {
     cam.position.set(c.x + d * 0.35, c.y + span * 0.22, c.z + d);
     cam.lookAt(c.x, c.y - height * 0.02, c.z);
     r.setClearColor(0x000000, 0);
-    inked(obj, () => r.render(scene, cam));
-    const url = canvas.toDataURL('image/png');
+    r.render(scene, cam);
+    const url = png();
     scene.remove(obj);
     return url;
   };
@@ -81,8 +77,8 @@ export function makePortraits(): Portraits {
     scene.add(m);
     cam.position.set(0.22, top - 0.24, 1.55); cam.lookAt(0, top - 0.3, 0);
     r.setClearColor(0x000000, 0);
-    inked(m, () => r.render(scene, cam));
-    const url = canvas.toDataURL('image/png');
+    r.render(scene, cam);
+    const url = png();
     scene.remove(m); g.dispose();
     return url;
   });

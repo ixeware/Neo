@@ -6,7 +6,8 @@
 // reads the sim, never writes.
 import * as THREE from 'three';
 import { donerBey, fudzi, gym, taxiStand } from './heroes';
-import { decorSpots, followPoints, mosque, VillageMarker } from './world';
+import { decorSpots, followPoints, mosque, VillageMarker, updateWorldLod } from './world';
+import { updateRoadLod } from './roads';
 import { landmark, gelikProp } from './props';
 import { landmarkPlan, type LmSpot } from './landmarks';
 import { isLowPower } from './scene';
@@ -20,7 +21,7 @@ export { landmarkSpots, landmarkPlan, fudziSpot } from './landmarks';
 
 export interface Decor { update(dt: number): void; setSpicy(on: boolean): void; landmarks: Landmarks; city: { fill: CityFill; landmarks: CityLandmarks } }
 /** What the decor needs to know about the camera (Stage has it) for its level of detail. */
-export interface DecorView { target: { x: number; z: number }; dist: number }
+export interface DecorView { target: { x: number; z: number }; dist: number; camera?: { position: { x: number; y: number; z: number } } }
 
 /** Pavilion front faces south-south-east: towards the plain and the opening camera. */
 const DONER_RY = 0.3;
@@ -321,7 +322,10 @@ export function buildDecor(parent: THREE.Object3D, sim: Sim, view?: DecorView): 
       city.fill.update(view);
       const now = performance.now();
       if (now > nextCity) {
-        nextCity = now + 250;
+        nextCity = now + 150;
+        // distance LOD: houses and trees thin out with the camera distance, streets go from far out
+        if (view?.camera) updateWorldLod(view.camera.position);
+        if (view) updateRoadLod(view.dist);
         // the sim's Донер Бей point: follow it if a save or the v4 sim moved it
         const p = donerPt();
         if (Math.abs(p.x - markerAt.x) + Math.abs(p.z - markerAt.z) > 0.3) {

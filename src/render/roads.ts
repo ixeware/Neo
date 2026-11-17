@@ -38,6 +38,12 @@ export interface RoadNet {
 export interface KeepOut { x: number; z: number; r: number; hx?: number; hz?: number; ry?: number; cls?: number[] }
 
 let net: RoadNet | null = null;
+/** Street and track ribbons: sub-pixel from far out, so updateRoadLod() hides them there. */
+const lodMeshes: { m: THREE.Mesh; far: number }[] = [];
+/** Hide the street-level ribbons (streets beyond `dist` 175, tracks beyond 140): the overview keeps the roads. */
+export function updateRoadLod(dist: number) {
+  for (const l of lodMeshes) { const on = dist < l.far; if (l.m.visible !== on) l.m.visible = on; }
+}
 /** The crop the bake clips to (Terrain W × H, from z0: the map grew north in v4). */
 const ROADS_W = 398, ROADS_H = 272, ROADS_Z0: number = (ROADS_META as { z0?: number }).z0 ?? 0;
 
@@ -457,6 +463,8 @@ export function buildRoads(parent: THREE.Object3D, t: Terrain, opts: { lowPower:
   ];
   for (const m of meshes) if (m) group.add(m);
   parent.add(group);
+  lodMeshes.length = 0;
+  for (const m of meshes) if (m && (m.name === 'roads-street' || m.name === 'roads-track')) lodMeshes.push({ m, far: m.name === 'roads-street' ? 175 : 140 });
   let tris = 0;
   for (const m of meshes) if (m) tris += (m.geometry.index!.count / 3);
   console.info(`roads: ${n.lines.length} lines, ${tris} triangles, ${(performance.now() - t0).toFixed(0)} ms`);

@@ -17,13 +17,39 @@ const ROOFS = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f',
 
 interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color; c2?: THREE.Color; v?: number }
 
-function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true) {
+// ---- distance LOD for the instanced houses and trees --------------------------------------------
+/**
+ * Every chunk's instances are shuffled when it is built (a hash of the position), so any prefix of them is
+ * an even sample of the chunk. updateWorldLod() draws a prefix whose length falls off with the distance
+ * from the camera: all of a chunk up to K units away, K / distance of it further out (at least `min`).
+ * From the overview (camera ~285 up) that is about half the houses and trees; at play zoom nothing near
+ * changes. Render-only, so the order is free to differ from the build order.
+ */
+interface LodChunk { im: THREE.InstancedMesh; n: number; x: number; z: number; K: number; min: number }
+const lodChunks: LodChunk[] = [];
+const LOD_K: Record<string, [number, number]> = { houses: [155, 0.3], trees: [130, 0.25] };
+
+/** Re-count every LOD chunk for a camera position (cheap: a few hundred chunks). */
+export function updateWorldLod(cam: { x: number; y: number; z: number }) {
+  for (const c of lodChunks) {
+    const d = Math.hypot(c.x - cam.x, c.z - cam.z, cam.y);
+    const n = d <= c.K ? c.n : Math.max(Math.ceil(c.n * c.min), Math.ceil((c.n * c.K) / d));
+    if (c.im.count !== n) c.im.count = n;
+  }
+}
+
+function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true, name = '') {
   const buckets = new Map<number, Item[]>();
   for (const it of items) {
     const k = Math.floor(it.x / chunk) * 1000 + Math.floor(it.z / chunk);
     let b = buckets.get(k);
     if (!b) buckets.set(k, (b = []));
     b.push(it);
+  }
+  const lod = LOD_K[name];
+  if (lod) for (const list of buckets.values()) {
+    const key = (it: Item) => hash2(Math.floor(it.x * 97), Math.floor(it.z * 89));
+    list.sort((a, b) => key(a) - key(b));
   }
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
   for (const list of buckets.values()) {
@@ -38,7 +64,13 @@ function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Materi
       });
       im.castShadow = shadows; im.receiveShadow = true;
       im.computeBoundingSphere();
+      im.name = name;
       parent.add(im);
+      if (lod) {
+        let cx = 0, cz = 0;
+        for (const it of list) { cx += it.x; cz += it.z; }
+        lodChunks.push({ im, n: list.length, x: cx / list.length, z: cz / list.length, K: lod[0], min: lod[1] });
+      }
     });
   }
 }
@@ -323,7 +355,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   const mat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
   variants.forEach((kit, vi) => {
     const list = items.filter(it => (it.v ?? 0) === vi);
-    if (list.length) chunked(list, [kit.body, kit.roof], [mat, mat], [false, true], parent, 50, hq);
+    if (list.length) chunked(list, [kit.body, kit.roof], [mat, mat], [false, true], parent, 50, hq, 'houses');
   });
   return items.length;
 }
@@ -344,8 +376,8 @@ export function buildTrees(t: Terrain, parent: THREE.Object3D, hq: boolean, tin:
   const spots = treeSpots(t, tin, hq, clear);
   const geo = treeGeometries();
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  chunked(spots.broad, [geo.broad], [mat], [false], parent, 60, hq);
-  chunked(spots.fir, [geo.fir], [mat], [false], parent, 60, hq);
+  chunked(spots.broad, [geo.broad], [mat], [false], parent, 60, hq, 'trees');
+  chunked(spots.fir, [geo.fir], [mat], [false], parent, 60, hq, 'trees');
   return spots.broad.length + spots.fir.length;
 }
 

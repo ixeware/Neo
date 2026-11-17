@@ -45,19 +45,22 @@ export interface CitySite {
 }
 
 /**
- * The landmarks as drawn. ГГНТУ, ЧГУ, Ансар and Донер Бей stand on their 2GIS spots (ГГНТУ's origin is
- * its corner tower); ЖК «Шайба» moved 1.9 west-north-west of its 2GIS point (22.5, −22.8) so that it
- * and ГГНТУ both read (at that point the two footprints overlap at any useful scale). The stop shelters
- * stand at the edge of their deploy circle, by the nearest street, facing the circle.
+ * The landmarks as drawn (tools/citycheck.ts --solve proposed them): each as near its 2GIS point as the
+ * dense centre allows — off the big roads (trunk / primary / secondary and rails; smaller ribbons are cut
+ * under them), off the Сунжа, no two touching, the front towards the game camera. At their 2GIS points
+ * ГГНТУ (25.4, −22.8) and ЖК «Шайба» (22.5, −22.8) overlap at any scale that reads, so both shrank
+ * (×0.19 and ×0.2 of building scale) and moved 2.25 and 1.0; Донер Бей moved 1.75 from ул. Мира 83/1
+ * (21.2, −26.4) to clear the street; ЧГУ 1.0, Ансар 1.25; the others stand on their points. The stop
+ * shelters stand at the edge of their deploy circle, next to a street, open to it.
  */
 export const CITY_SITES: CitySite[] = [
-  { key: 'ggntu', model: 'ggntu', name: 'ГГНТУ', x: 27.11, z: -24.95, ry: 0.26, s: 0.21 },
-  { key: 'shaiba', model: 'shaiba', name: 'ЖК «Шайба»', x: 21.39, z: -21.8, ry: 2.62, s: 0.22 },
+  { key: 'ggntu', model: 'ggntu', name: 'ГГНТУ', x: 26.82, z: -24.55, ry: 0, s: 0.19 },
+  { key: 'shaiba', model: 'shaiba', name: 'ЖК «Шайба»', x: 21.55, z: -22.49, ry: -0.52, s: 0.2 },
   { key: 'chgu', model: 'chgu', name: 'ЧГУ', x: 30.35, z: -12.69, ry: -1.05, s: 0.36 },
-  { key: 'chgu2', model: 'chgu', name: 'ЧГУ, другой корпус', x: 48.8, z: -16.6, ry: -1.57, s: 0.3 },
-  { key: 'ansar', model: 'ansar', name: 'Ансар', x: 32.71, z: 4.6, ry: -2.62, s: 0.55 },
-  { key: 'ansar2', model: 'sign', name: 'Ансар. Филиал', x: 11.6, z: -23.5, ry: 1.05, s: 1, sign: 'АНСАР · ФИЛИАЛ' },
-  { key: 'doner', model: 'doner', name: 'Донер Бей', x: 20.61, z: -27.21, ry: -2.36, s: 0.72 },
+  { key: 'chgu2', model: 'chgu', name: 'ЧГУ, другой корпус', x: 48.8, z: -16.6, ry: 0, s: 0.3 },
+  { key: 'ansar', model: 'ansar', name: 'Ансар', x: 31.6, z: 4.85, ry: 0.52, s: 0.55 },
+  { key: 'ansar2', model: 'sign', name: 'Ансар. Филиал', x: 11.6, z: -23.5, ry: 0, s: 1, sign: 'АНСАР · ФИЛИАЛ' },
+  { key: 'doner', model: 'doner', name: 'Донер Бей', x: 20.08, z: -27.74, ry: -0.79, s: 0.72 },
   { key: 'stopA', model: 'busstop', name: 'Остановка 55-й у молла', x: 6.94, z: -15.43, ry: 2.55, s: 0.5, sign: 'ОСТАНОВКА · 55', side: 0 },
   { key: 'stopK', model: 'busstop', name: 'Автостанция: маршрутка 150', x: 41.69, z: -27.63, ry: 0.71, s: 0.5, sign: 'АВТОСТАНЦИЯ · 150', side: 1 },
 ];

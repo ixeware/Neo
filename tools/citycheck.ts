@@ -15,7 +15,7 @@ import { CITY_POINTS, CITY_DECOR } from '../src/data/season';
 const t = await loadTerrain();
 
 // --solve: propose the site positions (nearest to the 2GIS point, off the big roads and the water, no
-// overlaps, the front towards the city centre), the stop shelters (at the edge of their deploy circle, by a
+// overlaps, the front towards the game camera's south), the stop shelters (at the edge of their deploy circle, by a
 // street, open to it) and the capture centres (nearest to the spec's, valid by the rules below).
 if (process.argv.includes('--solve')) {
   const BIG = (1 << RC.MAIN) | (1 << RC.RAIL);
@@ -23,7 +23,7 @@ if (process.argv.includes('--solve')) {
   const want: Record<string, { x: number; z: number; max: number; s: number[] }> = {
     ggntu: { x: 25.4, z: -22.8, max: 3.0, s: [0.3, 0.27, 0.24, 0.21, 0.19] }, shaiba: { x: 22.5, z: -22.8, max: 3.5, s: [0.27, 0.24, 0.22, 0.2] },
     chgu: { x: 31.3, z: -13.0, max: 2.0, s: [0.36, 0.32, 0.28] }, chgu2: { x: 48.8, z: -16.6, max: 2.0, s: [0.3, 0.27] },
-    ansar: { x: 31.6, z: 3.6, max: 2.0, s: [0.55, 0.5, 0.45] }, doner: { x: 21.2, z: -26.4, max: 1.25, s: [0.72, 0.65, 0.58, 0.52] },
+    ansar: { x: 31.6, z: 3.6, max: 2.0, s: [0.55, 0.5, 0.45] }, doner: { x: 21.2, z: -26.4, max: 2.0, s: [0.72, 0.65, 0.58, 0.52] },
     ansar2: { x: 11.6, z: -23.5, max: 1.5, s: [1] },
   };
   const samples = (r: Rect, f: (x: number, z: number) => void) => {
@@ -48,13 +48,12 @@ if (process.argv.includes('--solve')) {
           for (let q = 0; q < 24; q++) {
             const ry = -Math.PI + (q / 24) * Math.PI * 2;
             if (!okRect(siteRect({ ...s, x, z, ry, s: sc }))) continue;
-            const fx = Math.sin(ry), fz = Math.cos(ry), cx = 24 - x, cz = -18 - z, cl = Math.hypot(cx, cz) || 1;
-            const score = R + (1 - (fx * cx + fz * cz) / cl) * 0.6;
+            // the front (local +z) towards the game camera, which looks north from the south (yaw 0)
+            const score = R + (1 - Math.cos(ry)) * 0.9 + ((w.s[0] - sc) / w.s[0]) * 4;
             if (!best || score < best.score) best = { x, z, ry, s: sc, score };
           }
         }
       }
-      if (best) break;
     }
     if (!best) { console.log(`  ${s.key}: no spot`); continue; }
     placed.push(siteRect({ ...s, ...best }));

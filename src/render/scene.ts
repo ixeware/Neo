@@ -178,6 +178,12 @@ export class Stage {
   }
 }
 
+/**
+ * Touch: a finger held this long without moving starts a rubber band (when InputHooks.box agrees).
+ * Long enough that a finger resting before a slow pan does not draw one.
+ */
+export const LONG_PRESS = 575;
+
 /** Modifier keys and pointer kind of a click / tap. */
 export interface InputMods { shift: boolean; ctrl: boolean; touch: boolean; /** The event's timeStamp (performance.now() time base): double taps go by when they happened, not when a busy frame got to them. */ at?: number }
 
@@ -187,8 +193,11 @@ export interface InputHooks {
   tap(x: number, y: number, m: InputMods): void;
   /** Short right click (mouse): an order for the selection. */
   order?(x: number, y: number, m: InputMods): void;
-  /** Rubber band: mouse left-drag, or touch long-press (350 ms) then drag. */
-  box?(phase: 'start' | 'move' | 'end' | 'cancel', x0: number, y0: number, x1: number, y1: number, m: InputMods): void;
+  /**
+   * Rubber band: mouse left-drag, or touch long-press (LONG_PRESS) then drag. 'start' may return false
+   * to refuse (a touch press away from own units): the finger then pans as usual.
+   */
+  box?(phase: 'start' | 'move' | 'end' | 'cancel', x0: number, y0: number, x1: number, y1: number, m: InputMods): boolean | void;
   /** Mouse moved over the map with no button down. */
   hover?(x: number, y: number): void;
   /** This key is a command right now: it must not pan, rotate or zoom the camera. */
@@ -201,8 +210,8 @@ export interface InputHooks {
  * Mouse, touch and keyboard → camera moves, taps, orders and rubber bands.
  * Mouse: left click = tap, left drag = box, right click = order, right / middle drag = pan,
  * Alt + drag = rotate, wheel = zoom, a pointer at the window edge scrolls. Touch: one finger pans,
- * two zoom and rotate, a long press then drag draws a box. Keys: WASD / arrows pan (unless
- * keyBusy), Q / E rotate, R F + − zoom.
+ * two zoom and rotate, a long press (on own units, see InputHooks.box) then drag draws a box. Keys:
+ * WASD / arrows pan (unless keyBusy: with a selection WASD stand still), Q / E rotate, R F + − zoom.
  */
 export function bindInput(stage: Stage, el: HTMLElement, hooks: InputHooks) {
   const pts = new Map<number, { x: number; y: number; sx: number; sy: number; t: number }>();
@@ -227,10 +236,10 @@ export function bindInput(stage: Stage, el: HTMLElement, hooks: InputHooks) {
         lp = window.setTimeout(() => {
           if (moved || pts.size !== 1 || mode !== 'none') return;
           const p = first();
+          if (hooks.box!('start', p.sx, p.sy, p.x, p.y, mods) === false) return; // not on own units: a resting finger, it may still pan
           mode = 'box';
-          try { navigator.vibrate?.(10); } catch { /* not allowed */ }
-          hooks.box!('start', p.sx, p.sy, p.x, p.y, mods);
-        }, 350);
+          try { navigator.vibrate?.(14); } catch { /* not allowed */ }
+        }, LONG_PRESS);
       }
     }
     if (pts.size === 2) {
@@ -255,7 +264,7 @@ export function bindInput(stage: Stage, el: HTMLElement, hooks: InputHooks) {
       clearTimeout(lp);
       if (mode === 'none') {
         if (!touch && e.altKey) mode = 'rot';
-        else if (!touch && button === 0 && hooks.box) { mode = 'box'; hooks.box('start', p.sx, p.sy, p.x, p.y, mods); return; }
+        else if (!touch && button === 0 && hooks.box && hooks.box('start', p.sx, p.sy, p.x, p.y, mods) !== false) { mode = 'box'; return; }
         else mode = 'pan';
       }
       if (mode === 'rot') stage.rotate(-dx * 0.006);

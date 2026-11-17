@@ -31,9 +31,16 @@ export interface U {
  */
 export interface Ord {
   m: number;
-  /** move / attackMove: this unit's own destination (its slot of the group's formation); hold: the spot it guards. */
+  /**
+   * move / attackMove: this unit's own destination (its slot of the group's formation); hold: the spot it
+   * guards; attack: where the target stood when the chase cell `c` was picked.
+   */
   x: number; z: number;
-  /** move / attackMove: nav cell of the group's destination (the flow field it follows); -1 otherwise. */
+  /**
+   * move / attackMove: nav cell of the group's destination (the flow field it follows); attack: nav cell
+   * of the chase flow (the target's spot x, z; re-picked once the target has moved away from it, see
+   * CHASE_*); -1 otherwise / not picked yet.
+   */
   c: number;
   /** attack: the target unit id; -1 otherwise. */
   tg: number;
@@ -52,18 +59,37 @@ export type OrdMode = 'auto' | 'move' | 'attack' | 'attackMove' | 'hold' | 'poss
 export const ORD_MAX = 64;
 /** A possessed unit goes back to auto after this many ticks without a 'ctl' from its player (30 s). */
 export const POSS_IDLE = 300;
-/** Orders of a side are dropped (back to auto) when no human of that side has sent anything for this long (3 min). */
+/**
+ * Shared war (st.mp): orders of a side are dropped (back to auto) when no human of that side has sent
+ * anything for this long (3 min). A local game keeps them: the player there is the only one who orders.
+ */
 export const ORD_IDLE = 1800;
 const ORD_STUCK = 40;
 /** Formation spacing of a group move. */
 const ORD_SP = 1.2;
 /**
  * At most this many distinct flow fields steer player orders in one tick (the first ones met in unit
- * order; an order beyond them walks straight that tick). Equal to the default cache size, so a steady
- * set of destinations is built once per client, and a flood of destinations costs at most this many
- * builds per tick instead of one per unit.
+ * order; an order beyond them walks straight that tick), so a flood of destinations costs at most this
+ * many builds per tick instead of one per unit.
  */
 export const ORD_FLOWS = 24;
+/**
+ * Default size of the per-client flow-field cache (Sim.flowCap), well above ORD_FLOWS: a steady set of
+ * more than ORD_FLOWS destinations (they take turns for the per-tick slots) is still built once instead
+ * of evicting itself every tick. ~160 KB a field. The cache is not state: any size gives the same world.
+ */
+export const FLOW_CACHE = 80;
+/** Attack orders: closer than this to the target, walk straight at it (no flow field). */
+const CHASE_NEAR = 10;
+/** …closer than this with a clear straight line to the target (sampled every unit), straight too. */
+const CHASE_LINE = 25;
+/** The chase cell (Ord.c) follows the target only once it has moved more than max(this, distance / 4) away from it. */
+const CHASE_MOVE = 8;
+/**
+ * At most this many chase cells are (re)picked per tick, in unit order: 40 fresh attack orders cost a
+ * few new fields a tick for a second instead of 24 at once (the rest walk straight, or on their old cell).
+ */
+const CHASE_PICKS = 4;
 /** Unit flags (U.f). */
 export const UF = { LAGMAN: 1, GONE: 2, UNLOADED: 4, FLEE: 8, ADM: 16 } as const; // ADM: removed by the admin (no bounty, no burst, no spill)
 export interface P {
@@ -269,11 +295,13 @@ export class Sim {
   private donerSpot: { x: number; z: number };
   /** Flow fields to the cells player orders go to: an LRU of at most flowCap, not part of the state (rebuilt identically anywhere). */
   private oflows = new Map<number, Flow>();
-  flowCap = ORD_FLOWS;
+  flowCap = FLOW_CACHE;
   /** The flow fields orders may use this tick (prepFlows): chosen from the state alone, so the cache never changes what a unit does. */
   private tickFlow = new Map<number, Flow>();
   /** Flow fields built so far (cache misses), for tests and the perf overlay; not state. */
   flowBuilds = 0;
+  /** Chase cells (re)picked so far this tick (prepFlows), at most CHASE_PICKS. */
+  private picks = 0;
 
   constructor(public terrain: Terrain) {
     this.hw = Math.ceil(terrain.W / 4); this.hh = Math.ceil(terrain.H / 4);
@@ -384,18 +412,22 @@ export class Sim {
       while (h.length < NT) h.push(-1);
       while (hc.length < NT) hc.push(0);
     }
+    // pre-v3 (before bfa230a): units have no U.fr. Once filled in below, nothing here runs again for
+    // this world, so the one-shot rescales cannot touch a v3+ state (a «Креатин»'d ersno has 525 hp)
     const oldSave = st.units.some(u => u.fr === undefined);
+    const tank = (hp: number, mhp: number) => Math.max(1, Math.floor((hp * UNITS[ERSNO].hp) / mhp)); // pre-v3 tank ersno → the 420 hp thief
     for (const u of st.units) {
       if (u.psn === undefined) { u.psn = 0; u.tt = 0; u.tn = -1; u.ld = -1; u.f = 0; }
+      if (oldSave && u.t === ERSNO && u.mhp > UNITS[ERSNO].hp) { u.hp = tank(u.hp, u.mhp); u.mhp = UNITS[ERSNO].hp; }
       if (u.fr === undefined) u.fr = 0;
-      if (u.t === ERSNO && u.mhp > UNITS[ERSNO].hp) { // pre-v3 tank ersno
-        u.hp = Math.max(1, Math.floor((u.hp * UNITS[ERSNO].hp) / u.mhp)); u.mhp = UNITS[ERSNO].hp;
-      }
       if (u.o !== undefined && !okOrd(u, this.terrain.nw * this.terrain.nh)) delete u.o; // a malformed order is dropped the same way everywhere
     }
-    if (oldSave) for (const s of [0, 1] as Side[]) {
-      const sd = st.sides[s];
-      if (sd.hero[ADMIN] >= 0 && sd.pack === 0) sd.pack = st.tick + HERO.packFirst;
+    if (oldSave) {
+      for (const w of st.away) if (w.t === ERSNO && w.mhp > UNITS[ERSNO].hp) { w.hp = tank(w.hp, w.mhp); w.mhp = UNITS[ERSNO].hp; } // «на парах»
+      for (const s of [0, 1] as Side[]) {
+        const sd = st.sides[s];
+        if (sd.hero[ADMIN] >= 0 && sd.pack === 0) sd.pack = st.tick + HERO.packFirst;
+      }
     }
     // admin toggles: absent in saves without admin activity; anything malformed is repaired the same way everywhere
     if (st.adm !== undefined) {
@@ -661,7 +693,10 @@ export class Sim {
       case 'attack': {
         const t = Number.isInteger(c.tg) ? this.byId.get(c.tg as number) : undefined;
         if (!t || t.hp <= 0 || t.s === c.s) return;
-        for (const u of list) { set(u, { m: OM.ATTACK, x: 0, z: 0, c: -1, tg: t.id, k: 0 }); u.tg = t.id; }
+        for (const u of list) {
+          if (UNITS[u.t].bldg) { set(u, this.hqRun(u)); continue; } // «only buildings» (Чимаев): to the enemy high-rise instead
+          set(u, { m: OM.ATTACK, x: t.x, z: t.z, c: -1, tg: t.id, k: 0 }); u.tg = t.id;
+        }
         return;
       }
       case 'move': case 'attackMove': {
@@ -701,6 +736,12 @@ export class Sim {
     else if (c.fx === undefined && (c.dx || c.dz)) { o.fx = c.dx; o.fz = c.dz; }
   }
 
+  /** An attack-move to the enemy high-rise: what an attack order on a unit means for a «buildings only» unit (UnitDef.bldg). */
+  private hqRun(u: U): Ord {
+    const e = this.st.pts[1 - u.s], spot = this.admSpot(e.x, e.z) ?? { x: e.x, z: e.z };
+    return { m: OM.AMOVE, x: spot.x, z: spot.z, c: navIndex(this.terrain, spot.x, spot.z), tg: -1, k: 0 };
+  }
+
   /** Player pn drives u from now on; the unit that player drove before stays where it is. */
   private possess(u: U, pn: number): Ord {
     this.release(pn, true, u.id);
@@ -721,14 +762,14 @@ export class Sim {
     }
   }
 
-  /** Stale orders (every second): possessed units nobody drives go back to auto, and so does a side nobody plays. */
+  /** Stale orders (every second): possessed units nobody drives go back to auto, and so (shared war) does a side nobody plays. */
   private ordIdle() {
     const st = this.st, now = st.tick;
     for (const u of st.units) {
       const o = u.o;
       if (!o || u.hp <= 0) continue;
       if (o.m === OM.POSSESS && now - o.at! > POSS_IDLE) { delete u.o; u.rt = 0; this.emit({ e: 'possess', s: u.s, id: u.id, t: u.t, n: o.p!, on: 0 }); continue; }
-      if (now - st.sides[u.s].lastHuman > ORD_IDLE) { delete u.o; u.rt = 0; }
+      if (st.mp && now - st.sides[u.s].lastHuman > ORD_IDLE) { delete u.o; u.rt = 0; } // shared war only: a local player's orders stay
     }
   }
 
@@ -745,26 +786,44 @@ export class Sim {
     return f;
   }
 
-  /** Nav cell in the middle of the 3×3-cell block around (x, z): the chase flow of an attack order (a moving target does not rebuild it every step). */
-  private blockCell(x: number, z: number): number {
-    const T = this.terrain, ci = Math.max(0, Math.min(T.nw - 1, Math.floor(x / NAV))), cj = Math.max(0, Math.min(T.nh - 1, Math.floor(z / NAV)));
-    return Math.min(T.nh - 1, cj - (cj % 3) + 1) * T.nw + Math.min(T.nw - 1, ci - (ci % 3) + 1);
+  /** Every point of the straight line from (x0, z0) to (x1, z1), one unit apart, is passable. */
+  private clearLine(x0: number, z0: number, x1: number, z1: number): boolean {
+    const T = this.terrain, dx = x1 - x0, dz = z1 - z0, n = Math.ceil(Math.sqrt(dx * dx + dz * dz));
+    for (let i = 1; i < n; i++) if (!passable(T, x0 + (dx * i) / n, z0 + (dz * i) / n)) return false;
+    return true;
+  }
+
+  /**
+   * The chase flow of attack order o (before the units move): -1 = walk straight at the target (close,
+   * or a clear line), else the nav cell Ord.c of the target's spot. That cell is kept while the target
+   * stays within max(CHASE_MOVE, distance / 4) of it, so a moving target costs a new field only now and
+   * then, not one per step. Writes o.c / o.x / o.z (state, from the state alone).
+   */
+  private chaseCell(u: U, o: Ord): number {
+    const t = this.byId.get(o.tg);
+    if (!t || t.hp <= 0) return -1;
+    const dx = t.x - u.x, dz = t.z - u.z, d2 = dx * dx + dz * dz;
+    if (d2 < CHASE_NEAR * CHASE_NEAR) return -1;
+    if (d2 < CHASE_LINE * CHASE_LINE && this.clearLine(u.x, u.z, t.x, t.z)) return -1;
+    const mx = t.x - o.x, mz = t.z - o.z;
+    if ((o.c < 0 || mx * mx + mz * mz > Math.max(CHASE_MOVE * CHASE_MOVE, d2 / 16)) && this.picks < CHASE_PICKS) {
+      this.picks++;
+      o.c = navIndex(this.terrain, t.x, t.z); o.x = t.x; o.z = t.z;
+    }
+    return o.c;
   }
 
   /** Before the units move: the flow fields orders use this tick, at most ORD_FLOWS, picked from the state in unit order. */
   private prepFlows() {
     const tf = this.tickFlow;
     tf.clear();
+    this.picks = 0;
     for (const u of this.st.units) {
       const o = u.o;
       if (!o || u.hp <= 0) continue;
       let k = -1;
       if ((o.m === OM.MOVE || o.m === OM.AMOVE) && o.c >= 0) k = o.c;
-      else if (o.m === OM.ATTACK) {
-        const t = this.byId.get(o.tg);
-        const dx = t ? t.x - u.x : 0, dz = t ? t.z - u.z : 0;
-        if (t && t.hp > 0 && dx * dx + dz * dz >= 100) k = this.blockCell(t.x, t.z);
-      }
+      else if (o.m === OM.ATTACK && !this.taunter(u)) k = this.chaseCell(u, o); // taunted: chases the taunter instead
       if (k < 0 || tf.has(k) || tf.size >= ORD_FLOWS) continue;
       tf.set(k, this.oflow(k));
     }
@@ -772,9 +831,22 @@ export class Sim {
 
   private holdHere(u: U) { u.o = { m: OM.HOLD, x: u.x, z: u.z, c: -1, tg: -1, k: 0 }; }
 
+  /** The living enemy that taunts u right now (Амин «Рейджбайт», Амина's aura: U.tt / U.tn), or null. Reads only. */
+  private taunter(u: U): U | null {
+    if (!(u.tt > this.st.tick)) return null;
+    const w = this.byId.get(u.tn);
+    return w && w.hp > 0 && w.s !== u.s ? w : null;
+  }
+
   /** Target choice of an ordered unit (instead of the auto rules). */
   private ordTarget(u: U, o: Ord, S: { range: number; d: typeof UNITS[number] }) {
     const now = this.st.tick, d = S.d;
+    if (o.m !== OM.POSSESS && u.tt > now) { // a taunt beats any order (the player who drives a unit is free)
+      const w = this.taunter(u);
+      if (w) { u.tg = w.id; return; }
+      u.tt = 0; // the taunter is gone (as in acquire())
+    }
+    if (d.bldg && o.m === OM.ATTACK) { u.o = o = this.hqRun(u); } // «buildings only» never chases a unit (orders from older saves)
     switch (o.m) {
       case OM.MOVE: case OM.POSSESS: u.tg = -1; return;
       case OM.ATTACK: {
@@ -807,6 +879,11 @@ export class Sim {
         tx = t.x; tz = t.z; has = true;
         const dx = t.x - u.x, dz = t.z - u.z, reach = S.range + d.radius + UNITS[t.t].radius;
         if (dx * dx + dz * dz <= reach * reach) { if (u.cd === 0) this.attack(u, t, S.dmg, S.cd); return; }
+        if (t.id === u.tn && u.tt > st.tick) { // taunted (ordTarget): go for the taunter whatever the order, then carry on with it
+          const l = Math.sqrt(dx * dx + dz * dz);
+          if (l > 0.001) this.stepDir(u, dx / l, dz / l, S.spd);
+          return;
+        }
       } else u.tg = -1;
     } else if (u.tg === -2) {
       const e = st.pts[1 - u.s];
@@ -823,9 +900,9 @@ export class Sim {
       case OM.ATTACK: {
         if (!has) return;
         const dx = tx - u.x, dz = tz - u.z, d2 = dx * dx + dz * dz;
-        if (d2 < 100) { const l = Math.sqrt(d2); if (l > 0.001) this.stepDir(u, dx / l, dz / l, S.spd); return; }
-        // far: the flow field to the target's 3×3-cell block, when it is one of this tick's (prepFlows)
-        const f = this.tickFlow.get(this.blockCell(tx, tz));
+        if (d2 < CHASE_NEAR * CHASE_NEAR) { const l = Math.sqrt(d2); if (l > 0.001) this.stepDir(u, dx / l, dz / l, S.spd); return; }
+        // far: the chase flow (Ord.c, picked by prepFlows) when it is one of this tick's fields, else straight
+        const f = o.c >= 0 ? this.tickFlow.get(o.c) : undefined;
         if (f && flowDir(this.terrain, f, u.x, u.z, this.tmp)) this.stepDir(u, this.tmp.x, this.tmp.z, S.spd);
         else { const l = Math.sqrt(d2); this.stepDir(u, dx / l, dz / l, S.spd); }
         return;
@@ -865,7 +942,7 @@ export class Sim {
     const st = this.st, us = st.units, d = S.d, fx = o.fx!, fz = o.fz!, fl = Math.sqrt(fx * fx + fz * fz);
     const r0 = S.range + d.radius + 0.5;
     let best = -1, bd = Infinity;
-    this.near(u.x, u.z, r0 + 1.4, k => {
+    if (!d.bldg) this.near(u.x, u.z, r0 + 1.4, k => { // «buildings only» (Чимаев) hits nothing but the high-rise
       const e = us[k];
       if (e.s === u.s || e.hp <= 0) return;
       const ex = e.x - u.x, ez = e.z - u.z, e2 = ex * ex + ez * ez, r = r0 + UNITS[e.t].radius;

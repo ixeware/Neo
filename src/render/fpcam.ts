@@ -11,11 +11,24 @@ import type { UnitView } from './units';
 // ---- near fade ------------------------------------------------------------------------------
 const NF = { uNfPos: { value: new THREE.Vector3() }, uNfR: { value: 0 } };
 const patched: THREE.Material[] = [];
+/** Scene parts whose meshes fade (NearFade.install); walked again for materials made later. */
+const roots: THREE.Object3D[] = [];
+let fadeOn = false;
+let sweepAt = 0;
+/** While first person is on, look for materials made since (a high-rise floor, a place flag) this often (ms). */
+const SWEEP_MS = 1000;
 
-/** Adds the near-camera dither to a material (off until NearFade.set(true)). Idempotent. */
-function patch(mat: THREE.Material) {
-  if (mat.userData.nearFade || !(mat instanceof THREE.MeshLambertMaterial || mat instanceof THREE.MeshPhongMaterial || mat instanceof THREE.MeshStandardMaterial)) return;
-  if (mat.transparent) return; // decals and rings stay as they are
+/** Built-in mesh materials whose shaders have the chunks the patch hooks into (not Sprite / Points / Line / Shader). */
+const fadeable = (mat: THREE.Material) => mat instanceof THREE.MeshBasicMaterial || mat instanceof THREE.MeshLambertMaterial
+  || mat instanceof THREE.MeshPhongMaterial || mat instanceof THREE.MeshStandardMaterial || mat instanceof THREE.MeshToonMaterial
+  || mat instanceof THREE.MeshMatcapMaterial;
+
+/**
+ * Adds the near-camera dither to a material (off until NearFade.set(true)), opaque or transparent, lit
+ * or MeshBasic (signs, glass, rings). `userData.noNearFade` keeps one out. Returns true when newly patched.
+ */
+function patch(mat: THREE.Material): boolean {
+  if (mat.userData.nearFade || mat.userData.noNearFade || !fadeable(mat)) return false;
   mat.userData.nearFade = true;
   const prev = mat.onBeforeCompile;
   const own = Object.prototype.hasOwnProperty.call(mat, 'customProgramCacheKey') ? mat.customProgramCacheKey.bind(mat) : null;
@@ -43,28 +56,67 @@ function patch(mat: THREE.Material) {
   };
   mat.customProgramCacheKey = () => prevKey() + (mat.defines && 'NEAR_FADE' in mat.defines ? '|nearfade1' : '|nearfade0');
   patched.push(mat);
+  return true;
+}
+
+/** The define on or off for one patched material (a recompile the first time, cached after). */
+function define(m: THREE.Material, on: boolean) {
+  const has = !!m.defines && 'NEAR_FADE' in m.defines;
+  if (has === on) return;
+  m.defines = { ...(m.defines ?? {}) };
+  if (on) m.defines.NEAR_FADE = ''; else delete m.defines.NEAR_FADE;
+  m.needsUpdate = true;
+}
+
+/** Patches the materials of every mesh under the roots that has none yet; returns how many were new. */
+function sweep(): number {
+  let n = 0;
+  for (const r of roots) r.traverse(o => {
+    if (!(o as THREE.Mesh).isMesh) return; // sprites, points and lines have other shaders
+    const m = (o as THREE.Mesh).material;
+    for (const q of Array.isArray(m) ? m : [m]) if (q && patch(q)) { n++; if (fadeOn) define(q, true); }
+  });
+  return n;
 }
 
 export const NearFade = {
-  /** Patch every opaque lit material under these roots (call once at boot, before the first frame). */
-  install(...roots: THREE.Object3D[]) {
-    for (const r of roots) r.traverse(o => {
-      const m = (o as THREE.Mesh).material;
-      if (!m) return;
-      (Array.isArray(m) ? m : [m]).forEach(patch);
-    });
+  /**
+   * Fade the meshes under these roots near the first-person camera (call at boot, before the first
+   * frame, for everything that exists then: world, units, decor). Materials made later under the same
+   * roots are picked up when first person starts and every SWEEP_MS while it is on.
+   */
+  install(...rs: THREE.Object3D[]) {
+    for (const r of rs) if (!roots.includes(r)) roots.push(r);
+    sweep();
   },
   /** Switch the dither on (radius r around pos) or off. Switching recompiles once per material, then it is cached. */
   set(on: boolean) {
-    for (const m of patched) {
-      const has = !!m.defines && 'NEAR_FADE' in m.defines;
-      if (has === on) continue;
-      m.defines = { ...(m.defines ?? {}) };
-      if (on) m.defines.NEAR_FADE = ''; else delete m.defines.NEAR_FADE;
-      m.needsUpdate = true;
-    }
+    fadeOn = on;
+    if (on) { sweep(); sweepAt = performance.now(); }
+    for (const m of patched) define(m, on);
+  },
+  /** While on: patch materials made since the last look (FpCam.update calls it every frame; it walks the roots once a second). */
+  tick(now: number) {
+    if (!fadeOn || now - sweepAt < SWEEP_MS) return;
+    sweepAt = now;
+    sweep();
   },
   at(x: number, y: number, z: number, r: number) { NF.uNfPos.value.set(x, y, z); NF.uNfR.value = r; },
+  /** For tests: patched material count, and how many of the materials under the roots are not patched. */
+  stats() {
+    let total = 0, missing = 0;
+    const seen = new Set<THREE.Material>();
+    for (const r of roots) r.traverse(o => {
+      if (!(o as THREE.Mesh).isMesh) return;
+      const m = (o as THREE.Mesh).material;
+      for (const q of Array.isArray(m) ? m : [m]) {
+        if (!q || seen.has(q)) continue;
+        seen.add(q); total++;
+        if (!q.userData.nearFade && !q.userData.noNearFade && fadeable(q)) missing++;
+      }
+    });
+    return { patched: patched.length, total, missing, on: fadeOn };
+  },
 };
 
 // ---- the camera ----------------------------------------------------------------------------
@@ -156,5 +208,6 @@ export class FpCam {
     cam.lookAt(this.pos.x + fx * cp * 10, this.pos.y + sp * 10, this.pos.z + fz * cp * 10);
     st.target.set(x, gy, z);
     NearFade.at(this.pos.x, this.pos.y, this.pos.z, this.mode === 'fp' ? 4 : 2.6);
+    NearFade.tick(performance.now());
   }
 }

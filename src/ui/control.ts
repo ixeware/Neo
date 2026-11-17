@@ -4,8 +4,9 @@
 //            double-click = every own unit of that type on screen, right click = go / hit,
 //            A then click = attack-move, S = stop (hold), G = auto, Ctrl+1..9 = remember a group,
 //            Shift+1..9 = call it back (twice = fly there), V = ride the selected unit, Esc = clear.
-//   phone    tap own unit = select (more taps add), long-press then drag = box, with a selection
-//            tap ground = go and tap an enemy = hit; the command bar does the rest:
+//            While something is selected WASD never pan (arrows, the screen edge, right / middle drag do).
+//   phone    tap own unit = select (more taps add), long-press on own units then drag = box, with a
+//            selection tap ground = go and tap an enemy = hit; the command bar does the rest:
 //            [Атака с ходу] [Стоп] [Авто] [Все мои] [Вселиться] [×] [1] [2] [3] (long-press saves).
 // A deck card in hand always wins: the tap deploys. Orders go out as Cmd 'ord' (src/sim/sim.ts);
 // only this player's own selection is drawn (src/render/selection.ts).
@@ -42,6 +43,8 @@ const ICON = {
 };
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; };
 const touchUi = () => matchMedia?.('(pointer: coarse)').matches ?? false;
+/** Camera keys that stand still while units are selected (Control.keyBusy). */
+const WASD = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
 
 export class Control {
   /** This player's selection, in the order it was made. */
@@ -296,17 +299,22 @@ export class Control {
     if (p) this.issue('move', p.x, p.z);
   }
 
-  box(phase: 'start' | 'move' | 'end' | 'cancel', x0: number, y0: number, x1: number, y1: number, m: InputMods) {
+  /**
+   * Rubber band (bindInput). On a phone a long press starts one only on or near own units (false =
+   * refused, the finger pans): a finger resting on the map before a slow pan must not draw a box.
+   */
+  box(phase: 'start' | 'move' | 'end' | 'cancel', x0: number, y0: number, x1: number, y1: number, m: InputMods): boolean {
     const el = this.boxEl;
-    if (phase === 'cancel' || !this.d.playing()) { el.hidden = true; return; }
+    if (phase === 'cancel' || !this.d.playing()) { el.hidden = true; return false; }
+    if (phase === 'start' && m.touch && !this.nearOwn(x0, y0)) return false;
     const l = Math.min(x0, x1), t = Math.min(y0, y1), w = Math.abs(x1 - x0), hh = Math.abs(y1 - y0);
     if (phase !== 'end') {
       el.hidden = false;
       el.style.transform = `translate(${l}px, ${t}px)`; el.style.width = `${w}px`; el.style.height = `${hh}px`;
-      return;
+      return true;
     }
     el.hidden = true;
-    if (w < 6 && hh < 6) return;
+    if (w < 6 && hh < 6) return true;
     const ids: number[] = [];
     for (const u of this.d.sim.st.units) {
       if (!this.mine(u)) continue;
@@ -315,6 +323,24 @@ export class Control {
     }
     this.setSel(ids, !m.touch && m.shift);
     if (ids.length) { this.d.sound.click(); this.d.hud.note(`Выделено: ${this.sel.size}`, 1400); }
+    return true;
+  }
+
+  /**
+   * This screen point is on own units (ones this player may order): within about a finger of one, or
+   * at the corner of the group around it (inside the frame, +40 px, of the own units within 220 px).
+   */
+  private nearOwn(x: number, y: number): boolean {
+    let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+    for (const u of this.d.sim.st.units) {
+      if (!this.mine(u)) continue;
+      const p = this.screen(u, true);
+      if (!p) continue;
+      const d = Math.hypot(x - p.x, y - p.y);
+      if (d < p.r + 44) return true;
+      if (d < 220) { l = Math.min(l, p.x); r = Math.max(r, p.x); t = Math.min(t, p.y); b = Math.max(b, p.y); }
+    }
+    return x >= l - 40 && x <= r + 40 && y >= t - 40 && y <= b + 40;
   }
 
   hover(x: number, y: number) {
@@ -329,10 +355,14 @@ export class Control {
     });
   }
 
-  /** Keys that are commands right now and must not move the camera. */
+  /**
+   * Keys that must not move the camera right now. With a selection WASD never pan (A and S are
+   * commands, and holding S to scroll must not mean «Стоп» one moment and a pan the next): arrows,
+   * the screen edge and right / middle drag still do. Nothing selected: WASD pan as usual.
+   */
   keyBusy(code: string): boolean {
     if (this.fp.on) return true;
-    return this.sel.size > 0 && (code === 'KeyA' || code === 'KeyS');
+    return this.sel.size > 0 && this.d.playing() && WASD.has(code);
   }
 
   /** Keyboard; true when the key was a control command (the caller then ignores it). */
@@ -350,9 +380,13 @@ export class Control {
       case 'KeyS': this.issue('hold'); return true;
       case 'KeyG': this.issue('auto'); return true;
       case 'KeyV': this.possessSelected(); return true;
+      case 'KeyW': case 'KeyD': // they stand still while units are selected (keyBusy): say so once
+        if (!this.wasdHint) { this.wasdHint = true; this.d.hud.note('Пока свои выделены, WASD не двигают карту: стрелки, край экрана или правая кнопка', 3200); }
+        return true;
     }
     return false;
   }
+  private wasdHint = false;
 
   /** Every frame, after units.update(). */
   update(now: number, dt: number) {
@@ -366,7 +400,8 @@ export class Control {
     this.view.update(show ? this.sel : [], now, this.d.units.zoomK, this.fp.on ? this.fp.id : -1);
     // the bar: only while something is selected
     const n = show ? this.sel.size : 0;
-    const key = `${n}|${this.groups.slice(1, 4).map(g => g.length).join(',')}`;
+    // a single selection names its unit: switching from one unit to another must repaint the chip
+    const key = `${n}|${n === 1 ? this.sel.values().next().value : ''}|${this.groups.slice(1, 4).map(g => g.length).join(',')}`;
     if (key !== this.barKey) {
       this.barKey = key;
       this.bar.hidden = n === 0;

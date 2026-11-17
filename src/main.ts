@@ -195,7 +195,8 @@ async function boot() {
     nick: () => prefs.nick ?? '', setNick: n => { prefs.nick = n; savePrefs(prefs); presence.setPresence({ name: n }); },
     riding: () => control.fp.id, selected: () => control.sel.size,
   });
-  NearFade.install(world, units.group); // first person: whatever stands at the camera dithers away
+  // first person: whatever stands at the camera dithers away (decor = 2GIS landmarks, Донер Бей, mosques)
+  NearFade.install(world, units.group, scene.getObjectByName('decor') ?? world);
   const minimap = new Minimap(hud.miniCanvas, (g, w, h) => paintTin(tin, g, w, h), terrain, sim, stage);
   const toasts = new AchToasts($('hud'), () => prefs.spicy, () => sound.achievement());
   const ach = new Achievements(a => toasts.push(a));

@@ -9,6 +9,7 @@ import { Builder, PAL, houseGeometries, facadeTexture } from './models';
 import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
 import type { Pt } from '../sim/sim';
+import { landmarkSpots, fudziSpot } from './landmarks'; // v3 real places (decor.ts builds them)
 
 const WALLS = ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
 const ROOFS = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
@@ -60,10 +61,9 @@ export function decorSpots(t: Terrain): DecorSpot[] {
   if (spotCache && spotCache.t === t) return spotCache.spots;
   const want: { key: DecorSpot['key']; village: string; r: number; side: 0 | 1; radii: number[]; prefer: number }[] = [
     { key: 'taxi', village: 'atagi', r: 1.5, side: 0, radii: [8.5, 9.5, 10.5, 11.5, 12.5], prefer: 0.6 },
-    { key: 'fudzi', village: 'kurchaloy', r: 1.8, side: 1, radii: [9, 10, 11, 12, 17.5, 19, 20.5, 22], prefer: -0.4 },
     { key: 'gym', village: 'kurchaloy', r: 2.2, side: 1, radii: [9, 10, 11, 12, 17.5, 19, 20.5, 22], prefer: 0.5 },
   ];
-  const spots: DecorSpot[] = [];
+  const spots: DecorSpot[] = [fudziSpot(t)]; // v3: Фудзи stands at its real spot (landmarks.ts)
   for (const w of want) {
     const v = t.villages.find(q => q.key === w.village);
     if (!v) continue;
@@ -76,6 +76,7 @@ export function decorSpots(t: Terrain): DecorSpot[] {
       { x: bossX, z: bossZ, r: 2.6 }, // the boss waits here
       { x: v.x + (s === 0 ? 4 : -4), z: v.z + 1, r: 2.2 }, // boss spawn
       ...spots.map(o => ({ x: o.x, z: o.z, r: o.r + 4 })),
+      ...landmarkSpots(t), // v3: the real 2GIS places
     ];
     let best: DecorSpot | null = null, bestScore = -Infinity;
     for (const R of w.radii) for (let k = 0; k < 36; k++) {
@@ -203,6 +204,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   clearSpots = decorSpots(t).map(d => ({ x: d.x, z: d.z, r: d.r + 0.5 }));
   const doner = pts.find(p => p.key === 'doner');
   if (doner) clearSpots.push({ x: doner.x, z: doner.z, r: DONER_CLEAR });
+  clearSpots.push(...landmarkSpots(t)); // v3: real 2GIS places (landmarks.ts); trees use clearSpots too
   avoid.push(...clearSpots);
 
   const net = roadNet();

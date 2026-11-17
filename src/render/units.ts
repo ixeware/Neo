@@ -1,11 +1,12 @@
 // Draws sim units: instanced crowds, articulated bosses, health bars, hero markers and
-// state marks (stunned «Н», taunted «!», poison, Адам's speed streaks). Reads sim state only.
+// state marks (stunned «Н», taunted «!», scared «!!» by the admin's pack, poison, Адам's speed
+// streaks, the снюс / LOOP buzz and the «отходняк» slump). Reads sim state only.
 import * as THREE from 'three';
 import { unitGeometry, unitScale, islamRig, zurabRig, PAL, type Rig } from './models';
 import { heroGeometry, heroScale, heroHeight } from './heroes';
 import { isLowPower } from './scene';
 import { heightY, type Terrain } from '../world/terrain';
-import { UNITS } from '../sim/defs';
+import { UNITS, BUFF } from '../sim/defs';
 import { UF, type Sim, type U } from '../sim/sim';
 import type { Particles } from './fx';
 
@@ -111,7 +112,7 @@ export class UnitView {
   // hero markers and state marks
   private heroRing: THREE.InstancedMesh;
   private chevOut: THREE.InstancedMesh; private chevIn: THREE.InstancedMesh;
-  private markN: THREE.InstancedMesh; private markBang: THREE.InstancedMesh;
+  private markN: THREE.InstancedMesh; private markBang: THREE.InstancedMesh; private markScared: THREE.InstancedMesh;
   private streaks: THREE.InstancedMesh;
   bosses: Rig[];
   private bossVis: ({ x: number; z: number; yaw: number; phase: number; atk: number; active: boolean; dead: number })[] = [];
@@ -162,8 +163,10 @@ export class UnitView {
     const markMat = (tex: THREE.Texture) => new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, alphaTest: 0.05 });
     this.markN = billboards(plane, markMat(glyphTexture('Н', '#d32a1c')), MARK_MAX, 8);
     this.markBang = billboards(plane, markMat(glyphTexture('!', '#d8361f')), MARK_MAX, 8);
+    // «Курение убивает»: a blue-pen «!!» over everybody running from the pack
+    this.markScared = billboards(plane, markMat(glyphTexture('!!', '#1f4fc4')), MARK_MAX, 8);
     this.streaks = billboards(streakGeometry(), new THREE.MeshBasicMaterial({ color: '#fbfaf5', transparent: true, opacity: 0.8, depthWrite: false }), 8, 4);
-    this.group.add(this.heroRing, this.chevOut, this.chevIn, this.markN, this.markBang, this.streaks);
+    this.group.add(this.heroRing, this.chevOut, this.chevIn, this.markN, this.markBang, this.markScared, this.streaks);
 
     const bmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
     this.bosses = [islamRig(bmat), zurabRig(bmat)];
@@ -200,11 +203,18 @@ export class UnitView {
   update(alpha: number, now: number, dt: number, cam: THREE.Camera) {
     const counts = this.counts;
     counts.fill(0);
-    let nb = 0, nRing = 0, nChev = 0, nN = 0, nBang = 0, nStreak = 0;
+    let nb = 0, nRing = 0, nChev = 0, nN = 0, nBang = 0, nStreak = 0, nScared = 0;
     const camQ = cam.quaternion, cp = cam.position;
     const st = this.sim.st, tick = st.tick;
     const boss0 = st.sides[0].boss, boss1 = st.sides[1].boss;
     const zk = this.zoomK;
+    // card buffs per side: 1 снюс / энергетик, 2 LOOP / эспрессо, 3 both, 4 «отходняк»
+    const buzz = [0, 1].map(s => {
+      const sd = st.sides[s] as { snus?: number; loop?: number };
+      const sn = sd.snus ?? 0, lp = sd.loop ?? 0;
+      return (sn > tick ? 1 : 0) | (lp > tick ? 2 : 0) | (sn > 0 && tick >= sn && tick < sn + BUFF.offFor ? 4 : 0);
+    });
+    const fx = !this.lowPower && (buzz[0] | buzz[1]) !== 0;
     for (const u of st.units) {
       const v = this.vis.get(u.id);
       if (!v) continue;
@@ -285,10 +295,11 @@ export class UnitView {
         this.chevIn.setColorAt(nChev, PAL.side[s]);
         nChev++;
       }
-      // «Н» over anybody stunned, «!» over anybody taunted by WOU
+      // «Н» over anybody stunned, «!» over anybody taunted by WOU, «!!» over anybody scared by the pack
       const markY = barY + (hero ? cs * 1.15 + 0.2 : 0.45);
+      const scared = u.fr > tick;
       // marks stay legible when zoomed out (about 9 px minimum)
-      const mk = stun || u.tt > tick ? Math.max(1, Math.sqrt(camD2 + (cp.y - y) ** 2) * 0.0095 / (0.55 + 0.25 * zk)) : 1;
+      const mk = stun || u.tt > tick || scared ? Math.max(1, Math.sqrt(camD2 + (cp.y - y) ** 2) * 0.0095 / (0.55 + 0.25 * zk)) : 1;
       if (stun) {
         if (v.nAt < 0) v.nAt = now;
         if (nN < MARK_MAX) {
@@ -305,6 +316,21 @@ export class UnitView {
         this.v.set(x, markY + k * 0.5, z); this.s.set(k, k, k);
         this.m.compose(this.v, camQ, this.s);
         this.markBang.setMatrixAt(nBang++, this.m);
+      }
+      if (scared && !stun && !(u.tt > tick) && nScared < MARK_MAX) {
+        // a nervous little jitter, and sweat drops near the camera
+        const k = mk * (0.4 + 0.2 * zk) * (1 + Math.abs(Math.sin(now / 90 + u.id * 1.7)) * 0.1);
+        this.v.set(x + Math.sin(now / 37 + u.id) * 0.05 * k, markY + k * 0.5, z); this.s.set(k, k, k);
+        this.m.compose(this.v, camQ, this.s);
+        this.markScared.setMatrixAt(nScared++, this.m);
+        if (!this.lowPower && camD2 < 70 * 70 && Math.random() < dt * 3) this.particles.emit(x, y + top * 0.92, z, { n: 1, color: '#9fd3ff', size: 0.15 * Math.min(zk, 1.6), life: 0.55, spread: 0.7, up: 0.9, grav: 5, jitter: 0.4 });
+      }
+      // снюс / LOOP: a faint buzz of sparks; «отходняк»: a grey sigh now and then (near the camera only)
+      const bz = fx ? buzz[u.s] : 0;
+      if (bz && camD2 < 55 * 55 && Math.random() < dt * (bz & 3 ? 1.6 : 0.7)) {
+        if (bz & 1) this.particles.emit(x, y + top * 0.5, z, { n: 1, color: '#c8f04a', size: 0.13 * Math.min(zk, 1.6), life: 0.5, spread: 0.5, up: 2.2, grav: 0.6, jitter: 0.6 });
+        else if (bz & 2) this.particles.emit(x, y + top * 0.6, z, { n: 1, color: '#bff5ec', size: 0.15 * Math.min(zk, 1.6), life: 0.75, spread: 0.4, up: 1.1, grav: -0.2, wob: 1, jitter: 0.6 });
+        else this.particles.emit(x, y + top * 0.95, z, { n: 1, color: '#a29f96', size: 0.24 * Math.min(zk, 1.6), life: 0.8, spread: 0.3, up: 0.2, grav: 0.5, grow: 0.6, jitter: 0.3 });
       }
       // poison: green bubbles now and then (only near the camera)
       if (psn && now > v.fleck && camD2 < 110 * 110) {
@@ -348,7 +374,7 @@ export class UnitView {
     this.flush(this.bars, nb); this.flush(this.barsFg, nb);
     this.flush(this.heroRing, nRing);
     this.flush(this.chevOut, nChev); this.flush(this.chevIn, nChev);
-    this.flush(this.markN, nN); this.flush(this.markBang, nBang);
+    this.flush(this.markN, nN); this.flush(this.markBang, nBang); this.flush(this.markScared, nScared);
     this.flush(this.streaks, nStreak);
   }
 

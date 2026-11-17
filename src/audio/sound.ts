@@ -165,6 +165,101 @@ export class Sound {
   sick() { if (this.ok('sick', 1500)) { this.tone(190, 0.45, 'sawtooth', 0.05, 0, 0.55); this.tone(150, 0.5, 'sawtooth', 0.04, 0.3, 0.6); } }
   /** «Шампунь +40 к удаче»: a dodge. */
   swish() { if (this.ok('swish', 250)) this.sweep(0.14, 0.12, 2500, 6000, 0.8); }
+  // ---- v3: ersno, the admin's pack, buffs, Гелики, спортики, places ---------------------
+  /** ersno's hit lifts a couple of rubles: a small coin clink. */
+  steal() {
+    if (!this.ok('steal', 220)) return;
+    const f = 2300 + Math.random() * 500;
+    this.tone(f, 0.07, 'triangle', 0.07); this.tone(f * 1.34, 0.12, 'sine', 0.05, 0.05);
+    this.hiss(0.03, 0.08, 6500, 2.5);
+  }
+  /** «Списание с карты»: a cash register — the bell, the drawer, coins pouring. */
+  cardSteal() {
+    if (!this.ok('cardSteal', 600)) return;
+    this.tone(95, 0.08, 'square', 0.12); this.hiss(0.06, 0.25, 1600, 1.2); // key press
+    this.sweep(0.22, 0.16, 900, 300, 1.2, 0.06); // drawer slides out
+    this.tone(1568, 0.5, 'sine', 0.14, 0.18); this.tone(2093, 0.6, 'sine', 0.12, 0.2); this.tone(3136, 0.3, 'sine', 0.05, 0.2); // ка-чинг
+    for (let i = 0; i < 7; i++) this.tone(2200 + Math.random() * 1400, 0.06, 'triangle', 0.045, 0.3 + i * 0.05 + Math.random() * 0.02);
+  }
+  /** The pack falls (a whoosh), lands with a cardboard thud, and a warning beeps twice. */
+  packDrop() {
+    if (!this.ok('pack', 500)) return;
+    this.sweep(0.5, 0.18, 2600, 380, 1.1);
+    this.tone(85, 0.22, 'sine', 0.6, 0.5, 0.55); this.hiss(0.16, 0.5, 420, 0.8, 0.5); this.hiss(0.05, 0.25, 2400, 1.6, 0.5);
+    this.tone(988, 0.09, 'square', 0.07, 0.72); this.tone(988, 0.09, 'square', 0.07, 0.9);
+  }
+  /** A scared crowd: a burst of short panicky voices (formant-ish blips), more for a bigger crowd. */
+  panic(n: number) {
+    if (!this.ok('panic', 900) || !this.ctx) return;
+    const c = this.ctx, k = Math.min(10, 3 + Math.round(n / 2));
+    for (let i = 0; i < k; i++) {
+      const t = c.currentTime + 0.6 + Math.random() * 0.55;
+      const o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
+      o.type = 'sawtooth';
+      const f0 = 260 + Math.random() * 380;
+      o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * (1.3 + Math.random() * 0.5), t + 0.12);
+      f.type = 'bandpass'; f.frequency.value = 900 + Math.random() * 1400; f.Q.value = 4;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(f); f.connect(g); g.connect(this.sfx); o.start(t); o.stop(t + 0.2);
+    }
+    this.hiss(0.5, 0.06, 1400, 0.6, 0.62);
+  }
+  /** «Отходняк» / «сдулись»: a long sigh, like a balloon going down. */
+  comedown() {
+    if (!this.ok('comedown', 2000)) return;
+    this.sweep(0.9, 0.16, 1100, 260, 0.9);
+    this.tone(320, 0.85, 'triangle', 0.07, 0.05, 0.4);
+  }
+  /** A Гелик rolls out: a V8 rumble that revs once, then a short horn blip. */
+  gelik() {
+    if (!this.ok('gelik', 900) || !this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const o = c.createOscillator(), o2 = c.createOscillator(), lp = c.createBiquadFilter(), g = c.createGain();
+    const lfo = c.createOscillator(), lg = c.createGain();
+    o.type = 'sawtooth'; o2.type = 'square';
+    o.frequency.setValueAtTime(42, t); o.frequency.exponentialRampToValueAtTime(78, t + 0.35); o.frequency.exponentialRampToValueAtTime(48, t + 0.9);
+    o2.frequency.setValueAtTime(84, t); o2.frequency.exponentialRampToValueAtTime(156, t + 0.35); o2.frequency.exponentialRampToValueAtTime(96, t + 0.9);
+    lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 2;
+    lfo.frequency.value = 26; lg.gain.value = 0.06; // the burble of eight cylinders
+    lfo.connect(lg); lg.connect(g.gain);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.08); g.gain.setValueAtTime(0.14, t + 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
+    o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(this.sfx);
+    o.start(t); o2.start(t); lfo.start(t); o.stop(t + 1.05); o2.stop(t + 1.05); lfo.stop(t + 1.05);
+    this.tone(415, 0.12, 'square', 0.05, 1.0); this.tone(523, 0.12, 'square', 0.04, 1.0);
+  }
+  /** Спортики run in: a coach's whistle, two short pips with a trill. */
+  whistle() {
+    if (!this.ok('whistle', 1200) || !this.ctx) return;
+    const c = this.ctx;
+    for (const [at, dur] of [[0, 0.12], [0.18, 0.32]]) {
+      const t = c.currentTime + at;
+      const o = c.createOscillator(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(2850, t);
+      lfo.frequency.value = 32; lg.gain.value = 140; lfo.connect(lg); lg.connect(o.frequency);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + 0.015); g.gain.setValueAtTime(0.06, t + dur - 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.sfx); o.start(t); lfo.start(t); o.stop(t + dur + 0.02); lfo.stop(t + dur + 0.02);
+    }
+    this.hiss(0.4, 0.03, 5000, 1.5);
+  }
+  /** A place with a perk changed hands: the admin's stamp, then a jingle that says what it gives. */
+  placeTaken(good: boolean, perk: string) {
+    if (!this.ok('place', 400)) return;
+    this.tone(120, 0.1, 'sine', 0.5, 0, 0.45); this.hiss(0.06, 0.4, 2200, 1.3);
+    if (!good) { [392, 330, 262].forEach((f, i) => this.tone(f, 0.2, 'triangle', 0.14, 0.12 + i * 0.1)); return; }
+    switch (perk) {
+      case 'sportiki': [784, 988, 1175, 1568].forEach((f, i) => this.tone(f, 0.12, 'square', 0.06, 0.12 + i * 0.07)); break;
+      case 'gelik': this.tone(415, 0.16, 'square', 0.06, 0.14); this.tone(523, 0.16, 'square', 0.05, 0.14); this.tone(415, 0.24, 'square', 0.06, 0.34); this.tone(523, 0.24, 'square', 0.05, 0.34); break;
+      case 'gym': for (let i = 0; i < 2; i++) { this.tone(180, 0.18, 'triangle', 0.18, 0.14 + i * 0.22, 0.7); this.hiss(0.08, 0.2, 3000, 4, 0.14 + i * 0.22); } break;
+      case 'market': this.tone(1568, 0.35, 'sine', 0.1, 0.14); this.tone(2093, 0.45, 'sine', 0.09, 0.16); break;
+      default: [523, 659, 784].forEach((f, i) => this.tone(f, 0.2, 'triangle', 0.16, 0.12 + i * 0.1));
+    }
+  }
+  /** Our place went neutral: a stamp and a falling minor third. */
+  placeLost() {
+    if (!this.ok('placeLost', 600)) return;
+    this.tone(110, 0.1, 'sine', 0.45, 0, 0.45); this.hiss(0.06, 0.35, 1800, 1.3);
+    this.tone(330, 0.25, 'triangle', 0.13, 0.12); this.tone(277, 0.4, 'triangle', 0.13, 0.3);
+  }
   /** Achievement unlocked: stamp plus two bright notes. */
   achievement() {
     if (!this.ok('ach', 400)) return;

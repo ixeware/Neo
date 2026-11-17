@@ -1,4 +1,5 @@
-// Map labels (villages, high-rises, bosses, heroes, Донер Бей) as DOM pinned to 3D points.
+// Map labels (villages, high-rises, bosses, heroes, Донер Бей, capture places, the real 2GIS places
+// up close, the Донер Бей signpost on the north edge) as DOM pinned to 3D points.
 // One read pass (projection) and one write pass per frame, so the DOM never thrashes layout.
 import * as THREE from 'three';
 import { heightY, type Terrain } from '../world/terrain';
@@ -11,8 +12,24 @@ import type { Stage } from '../render/scene';
 import type { HqBuilding } from '../render/world';
 import { US, type UnitView } from '../render/units';
 import { heroHeight, heroScale } from '../render/heroes';
+import { landmarkPlan, type LmSpot } from '../render/landmarks';
+import { CAPTURE_PLACES, DONER_REAL } from '../data/places';
 
-interface L { el: HTMLElement; x: number; y: number; z: number; kind: 'v' | 'hq' | 'boss' | 'note' | 'doner'; idx: number; nm?: HTMLElement; sub?: HTMLElement; key?: string }
+/** Perk icons for the capture-place labels (pen drawings, currentColor). */
+const PERK_ICON: Record<string, string> = {
+  sportiki: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="14.5" cy="4.5" r="2.2" fill="currentColor" stroke="none"/><path d="M13 8l-2.5 6 4.5 3-1 5M10.5 14l-3 3.5H3.5M12.5 9.5l5 2.5M12.5 9.5L8 9l-2 3"/></svg>',
+  gelik: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 16v-5l4-.4L7 6h10l1 4.6 4 .4v5z"/><circle cx="7" cy="17" r="2.6"/><circle cx="17" cy="17" r="2.6"/><rect x="9" y="7.6" width="2.8" height="2.6" fill="#fff"/><rect x="13" y="7.6" width="2.8" height="2.6" fill="#fff"/></svg>',
+  gym: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="11" width="14" height="2.2"/><rect x="3.5" y="6.5" width="3.2" height="11"/><rect x="17.3" y="6.5" width="3.2" height="11"/><rect x="1" y="8.5" width="2.4" height="7"/><rect x="20.6" y="8.5" width="2.4" height="7"/></svg>',
+  market: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M9 21V3h5a4.5 4.5 0 010 9H6M6 16.5h9"/></svg>',
+};
+const GIS_KEY = new Set(CAPTURE_PLACES.filter(c => c.src === '2gis').map(c => c.key));
+/** Landmark labels show up close only; phones get fewer of them. */
+const LM_DIST = 46, LM_DIST_PHONE = 36;
+
+/** A real place's name tag up close (with a tiny «2ГИС» tick when it is a 2GIS point). */
+interface LmL { el: HTMLElement; l: LmSpot; y: number; w: number; h: number; sx: number; sy: number; on: boolean; d2: number }
+
+interface L { el: HTMLElement; x: number; y: number; z: number; kind: 'v' | 'hq' | 'boss' | 'note' | 'doner'; idx: number; nm?: HTMLElement; sub?: HTMLElement; key?: string; sx?: number; sy?: number; shown?: boolean }
 /** Hero name tag. x/z are smoothed toward the unit's tick position. */
 interface H { el: HTMLElement; id: number; t: number; s: 0 | 1; x: number; z: number; w: number; h: number; sx: number; sy: number; on: boolean; seen: number; flee: boolean }
 
@@ -20,6 +37,9 @@ const MAX_HERO_DIST = 135;
 
 export class Labels {
   private list: L[] = [];
+  private lms: LmL[] = [];
+  private edge: { el: HTMLElement; x: number; y: number; z: number } | null = null;
+  private phone = Math.min(innerWidth, innerHeight) < 600;
   private heroes = new Map<number, H>();
   private root: HTMLElement;
   private v = new THREE.Vector3();
@@ -43,10 +63,15 @@ export class Labels {
         const perk = (p as { perk?: string }).perk;
         const perkText = perk && perk in PERK_TEXT ? PERK_TEXT[perk as PerkId] : '';
         const el = document.createElement('div');
-        el.className = doner ? 'lbl lbl-v lbl-doner' : perkText ? 'lbl lbl-v lbl-place' : 'lbl lbl-v';
+        el.className = doner ? 'lbl lbl-v lbl-doner' : perkText ? `lbl lbl-v lbl-place pk-${perk}` : 'lbl lbl-v';
         el.innerHTML = `<div class="nm"></div><div class="sub"></div>`;
         const nm = el.querySelector('.nm') as HTMLElement, sub = el.querySelector('.sub') as HTMLElement;
         nm.textContent = doner ? DONER.clean : p.name;
+        if (perkText) {
+          // the perk as a pen icon before the name, and the «2ГИС» tick (CSS shows it only up close)
+          nm.insertAdjacentHTML('afterbegin', `<i class="pk" aria-hidden="true">${PERK_ICON[perk!] ?? ''}</i>`);
+          if (GIS_KEY.has(p.key)) nm.insertAdjacentHTML('beforeend', '<span class="gis" title="Точка из 2ГИС">2ГИС</span>');
+        }
         sub.textContent = doner ? DONER.note : perkText || (VILLAGE_NOTE[p.key] ?? '');
         if (perkText) el.title = `${p.name}: ${perkText}`;
         root.append(el);
@@ -59,6 +84,27 @@ export class Labels {
       el.innerHTML = `<div class="nm">${SIDE_TAG[s].boss}</div>`;
       root.append(el);
       this.list.push({ el, x: 0, y: 0, z: 0, kind: 'boss', idx: s });
+    }
+    // the real 2GIS places (capture places have their own label above)
+    for (const l of landmarkPlan(t)) {
+      if (l.capture) continue;
+      const el = document.createElement('div');
+      el.className = `lbl lbl-lm${l.side === 0 ? ' s0' : l.side === 1 ? ' s1' : ''}`;
+      el.innerHTML = `<span class="nm"></span>${l.real ? '<span class="gis" title="Точка из 2ГИС">2ГИС</span>' : ''}`;
+      (el.firstElementChild as HTMLElement).textContent = l.name;
+      el.style.display = 'none';
+      root.append(el);
+      this.lms.push({ el, l, y: heightY(t, l.x, l.z) + l.h + 0.45, w: 0, h: 0, sx: 0, sy: 0, on: false, d2: 0 });
+    }
+    // Донер Бей's real address is off the north edge: a sign over the edge above pts[8]
+    const dp = sim.st.pts.find(p => p.kind === 2);
+    if (dp) {
+      const el = document.createElement('div');
+      el.className = 'lbl lbl-edge';
+      el.innerHTML = `<b>${DONER_REAL.name}</b> — ${DONER_REAL.address.replace(/, (\d)/, ' $1')} · 2,6 км <span class="up">↑</span>`;
+      el.style.display = 'none';
+      root.append(el);
+      this.edge = { el, x: dp.x, y: heightY(t, dp.x, 1.6) + 3.2, z: 1.6 };
     }
     const note = document.createElement('div');
     note.className = 'lbl lbl-note';
@@ -119,6 +165,7 @@ export class Labels {
         const o = st.pts[l.idx].owner, k = `nm${o >= 0 ? ` o${o}` : ''}`;
         if (l.key !== k) { l.key = k; l.nm!.className = k; }
       }
+      l.shown = p.show && p.vis; l.sx = p.x; l.sy = p.y;
       if (!p.show || !p.vis) { if (l.el.style.display !== 'none') l.el.style.display = 'none'; return; }
       l.el.style.display = '';
       l.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`;
@@ -129,6 +176,52 @@ export class Labels {
       if (!h.on) { if (h.el.style.display !== 'none') h.el.style.display = 'none'; continue; }
       h.el.style.display = '';
       h.el.style.transform = `translate(${h.sx.toFixed(1)}px, ${h.sy.toFixed(1)}px) translate(-50%, -100%)`;
+    }
+    this.root.classList.toggle('near', d < (this.phone ? LM_DIST_PHONE : LM_DIST));
+    this.updateLandmarks(d);
+    if (this.edge) {
+      const e = this.edge, p = this.project(e.x, e.y, e.z), on = p.vis && d > 28 && d < 230;
+      if (!on) { if (e.el.style.display !== 'none') e.el.style.display = 'none'; }
+      else { e.el.style.display = ''; e.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`; }
+    }
+  }
+
+  /** Names of the real places up close: nearest to the view centre first, never on top of each other. */
+  private updateLandmarks(d: number) {
+    const max = this.phone ? 6 : 12, near = d < (this.phone ? LM_DIST_PHONE : LM_DIST);
+    if (!near) { for (const m of this.lms) if (m.on) { m.on = false; m.el.style.display = 'none'; } return; }
+    if (this.stage.lowPower && this.frame & 1) return;
+    const tg = this.stage.target, R = 22 + d * 0.5;
+    // keep clear of the HUD: the top slips and the deck
+    const y0 = this.ch * 0.13, y1 = this.ch * 0.76, x0 = this.cw * 0.05, x1 = this.cw * 0.95;
+    const cand: LmL[] = [];
+    for (const m of this.lms) {
+      m.d2 = (m.l.x - tg.x) ** 2 + (m.l.z - tg.z) ** 2;
+      if (m.d2 > R * R) { m.on = false; continue; }
+      const p = this.project(m.l.x, m.y, m.l.z);
+      m.sx = p.x; m.sy = p.y; m.on = p.vis && p.y > y0 && p.y < y1 && p.x > x0 && p.x < x1;
+      if (m.on) cand.push(m);
+    }
+    cand.sort((a, b) => a.d2 - b.d2);
+    // the village, high-rise and place labels are drawn already: keep the small names off them
+    const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    for (const l of this.list) {
+      if (l.kind === 'boss' || l.kind === 'note' || !l.shown) continue;
+      placed.push({ x0: l.sx! - 70, y0: l.sy! - 46, x1: l.sx! + 70, y1: l.sy! + 2 });
+    }
+    let n = 0;
+    for (const m of cand) {
+      if (n >= max) { m.on = false; continue; }
+      if (!m.w) { m.el.style.display = ''; m.w = m.el.offsetWidth || 80; m.h = m.el.offsetHeight || 16; }
+      const x0 = m.sx - m.w / 2 - 2, x1 = m.sx + m.w / 2 + 2, y0 = m.sy - m.h - 1, y1 = m.sy + 1;
+      if (placed.some(r => x0 < r.x1 && x1 > r.x0 && y0 < r.y1 && y1 > r.y0)) { m.on = false; continue; }
+      placed.push({ x0, y0, x1, y1 });
+      n++;
+    }
+    for (const m of this.lms) {
+      if (!m.on) { if (m.el.style.display !== 'none') m.el.style.display = 'none'; continue; }
+      m.el.style.display = '';
+      m.el.style.transform = `translate(${m.sx.toFixed(1)}px, ${m.sy.toFixed(1)}px) translate(-50%, -100%)`;
     }
   }
 

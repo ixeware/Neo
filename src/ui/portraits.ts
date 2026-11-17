@@ -9,7 +9,11 @@ import { UNITS } from '../sim/defs';
  * that side's colours. Index 5 (the boss) holds the same image as `bosses[side]`.
  * `bosses[side]`: a 256×336 PNG data URL of Ислам (0) / Зураб (1).
  */
-export interface Portraits { units: string[][]; bosses: string[] }
+export interface Portraits {
+  units: string[][]; bosses: string[];
+  /** v3: the admin head-and-shoulders (320×352 PNG data URL per side) for his cigarette pack («Курение убивает»). */
+  admin?: string[];
+}
 
 export function makePortraits(): Portraits {
   const canvas = document.createElement('canvas');
@@ -56,7 +60,23 @@ export function makePortraits(): Portraits {
     units[side].push(shot(m, 172, 144, 1, t === 3 || t === 14 ? 0.9 : 0.5));
     m.geometry.dispose();
   }
+  // the admin's face for the pack: head and shoulders, a little from his left, like a passport photo
+  const admin = ([0, 1] as const).map(side => {
+    const g = heroGeometry(8, side);
+    g.computeBoundingBox();
+    const top = g.boundingBox!.max.y;
+    const m = new THREE.Mesh(g, mat);
+    r.setSize(320, 352, false);
+    cam.aspect = 320 / 352; cam.updateProjectionMatrix();
+    scene.add(m);
+    cam.position.set(0.22, top - 0.24, 1.55); cam.lookAt(0, top - 0.3, 0);
+    r.setClearColor(0x000000, 0);
+    r.render(scene, cam);
+    const url = canvas.toDataURL('image/png');
+    scene.remove(m); g.dispose();
+    return url;
+  });
   r.dispose();
   r.forceContextLoss();
-  return { units, bosses };
+  return { units, bosses, admin };
 }

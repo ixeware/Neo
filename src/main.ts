@@ -41,6 +41,8 @@ import { LocalPresence, cleanNick, type PresenceSource } from './net/presence';
 import { NearFade } from './render/fpcam';
 import { unitLabel } from './ui/hud';
 import { GFX, setGfx, type Gfx } from './render/style';
+import { BaseView } from './render/baseView';
+import { Build } from './ui/build';
 
 const $ = (id: string) => document.getElementById(id)!;
 const bootMsg = (s: string) => { $('boot-msg').textContent = s; };
@@ -169,6 +171,7 @@ async function boot() {
     const why = hud.cardBlocked(t);
     if (why) { sound.deny(); hud.note(lore.deny(why, prefs.spicy)); return; }
     sound.click();
+    build.close();
     hud.select(hud.selected === t ? -1 : t);
   };
   const hud = new Hud($('hud'), {
@@ -199,6 +202,14 @@ async function boot() {
     sim, stage, units, hud, root: $('hud'), labels: $('labels'), side: () => side, pid: () => session?.pid ?? prefs.pid, playing: () => playing && !!session,
     nick: () => prefs.nick ?? '', setNick: n => { prefs.nick = n; savePrefs(prefs); presence.setPresence({ name: n }); },
     riding: () => control.fp.id, selected: () => control.sel.size,
+  });
+  // ---- the base: buildings on screen (src/render/baseView.ts) and build mode (src/ui/build.ts) ----
+  const base = new BaseView(terrain, sim, stage, particles, shots);
+  scene.add(base.group);
+  const build = new Build({
+    sim, stage, hud, terrain, base, control, session: () => session, side: () => side, pid: () => session?.pid ?? prefs.pid,
+    playing: () => playing && !!session, spicy: () => prefs.spicy, sound, say: (who, text, prio, s) => say(who, text, prio, s),
+    deny: why => lore.deny(why, prefs.spicy), near: (x, z, r) => near(x, z, r),
   });
   // first person: whatever stands at the camera dithers away (decor = 2GIS landmarks, Донер Бей, mosques)
   NearFade.install(world, units.group, scene.getObjectByName('decor') ?? world);
@@ -293,6 +304,7 @@ async function boot() {
     syncPlaces();
     session.onStep = () => { units.capture(performance.now()); ach.step(); };
     control.reset();
+    build.reset(); minimap.side = s;
     presence = sess.backend.presence ?? new LocalPresence(sess.pid, prefs.nick ?? '', s);
     roster.attach(presence);
     if (!prefs.nick && vercel?.nick) { prefs.nick = vercel.nick; savePrefs(prefs); } // asked on the first Vercel join
@@ -369,7 +381,8 @@ async function boot() {
       if (!playing || !session) return;
       lastTap = { x, y };
       const t = hud.selected;
-      if (t < 0) { // no card in hand: select / order (src/ui/control.ts)
+      if (t < 0) { // no card in hand: build mode or a building (src/ui/build.ts), else select / order (src/ui/control.ts)
+        if (build.tap(x, y, m)) return;
         if (!control.tap(x, y, m)) hud.note(m.touch ? 'Выбери юнита внизу или тапни по своему' : 'Выбери юнита внизу или кликни по своему');
         return;
       }
@@ -383,14 +396,16 @@ async function boot() {
       hud.tip(x, y, `−${cost} ₽`);
       if (UNITS[t].hero) hud.select(-1); // one per side: the card goes «на поле»
     },
-    order: (x, y) => { sound.unlock(); if (playing && session) control.order(x, y); },
-    box: (ph, x0, y0, x1, y1, m) => control.box(ph, x0, y0, x1, y1, m),
-    hover: (x, y) => control.hover(x, y),
-    keyBusy: code => control.keyBusy(code),
+    order: (x, y) => { sound.unlock(); if (playing && session && !build.order(x, y)) control.order(x, y); },
+    box: (ph, x0, y0, x1, y1, m) => build.box(ph, x0, y0, x1, y1, m) ?? control.box(ph, x0, y0, x1, y1, m),
+    grab: (x, y, m) => build.grab(x, y, m),
+    hover: (x, y) => { build.hover(x, y); control.hover(x, y); },
+    keyBusy: code => build.keyBusy(code) || control.keyBusy(code),
     look: { on: () => control.fp.on, drag: (dx, dy, t) => control.fp.look(dx, dy, t), press: d => control.fp.press(d) },
   });
   addEventListener('keydown', e => {
     if (!playing) return;
+    if (build.key(e)) return; // B, digits in the palette, R, Esc
     if (control.key(e)) return; // selection, orders, groups, first person
     const k = e.ctrlKey || e.metaKey || e.altKey ? -1 : DECK_KEYS.indexOf(e.key);
     if (k >= 0 && hud.typeAt(k) >= 0) pickCard(hud.typeAt(k));
@@ -479,6 +494,7 @@ async function boot() {
     let back: Set<number> | null = null; // heroes coming back from «пары» this frame (their spawn is not news)
     for (const e of list) {
       ach.fx(e);
+      if (build.fx(e, now)) continue; // buildings: effects, sounds, feed (src/ui/build.ts)
       switch (e.e) {
         case 'spawn': {
           const y = heightY(terrain, e.x, e.z);
@@ -808,6 +824,7 @@ async function boot() {
     units.zoomK = control.fp.on ? 1 : Math.max(1, Math.min(2.4, stage.dist / 50));
     units.update(session ? session.alpha() : 1, now, dt, stage.camera);
     control.update(now, dt);
+    build.update(now, dt, session ? session.alpha() : 1, units.zoomK);
     roster.update(now);
     particles.setScale(stage.renderer.domElement.height / (2 * Math.tan((stage.camera.fov * Math.PI) / 360)));
     particles.update(dt, tnow);
@@ -831,7 +848,7 @@ async function boot() {
   requestAnimationFrame(frame);
   // debug handle for automated checks
   (window as unknown as { __game: unknown }).__game = { sim, stage, get session() { return session; }, hud, start: startLocal, units, decor, defs: { CARDS, UNITS }, get side() { return side; },
-    setSpicy(on: boolean) { prefs.spicy = on; savePrefs(prefs); applySpicy(); }, packs, labels, control, roster };
+    setSpicy(on: boolean) { prefs.spicy = on; savePrefs(prefs); applySpicy(); }, packs, labels, control, roster, build, base };
 }
 
 boot().catch(err => {

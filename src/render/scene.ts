@@ -208,6 +208,8 @@ export interface InputHooks {
    * to refuse (a touch press away from own units): the finger then pans as usual.
    */
   box?(phase: 'start' | 'move' | 'end' | 'cancel', x0: number, y0: number, x1: number, y1: number, m: InputMods): boolean | void;
+  /** Pointer down on the map: true = this drag is taken (build mode drags its ghost); it is then reported through box 'move' / 'end'. */
+  grab?(x: number, y: number, m: InputMods): boolean;
   /** Mouse moved over the map with no button down. */
   hover?(x: number, y: number): void;
   /** This key is a command right now: it must not pan, rotate or zoom the camera. */
@@ -242,6 +244,7 @@ export function bindInput(stage: Stage, el: HTMLElement, hooks: InputHooks) {
       moved = false; button = e.button; touch = e.pointerType !== 'mouse'; mode = 'none';
       mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, touch };
       clearTimeout(lp);
+      if (button === 0 && hooks.grab?.(e.clientX, e.clientY, mods)) { mode = 'box'; return; }
       if (touch && hooks.box) {
         lp = window.setTimeout(() => {
           if (moved || pts.size !== 1 || mode !== 'none') return;

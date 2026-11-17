@@ -1,6 +1,7 @@
 // Minimap: the low-poly map from above, villages, every unit as a pen dot, and the camera footprint.
 import type { Sim } from '../sim/sim';
-import { UNITS } from '../sim/defs';
+import { UNITS, BUILDINGS } from '../sim/defs';
+import { bldVisible } from '../sim/bld';
 import type { Stage } from '../render/scene';
 import type { Terrain } from '../world/terrain';
 import { paintRoads } from '../render/roads';
@@ -16,6 +17,8 @@ export class Minimap {
   private g: CanvasRenderingContext2D;
   private base: HTMLCanvasElement;
   private last = 0;
+  /** Whose eyes: hidden enemy buildings stay off the map. */
+  side = 0;
   constructor(private c: HTMLCanvasElement, map: MinimapBase, private t: Terrain, private sim: Sim, private stage: Stage) {
     this.g = c.getContext('2d')!;
     this.base = document.createElement('canvas');
@@ -52,6 +55,16 @@ export class Minimap {
       g.beginPath();
       if (p.kind === 0) g.rect(p.x * sx - r, p.z * sz + oz - r, r * 2, r * 2); else g.arc(p.x * sx, p.z * sz + oz, r, 0, Math.PI * 2);
       g.fill(); g.stroke();
+    }
+    // base buildings: small squares with a paper edge (walls: bare dots)
+    g.lineWidth = 1;
+    for (const b of st.bld) {
+      if (!bldVisible(b, this.side)) continue;
+      const x = b.x * sx, y = b.z * sz + oz;
+      g.fillStyle = PEN[b.s];
+      if (BUILDINGS[b.t].line) { g.fillRect(x - 1.5, y - 1.5, 3, 3); continue; }
+      g.fillRect(x - 3, y - 3, 6, 6);
+      g.strokeStyle = '#f4f6f8'; g.strokeRect(x - 3, y - 3, 6, 6);
     }
     const heroes: number[] = [];
     for (let i = 0; i < st.units.length; i++) {

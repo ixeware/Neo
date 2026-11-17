@@ -79,6 +79,8 @@ export class Build {
   private g = { has: false, x: 0, z: 0, cells: [] as number[] };
   private aimAt: { x: number; z: number } | null = null;
   private drag: { kind: 'move' | 'line'; ox: number; oy: number } | null = null;
+  /** A pointer taken by grab() is still down (its moves and its end come through box()). */
+  private held = false;
   private mouse: { x: number; y: number } | null = null;
   private ev = { cells: [] as Cell[], n: 0, price: 0, why: null as string | null };
   private root: HTMLElement; private pal: HTMLElement; private bar: HTMLElement; private sel: HTMLElement; private why: HTMLElement;
@@ -86,7 +88,7 @@ export class Build {
   private cards = new Map<number, { el: HTMLButtonElement; key: string }>();
   private btn: HTMLButtonElement;
   private rowKey = ''; private selKey = ''; private barKey = ''; private whyKey = '';
-  private lastPaint = 0; private sellArm = 0;
+  private lastPaint = 0; private sellArm = 0; private putAt = 0;
   private pr = { x: 0, y: 0, vis: false };
   private cds = new Map<string, number>();
 
@@ -199,8 +201,8 @@ export class Build {
     this.show();
     this.placing = t; this.lastT = t;
     this.g.has = false;
-    const at = this.touch || !this.mouse ? { x: innerWidth / 2, y: innerHeight * 0.4 } : this.mouse;
-    const p = d.stage.pick(at.x, at.y);
+    const at = this.touch ? { x: innerWidth / 2, y: innerHeight * 0.4 } : this.mouse; // a phone: the screen centre
+    const p = at ? d.stage.pick(at.x, at.y) : null;
     if (p) this.moveGhost(p.x, p.z);
     const tx = bldText(t, d.spicy());
     d.hud.note(`${tx.name}. ${tx.blurb}`, 5200);
@@ -255,7 +257,7 @@ export class Build {
     if (!ev.n) { d.sound.deny(); if (ev.why) d.hud.note(d.deny(ev.why), 2200); return; }
     const body = (D.line ? { k: 'bld', s: side, op: 'put', b: t, cells: this.g.cells.slice() } : { k: 'bld', s: side, op: 'put', b: t, x: this.g.x, z: this.g.z }) as CmdBody;
     s.submit(body);
-    d.sound.deploy();
+    d.sound.deploy(); this.putAt = performance.now();
     const last = ev.cells[ev.cells.length - 1];
     d.stage.project(last.x, heightY(d.terrain, last.x, last.z) + 2, last.z, this.pr);
     if (this.pr.vis) d.hud.tip(this.pr.x, this.pr.y, `−${ev.price} ₽`);
@@ -338,7 +340,7 @@ export class Build {
       if (!p) return false;
       this.moveGhost(p.x, p.z);
       this.drag = { kind: 'line', ox: 0, oy: 0 };
-      return true;
+      return (this.held = true);
     }
     if (!this.g.has) return false;
     const T = d.terrain, near = (wx: number, wz: number) => { d.stage.project(wx, heightY(T, wx, wz) + 0.6, wz, this.pr); return this.pr.vis && Math.hypot(this.pr.x - x, this.pr.y - y) < 48; };
@@ -346,16 +348,17 @@ export class Build {
       const e = this.g.cells[this.g.cells.length - 1];
       if (!near(cellX(T, e), cellZ(T, e)) && !near(this.g.x, this.g.z)) return false;
       this.drag = { kind: 'line', ox: this.pr.x - x, oy: this.pr.y - y };
-      return true;
+      return (this.held = true);
     }
     if (!near(this.g.x, this.g.z)) return false;
     this.drag = { kind: 'move', ox: this.pr.x - x, oy: this.pr.y - y };
-    return true;
+    return (this.held = true);
   }
   /** The drag bindInput reports as a rubber band. undefined = not ours (unit control takes it). */
   box(phase: 'start' | 'move' | 'end' | 'cancel', _x0: number, _y0: number, x1: number, y1: number, m: InputMods): boolean | undefined {
-    if (this.mode !== 'place' && this.mode !== 'aim') return undefined;
-    if (!this.drag) return false; // no rubber band while building: the finger pans
+    if (!this.held) return this.mode === 'place' || this.mode === 'aim' ? false : undefined; // no rubber band while building: the finger pans
+    if (phase === 'end' || phase === 'cancel') this.held = false;
+    if (!this.drag) return true; // build mode ended under the finger: the rest of this drag is nobody's
     const d = this.d;
     if (phase === 'move') {
       const p = d.stage.pick(x1 + this.drag.ox, y1 + this.drag.oy);
@@ -444,7 +447,7 @@ export class Build {
         const b = h('button', `bcard paper s${side}`, `<span class="key">${'1234567890'[i] ?? ''}</span><i class="bi bi-${BUILDINGS[t].fam}">${FAMS[fi].icon}</i><span class="bn">${esc(tx.name)}</span><span class="bc"></span><span class="bq"></span><span class="bl"></span>`) as HTMLButtonElement;
         b.type = 'button'; b.dataset.t = String(t);
         b.title = `${tx.name}. ${tx.blurb}`;
-        b.addEventListener('click', () => this.pick(t));
+        b.addEventListener('click', () => { this.mouse = null; this.pick(t); }); // the mouse is on the card: the ghost waits for it over the map
         this.cardRow.append(b);
         this.cards.set(t, { el: b, key: '' });
       });
@@ -538,7 +541,7 @@ export class Build {
       if (!D) return true;
       const say = (kind: Parameters<typeof bldFeed>[0], prio: 0 | 1 | 2 | 3, n = e.n, gap = 5000) => { if (this.cool(kind + e.t + e.s, gap)) d.say('Прораб', bldFeed(kind, e.t, spicy, n), prio, mine ? side : e.s); };
       switch (e.k) {
-        case 'put': if (mine || (near && !D.hid)) d.sound.deploy(); break;
+        case 'put': if (mine ? now - this.putAt > 800 && near : near && !D.hid) d.sound.deploy(); break; // my own one sounded when sent
         case 'up': if (mine) d.sound.coin(); break;
         case 'done':
           if (!mine) break;

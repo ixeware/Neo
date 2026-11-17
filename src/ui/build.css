@@ -26,7 +26,7 @@
 
 .bcards { display: flex; gap: 8px; align-items: flex-end; max-width: 100%; box-sizing: border-box; padding: 10px 2px 3px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x; }
 .bcards::-webkit-scrollbar { display: none; }
-.bcard { flex: 0 0 100px; height: 126px; box-sizing: border-box; padding: 5px 3px 6px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 2px; justify-items: center; align-items: center; text-align: center; position: relative; transition: transform .12s ease-out; color: var(--graphite); touch-action: manipulation; }
+.bcard { flex: 0 0 100px; height: 136px; box-sizing: border-box; padding: 5px 3px 6px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 2px; justify-items: center; align-items: center; text-align: center; position: relative; transition: transform .12s ease-out; color: var(--graphite); touch-action: manipulation; }
 .bi { width: 46px; height: 46px; display: grid; place-items: center; border: 1.5px dashed currentColor; box-sizing: border-box; font-style: normal; }
 .bi svg { width: 28px; height: 28px; }
 .bi-def { color: #23262b; background: rgba(35, 38, 43, .08); }
@@ -95,6 +95,9 @@
 }
 /* ---------- phones upright: the summary on its own line, five chips across, cards as wide as unit cards ---------- */
 @media (max-width: 760px) and (min-height: 501px) {
+  /* the slip may never reach the minimap beside it: a long income line («… · аура нищеты ×0,5») wraps instead */
+  .bank:has(> .bank-build) { box-sizing: border-box; max-width: calc(100vw - var(--edge-l) - var(--edge-r) - var(--mini-w) - 6px); grid-template-columns: minmax(0, 1fr) auto; }
+  .bank:has(> .bank-build) .inc { white-space: normal; line-height: .95; }
   .bfams { display: grid; grid-template-columns: 44px repeat(5, minmax(0, 1fr)); }
   .bsum { grid-column: 1 / -1; grid-row: 1; font-size: 16px; padding: 0 2px; }
   .bfams:has(> .bchip-rep:not([hidden])) .bsum { grid-column: 1 / 4; }
@@ -118,6 +121,10 @@
   .bwhy { font-size: 19px; }
   /* the chat is two lines here: in build mode the map is wanted more */
   #hud.building .feed { display: none; }
+}
+/* the narrowest phones: a slimmer button, so a five-digit bank still fits beside the minimap */
+@media (max-width: 380px) and (min-height: 501px) {
+  .bank > .bank-build { min-width: 46px; margin-left: 6px; padding: 3px 2px 2px; letter-spacing: -.02em; }
 }
 /* ---------- phones sideways: the palette is one row as high as the deck (close + «next family» on the left) ---------- */
 @media (max-height: 500px) and (min-width: 600px) {

@@ -24,6 +24,7 @@ import { renderMenu, type MenuState } from './ui/menu';
 import { Sound } from './audio/sound';
 import { Session, LocalBackend, loadLocal, clearLocal } from './net/session';
 import { connectShared, type Shared } from './net/shared';
+import { connectVercel, vercelAdminChannel, type VercelWar } from './net/vercel';
 import { TICKER, HINTS, lore, type Line } from './data/lore';
 import {
   HEROES, EVENTS as EVENT_LORE, DONER, FUJI, SUMMON_LINES, PACK_REACT, UNIT_LINES, CARD_TEXT, PERK_TEXT,
@@ -32,7 +33,7 @@ import {
 import { Achievements, AchToasts, achievedIds } from './ui/achievements';
 import { DECK_KEYS } from './ui/hud';
 import { initAdmin } from './ui/admin';
-import { localChannel, artifactChannel } from './net/adminChannel';
+import { localChannel, artifactChannel, type AdminChannel } from './net/adminChannel';
 
 const $ = (id: string) => document.getElementById(id)!;
 const bootMsg = (s: string) => { $('boot-msg').textContent = s; };
@@ -679,17 +680,19 @@ async function boot() {
     list.length = 0;
   }
 
-  // ---- shared war (artifact runtime) ------------------------------------------------------------
-  connectShared(prefs.pid).then(s => {
+  // ---- shared war: the artifact runtime (src/net/shared.ts), else the Vercel backend if /api/health answers (src/net/vercel.ts)
+  let vercel: VercelWar | null = null;
+  connectShared(prefs.pid).then(s => s ?? connectVercel(prefs.pid).then(v => (vercel = v))).then(s => {
     shared = s;
     if (!playing && !$('menu').hidden) openMenu();
   }).catch(() => { shared = null; });
 
   // ---- admin panel: #admin or /admin (src/ui/admin.ts); who may command: src/net/adminChannel.ts --------
   const admLocal = localChannel(() => session), admArtifact = artifactChannel(() => shared, () => session);
+  let admVercel: AdminChannel | null = null;
   const admin = initAdmin({
     sim, terrain, stage, hud, prefs, session: () => session, shared: () => shared, side: () => side,
-    channel: () => (session?.backend.kind === 'shared' ? admArtifact : admLocal),
+    channel: () => (session?.backend.kind === 'shared' ? (vercel ? (admVercel ??= vercelAdminChannel(vercel)) : admArtifact) : admLocal),
     setSpicy: on => { prefs.spicy = on; savePrefs(prefs); applySpicy(); },
     setMusic: on => { prefs.music = on; sound.setMusic(on); savePrefs(prefs); },
     newLocal: () => startLocal(side, prefs.diff), resumeLocal: () => resumeLocal(),

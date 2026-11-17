@@ -10,7 +10,7 @@ export type MenuTab = 'play' | 'who' | 'ach';
 export interface MenuState {
   canContinue: { era: number; side: 0 | 1; wins: [number, number] } | null;
   diff: number; spicy: boolean;
-  shared: { available: boolean; online: number[]; era: number; wins: [number, number] } | null;
+  shared: { available: boolean; online: number[]; era: number; wins: [number, number]; note?: string; who?: string } | null;
   tab?: MenuTab;
   /** Unlocked achievement ids. */
   achieved?: Set<string>;
@@ -58,9 +58,9 @@ function playPage(p: Portraits, s: MenuState): string {
       </ol><p class="m-tip"><b>Совет:</b> ${esc(tip)}</p></div>
     </div>
     ${sh ? `<div class="m-box paper m-mp">${sh.available
-      ? `<h4>Общая война с пацанами</h4><span>Один мир на всех, кто открыл эту ссылку. Война №${sh.era}, счёт <b class="a">${sh.wins[0]}</b>:<b class="k">${sh.wins[1]}</b>. Сейчас в игре: Атаги — ${sh.online[0]}, Курчалой — ${sh.online[1]}.</span>
+      ? `<h4>Общая война с пацанами</h4><span>Один мир на всех, кто открыл эту ссылку. Война №${sh.era}, счёт <b class="a">${sh.wins[0]}</b>:<b class="k">${sh.wins[1]}</b>. Сейчас в игре: Атаги — ${sh.online[0]}, Курчалой — ${sh.online[1]}.${sh.who ? ` Онлайн: ${esc(sh.who)}.` : ''}</span>
          <div class="m-row"><button type="button" class="m-cont" data-shared="0">В общую войну за Атаги</button><button type="button" class="m-cont" data-shared="1">В общую войну за Курчалой</button></div>`
-      : `<h4>Общая война</h4><span>Общий мир работает, когда игра открыта по ссылке claude.ai и у тебя есть право редактировать. Сейчас играешь один против ИИ, прогресс хранится в этом браузере.</span>`}</div>` : ''}
+      : `<h4>Общая война</h4><span>${esc(sh.note ?? 'Общий мир работает, когда игра открыта по ссылке claude.ai и у тебя есть право редактировать. Сейчас играешь один против ИИ, прогресс хранится в этом браузере.')}</span>`}</div>` : ''}
     <p class="m-foot">Карта — настоящий кусок Чечни между Старыми Атагами и Курчалоем: рельеф AWS Terrain Tiles, леса, поля и застройка ESA WorldCover 2021 (10 м). Река Аргун, мосты и сёла на своих местах. Управление: перетаскивай карту, колесо или щипок — зум, правая кнопка или два пальца — поворот, 1–0 — карточки, долгое нажатие на карточку — кто это.</p>`;
 }
 

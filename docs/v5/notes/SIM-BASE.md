@@ -22,12 +22,26 @@ Branch: this worktree's branch, based on `4b8c2dc`. Contract for other tracks: `
 ## Baseline (before any change, `npx tsx tools/symtest.ts asym 45 16`)
 Атаги 53 %, first-war median 6.8 min (4.7–14.3), all wars median 7.7, 18 723 ticks/s, state peak 61.2 KB.
 
-## In progress
-- Balance of the AI builder (48-seed sweeps: scratch scripts `exp48.sh`, `agg.mjs`; `TUNE` in
-  `tools/symtest.ts` now takes `BASE`, `AI_BW` and building keys).
+## Balance after (same sweep, final numbers)
+Атаги 49 %, first-war median 10.3 min (3.5–16.3), all wars median 9.1, 14 011 ticks/s, state peak 67.2 KB,
+0 exceptions. Over 48 seeds (seeds 1–48 in three runs of 16): before 55.3 % / first wars 29–19 / median 8.2;
+after 58.0 % / 34–14 / 9.8 (max 21.3, 9 of 48 over 14 min; 7 of 48 before). One 16-seed sweep is ± 6 points.
 
-## Next
-- Final numbers into `docs/v5/BASE.md`, final checks, final commit.
+What the sweeps showed (48 seeds each, `e48_summary.log` in the scratch folder):
+- AI that never builds: 54.6 % — the old Атаги edge is not from bases.
+- `bldgVs` 2 / 1.5 (Чимаев weaker against buildings): 57.5 / 59.5 % — kept at 3.
+- Чимаев's seek radius (`bldgSeek` 4 → 0 → −4): no effect.
+- `splashVs` 1 → 2 → 3: 59.9 → 59.2 → 58.0 % over 48 seeds, 57 → 50 → 49 % on seeds 1–16. Kept 3: it makes
+  the two ranged units equal against a tower (33 vs 32 a shot), which they were not (11 vs 32).
+- Bounty 0, reserve 200, cadence 250 / 150: all inside the noise.
+
+## In progress
+Nothing.
+
+## Next (for whoever balances after this track)
+- First wars go to Атаги about 70 % of the time over 48 seeds (60 % before bases). Not found why; the
+  river covers one side of Атаги's base, and Курчалой places more buildings and loses twice as many.
+  Levers that exist: `AI_BW`, `BASE.aiEvery / aiJit / aiReserve`, tower numbers, `BASE.splashVs`, `BASE.bldgVs`.
 
 ## Decisions (and why)
 - Model B: per-Sim overlay from `st.bld`, enemies only; flow fields and `Terrain` untouched.
@@ -38,7 +52,9 @@ Branch: this worktree's branch, based on `4b8c2dc`. Contract for other tracks: `
 - Walls stop a unit at once (no sliding along them) unless a player ordered it to move / drives it.
 - `bldPick` rejects by the box around a side's buildings, so admin-given buildings anywhere are targets too.
 - Auto-targets: unit → nearer of (visible non-wall building, the high-rise). Seen traps are targets.
-- Splash of unit shots does not touch buildings; `aoe` pulses do.
+- Splash of unit shots does not touch buildings; `aoe` pulses do. A splash shooter's direct hit on a building is ×`BASE.splashVs`.
+- Towers sleep while no enemy unit is within `BASE.reach` of the box around the side's buildings; `Sim.moveTo`
+  asks buildings only within `BASE.near` of the enemy's box (both are pure speed-ups: 13–14 k ticks/s).
 
 ## How to verify
 `npx tsc --noEmit; npx tsc --noEmit -p api; npx tsx tools/simtest.ts 3 7; npx tsx tools/cleanscan.ts;

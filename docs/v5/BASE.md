@@ -219,9 +219,9 @@ not frozen, the Тесла's generator alive).
 | Blocking | walls block all enemy ground units, «Шлагбаум» enemy vehicles, other solid buildings block enemies too (the gap lets them slide by). Own units walk through everything of their own. Flying units cross everything |
 | «Мешает — ломаем» | a unit stopped by an enemy wall targets it at once; stopped by another building, when it cannot slide past. A ride unloads instead. A unit a player ordered to *move*, or drives, never attacks on its own: it slides along |
 | Auto targets | enemy unit in aggro → else the nearer of (visible enemy non-wall building in aggro, the high-rise) → else nothing. Walls only when they block. A unit keeps the building it is hitting while it stands next to it |
-| Чимаев (`bldg`) | never units: the nearest visible building within aggro + 4, or the high-rise, whichever is nearer. ×`min(bldg, BASE.bldgVs)` against buildings, ×`bldg` (3) against the high-rise as before; «Землетряс» shakes buildings in its radius by the same factor |
+| Чимаев (`bldg`) | never units: the nearest visible building within aggro + `BASE.bldgSeek` (4), or the high-rise, whichever is nearer. ×`min(bldg, BASE.bldgVs)` against buildings, ×`bldg` (3) against the high-rise as before; «Землетряс» shakes buildings in its radius by the same factor |
 | Orders | `ord` with `m: 'attack'` and `tb: buildingId` (a visible enemy building): the units walk there along a flow field and break it, then hold. Attack-move and hold pick buildings like auto. Possessed units hit the building in front with the attack button |
-| Splash | unit-vs-unit splash never touches buildings. A shot aimed at a building hurts that building only. Area pulses (`State.aoe`: quake, Голем and Курица bursts, Арбузомёт) hurt enemy buildings in the radius |
+| Splash | unit-vs-unit splash never touches buildings. A shot aimed at a building hurts that building only, and a unit whose shots splash (Курчалой's ranged; not the boss) hits it ×`BASE.splashVs` (3): the whole blast lands on the one thing, so both sides' ranged units break a tower about equally fast (33 vs 32 a shot). Area pulses (`State.aoe`: quake, Голем and Курица bursts, Арбузомёт) hurt enemy buildings in the radius |
 | Heals, «Шаурма», «Regen», «Креатин», Донер Бей | units only. Buildings are repaired by command, and for free between wars |
 | Taunts, fear, stun, slow, poison | buildings are immune; a taunted unit leaves a building for the taunter |
 | Мохьмад | steals 4 ₽ per hit on a building as on a unit; the safe limits every theft |
@@ -306,3 +306,21 @@ straight pieces 11–13.5 out, economy and tech behind the high-rise. It never s
   sim.bcost(side, t), have: sim.bldCount(side, t) }))`; the ghost: `sim.canBuild(side, t, x, z, me)` every
   frame; a selected building: `canUp / canSell / canRep`, `bcost(side, b.t, b.lv + 1)`, `refund(b)`,
   `repairCost(b)`, `bldStats(b.t, b.lv)`.
+
+## 13. Speed and balance (measured)
+
+- Cost when nobody is near: towers, traps and hatcheries are skipped while no enemy unit is within
+  `BASE.reach` (22) of the box around the side's buildings, and `Sim.moveTo` asks the buildings only
+  within `BASE.near` (8) of the box around the enemy's. AI vs AI: 14 000 ticks/s with both bases built
+  (18 700 before bases; the floor is 6 000).
+- `npx tsx tools/symtest.ts asym 45 16`: before bases Атаги 53 %, first-war median 6.8 min (4.7–14.3);
+  with bases Атаги 49 %, first-war median 10.3 min (3.5–16.3), all wars median 9.1, state peak 67 KB,
+  0 exceptions. Wars are about a quarter longer because a base has to be broken first.
+- The 16-seed number is noisy (one sweep ≈ 60 wars, ± 6 points). Over 48 seeds (`symtest asym 45 16 1`,
+  `… 17`, `… 33`): before bases Атаги 55.3 %, first wars 29–19, first-war median 8.2 min; with bases
+  58.0 %, first wars 34–14, median 9.8 min, longest first war 21 min (9 of 48 over 14 min; 7 of 48
+  before). So Атаги's old edge is still there and bases may have added a little to it, most of it in the
+  first war: the next balance pass should look at the first war (Атаги's base has the river on one side;
+  AI with no buildings at all gives the same 55 %).
+- AI builder numbers behind this: `BASE.aiEvery` 200, `aiJit` 100, `aiReserve` 150, weights `AI_BW`.
+  `tools/symtest.ts` takes `TUNE='[["BASE","aiEvery",250],["AI_BW","larek",5],["rogatka","cost",[90,100,140]]]'`.

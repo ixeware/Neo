@@ -253,9 +253,9 @@ function ipit(b: Builder, team: Col) {
 /** Оператор: anonymous, gender-neutral. Dark hood up, the face is just shadow, a phone raised like a camera. */
 function operator(b: Builder, team: Col) {
   // charcoal, not pure black: the folds still read under the game light
-  const hood = col('#2c2e35'), hood2 = col('#383b44'), shadow = col('#060607');
+  const hood = col('#474b56'), hood2 = col('#585d69'), shadow = col('#060607');
   const f = body(b, {
-    top: hood, cuff: team, pants: col('#2a2c33'), shoe: col('#151517'), sole: team, lw: 0.94, beard: 'none',
+    top: hood, cuff: team, pants: col('#33363f'), shoe: col('#1b1c20'), sole: team, lw: 0.94, beard: 'none',
     legL: { up: [-0.12, 0, 0.04] }, legR: { up: [0.16, 0, -0.03] },
     armL: { up: [-1.45, 0, -0.28], lo: [-2.55, 0, -0.62] },
     armR: { up: [-1.45, 0, 0.28], lo: [-2.55, 0, 0.62] },
@@ -268,6 +268,9 @@ function operator(b: Builder, team: Col) {
   flat(b, team, [0, hy + 0.11, 0.136], '+z', 0.25, 0.024, 0.003);
   for (const s of [-1, 1]) flat(b, team, [0.115 * s, hy - 0.01, 0.136], '+z', 0.024, 0.25, 0.003);
   b.box(hood, [0, hy - 0.12, -0.135], [0.25, 0.16, 0.06]);
+  // кант по шву капюшона сзади: со спины он тоже свой/чужой
+  flat(b, team, [0, hy + 0.06, -0.164], '-z', 0.03, 0.24, 0.003);
+  flat(b, hood2, [0, hy - 0.12, -0.165], '-z', 0.2, 0.1, 0.003);
   // карман-кенгуру и шнурки
   flat(b, hood2, [0, f.hipY + 0.07, 0.11], '+z', 0.22, 0.09);
   for (const s of [-1, 1]) b.box(team, [0.04 * s, top - 0.06, 0.113], [0.012, 0.1, 0.006]);
@@ -508,11 +511,15 @@ const CITY_WALL = ['#e6d4b0', '#efe9dd', '#d9b98c', '#c77a5c', '#e8bfa0', '#d6d1
 const CITY_ACCENT = ['#b8573e', '#3f8f8a', '#3e6fb0', '#d39b3a', '#8e3b3b', '#f3efe6', '#6f8f3f'].map(col);
 const CITY_WIN = [col('#36424d'), col('#3d5a73'), col('#2f3a44')];
 
-/** Footprint [width x, depth z] of a city block kind (0: 5 эт., 1: 9 эт., 2: 12 эт., 3: 16 эт.). */
+/**
+ * Ground extent [width x, depth z] of a city block kind (0: 5 эт., 1: 9 эт., 2: 12 эт., 3: 16 эт.), centred on
+ * the origin: the walls plus the parapet (+0.05), the loggias (0.1 each side) and the entrance canopies (0.28).
+ */
 export function cityBlockFootprint(kind: number): [number, number] {
-  return CITY_FOOT[Math.max(0, Math.min(3, kind | 0))];
+  const [w, d] = CITY_FOOT[Math.max(0, Math.min(3, kind | 0))];
+  return [Math.round((w + 0.05) * 100) / 100, Math.round((d + 0.38) * 100) / 100];
 }
-/** Height to the top of the parapet. */
+/** Height to the top of the parapet (the lift room on the roof adds ~0.18 more). */
 export function cityBlockHeight(kind: number): number {
   return CITY_FLOORS[Math.max(0, Math.min(3, kind | 0))] * CITY_FH + 0.16;
 }
@@ -578,12 +585,17 @@ export function cityBlock(kind: number, seed: number): THREE.BufferGeometry {
   // подъезды с козырьками
   const doors = kind === 0 ? 4 : kind === 1 ? 4 : kind === 2 ? 2 : 1;
   for (let k = 0; k < doors; k++) {
-    const x = doors === 1 ? 0 : -w / 2 + (w * (k + 0.5)) / doors + (kind < 2 ? w / doors / 2 - 0.08 : 0) * (k === doors - 1 ? -1 : 0) * 0;
-    const xx = stacks && doors > 1 ? x + w / doors * 0.25 : x;
-    b.box(trim, [xx, fh * 0.92, d / 2 + 0.14], [0.3, 0.04, 0.28]);
-    flat(b, K.ink, [xx, fh * 0.42, d / 2], '+z', 0.16, fh * 0.8, 0.006);
+    // between the loggia stacks on the ground floor (the stacks start at the first floor)
+    const x = doors === 1 ? 0 : -w / 2 + (w * (k + 0.75)) / doors;
+    b.box(trim, [x, fh * 0.92, d / 2 + 0.14], [0.3, 0.04, 0.28]);
+    flat(b, K.ink, [x, fh * 0.42, d / 2], '+z', 0.16, fh * 0.8, 0.006);
   }
-  return grounded(b.build());
+  // centre the whole box (loggias stick out 0.1 at the back, the canopies 0.28 at the front) so that
+  // cityBlockFootprint() is the exact, centred extent for placement and keep-clear checks
+  const g = grounded(b.build());
+  g.translate(0, 0, -(g.boundingBox!.min.z + g.boundingBox!.max.z) / 2);
+  g.computeBoundingBox(); g.computeBoundingSphere();
+  return g;
 }
 
 // ======================================================================================
@@ -980,8 +992,9 @@ function ansar(g: THREE.Group, closed: boolean) {
     c.beginPath(); c.moveTo(97, m - 22); c.lineTo(115, m); c.lineTo(97, m + 22); c.stroke();
     c.fillStyle = '#1b1d22'; c.textBaseline = 'middle'; c.textAlign = 'left';
     fitFont(c, 'ANSAR', '900', DISPLAY, 82, 360); c.fillText('ANSAR', 150, m + 4);
-    c.fillStyle = '#17a36b';
-    fitFont(c, '· школа программирования', '700', TEXT, 46, 490); c.fillText('· школа программирования', 520, m + 2);
+    c.fillStyle = '#c9cdd3'; c.fillRect(508, 26, 5, h - 52);
+    c.fillStyle = '#0c6a44';
+    fitFont(c, 'школа программирования', '800', TEXT, 50, 480); c.fillText('школа программирования', 530, m + 2);
   });
   const signM = addSign(open, signT, W - 0.5, (W - 0.5) / 8, [0.12, H1 + 0.02, front + 0.115]);
   addSign(open, signTex('НАБОР ОТКРЫТ', { bg: '#17a36b', fg: '#ffffff', sub: 'с нуля до джуна', subFg: '#e6fff3' }, 256, 128), 0.6, 0.3, [-1.1, 0.72, front + 0.012]);

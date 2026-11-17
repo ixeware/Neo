@@ -423,7 +423,8 @@ if (view === 'all') {
   pitch = Number(q.get('pitch') ?? 0.5);
 } else if (view === 'v4unit') {
   const k = (q.get('k') ?? 'ipit') as V4UnitKey;
-  const yaws = [0, 0.75, Math.PI / 2, Math.PI];
+  // &a=0..3 keeps one of the four angles (front, three-quarter, side, back) for a close look
+  const yaws = [0, 0.75, Math.PI / 2, Math.PI].filter((_, i) => !q.has('a') || Number(q.get('a')) === i);
   const only = q.get('side');
   for (const side of [0, 1] as const) {
     if (only !== null && Number(only) !== side) continue;

@@ -44,7 +44,7 @@ CARDS.forEach((c, i) => { const L = heroes.cardLore(i, false); const t = L ? `${
 BUILDINGS.forEach((d, i) => {
   for (const t of [d.name, d.blurb, ...[1, 2, 3].flatMap(lv => bldStats(i, lv).flat())]) if (BAD.test(t)) hits.push(`BUILDINGS[${i}] ${d.key}: ${t.slice(0, 120)}`);
 });
-for (const f of ['src/sim/bld.ts']) {
+for (const f of ['src/sim/bld.ts', 'src/ui/build.ts', 'src/ui/buildText.ts']) { // + the build mode's own lines
   const src = readFileSync(new URL('../' + f, import.meta.url), 'utf8');
   for (const m of src.matchAll(/(['`])((?:(?!\1)[^\\\n]|\\.)*[А-Яа-яЁё](?:(?!\1)[^\\\n]|\\.)*)\1/g)) if (BAD.test(m[2])) hits.push(`${f}: ${m[2].slice(0, 120)}`);
 }

@@ -455,8 +455,9 @@ if (view === 'all') {
   gz('shaiba', 28.5, 0);
   gz('ansar', 40, 2.2);
   gz('ansar', 46, 2.2, { closed: true }, 0, true, 'Ансар · закрыт');
-  gz('pringles', 50.4, 4.4, { spicy: false }, 0.3, view === 'v4bld', 'Принглс');
-  gz('pringles', 51.4, 4.4, { spicy: true }, -0.3, view === 'v4bld', 'Принглс 18+');
+  // one label for the pair (two would stack on top of each other at this zoom)
+  gz('pringles', 50.4, 4.4, { spicy: false }, 0.3, false);
+  gz('pringles', 51.4, 4.4, { spicy: true }, -0.3, view === 'v4bld', 'Принглс · обычный и 18+');
   unit(0, 0, 2.6, 6.4, 0.3, false); v4unit('ipit', 0, 3.4, 6.2, -0.2, false); v4unit('bmw', 1, 31.5, 7.0, -0.9, false);
   v4unit('operator', 1, 13.4, 5.2, 0.4, false); v4unit('snitch', 0, 15.2, 5.4, -0.3, false); v4unit('drone', 0, 42.0, 4.8, 0.6, false);
   if (spicy) labels.push({ text: '&spicy', sub: 'показаны 18+ варианты', at: new THREE.Vector3(52, 1.4, 4.4), side: -1 });

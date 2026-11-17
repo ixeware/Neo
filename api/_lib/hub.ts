@@ -8,8 +8,9 @@
 //     (or an HTTP-fallback client, listed as i:http:<pid>) is live — everything that writes the log
 //     lists itself there first, so a lone instance never needs to read the log;
 //   - between heartbeats the log is polled only while another instance is live (700 ms while it was
-//     sending commands in the last 10 s, else 3 s), so a lone instance costs 0.4 Redis commands/s
-//     plus its writes, and a foreign command reaches the sockets here within ~1.1 s.
+//     sending commands in the last 10 s, else 3 s; env VY_POLL_MS changes the 700), so a lone instance
+//     costs 0.4 Redis commands/s plus its writes, and a foreign command reaches the sockets here
+//     within ~1.1 s.
 // The keeper (lease vy:keeper) uploads a checkpoint every CP_EVERY_MS; before it is stored the other
 // sockets on this instance are asked for their own hash at that tick and the majority wins, so one
 // lying client cannot make the others adopt its state.
@@ -24,13 +25,16 @@ import { allow } from './http.js';
 import { hello, stateFor, type HelloIn } from './join.js';
 import { Bucket, MAX_CP_MSG, MAX_MSG, checkAdm, checkCmd, checkCp, cleanPres, validPid } from './proto.js';
 import {
-  CP_EVERY_MS, INST_STALE_MS, K, appendCmds, audit, holdsLease, idCmp, idNext, nowTick, parseEntries, parseWorld, releaseLease, rosterOf,
+  CP_EVERY_MS, INST_STALE_MS, K, appendCmds, envNum, audit, holdsLease, idCmp, idNext, nowTick, parseEntries, parseWorld, releaseLease, rosterOf,
   storeCp, tryLease, type Clock, type Cmd, type CpBlob, type CpMeta, type Entry, type RosterEntry, type World,
 } from './world.js';
 
 const FLUSH_SOLO_MS = 2000, FLUSH_MULTI_MS = 400;
 const BEAT_SOLO_MS = 5000, BEAT_MULTI_MS = 5000;
-const POLL_FAST_MS = 700, POLL_SLOW_MS = 3000, FOREIGN_HOT_MS = 10_000;
+/** Log polling while another instance is live (VY_POLL_MS raises the fast one to save Redis commands). */
+const POLL_FAST_MS = envNum('VY_POLL_MS', 700), POLL_SLOW_MS = Math.max(3000, POLL_FAST_MS), FOREIGN_HOT_MS = 10_000;
+/** An instance without the keeper looks for a lapsed lease this often (the lease itself lasts 60 s). */
+const KEEPER_CHECK_MS = 20_000;
 const STEP_MS = 100;
 const VOTE_MS = 1500;
 const ROSTER_MIN_MS = 500;
@@ -72,7 +76,7 @@ export class Hub {
   private cursor: string | null = null;
   private multi = false;
   private hotUntil = 0;
-  private lastBeat = 0; private lastFlush = 0; private lastPoll = 0;
+  private lastBeat = 0; private lastFlush = 0; private lastPoll = 0; private keeperCheckAt = 0;
   private beatSoon = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private busy = false;
@@ -451,8 +455,8 @@ export class Hub {
       : [['HSET', K.w, 'alive', now, 'i:' + this.inst, JSON.stringify({ at: now, ros: this.localRoster() })], ['HGETALL', K.w]];
     const poll = !gone && !!this.cursor && this.multi;
     if (poll) cmds.push(['XRANGE', K.log, idNext(this.cursor!), '+', 'COUNT', 500]);
-    const needKeeper = !gone && this.hasReady() && ![...this.conns].some(c => c.keeper);
-    if (needKeeper) cmds.push(['GET', K.keeper]);
+    const needKeeper = !gone && this.hasReady() && ![...this.conns].some(c => c.keeper) && Date.now() - this.keeperCheckAt >= KEEPER_CHECK_MS;
+    if (needKeeper) { cmds.push(['GET', K.keeper]); this.keeperCheckAt = Date.now(); }
     this.beatSoon = false;
     this.lastBeat = gone ? 0 : Date.now();
     const res = await r.pipe(cmds);

@@ -21,7 +21,7 @@ export const K = {
   fail: (ip: string) => 'vy:fail:' + ip,
 };
 
-const envNum = (name: string, def: number) => { const v = Number(process.env[name]); return Number.isFinite(v) && v > 0 ? v : def; };
+export const envNum = (name: string, def: number) => { const v = Number(process.env[name]); return Number.isFinite(v) && v > 0 ? v : def; };
 
 export const TICK_MS = 100;
 /** Nobody connected for this long: the world sleeps; the next joiner continues from the checkpoint. */

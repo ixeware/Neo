@@ -107,7 +107,33 @@ players appear within one heartbeat (≤ 5 s).
 
 ## Cost (Hobby + Upstash free plan), ~6 friends, ~2 h a day
 
-COST_TABLE
+Measured with `tools/vbcost.ts` against the devserver with production timings: 6 clients (3 per side),
+~25 commands a minute in total plus presence changes, a checkpoint every 15 s. "Month" = 30 evenings × 2 h.
+
+| | one function instance (the usual case) | two instances (sockets split) |
+| --- | --- | --- |
+| Redis commands / min | 65 (XADD 25, HSET 16, HGETALL 12, checkpoint 12) | TWO_PER_MIN |
+| per evening (2 h) | 7.8k | TWO_EVENING |
+| per month | **233k** | **TWO_MONTH** |
+| Redis traffic / month | 0.17 GB | TWO_GB |
+| hub CPU (wall-time upper bound) | ONE_CPU | TWO_CPU |
+
+* **Upstash free plan** (500k commands a month as of 2025, 256 MB): one instance uses under half of it.
+  Two instances for every evening of a month would go over it; pay-as-you-go is $0.20 per 100k commands,
+  so the worst case is TWO_DOLLARS a month. Nobody connected → 0 commands (no timers run without sockets).
+  The menu costs 1 command per page load (`/api/players`) plus at most one PING per 15 s per instance
+  (`/api/health`). A client on the HTTP fallback (WebSocket blocked) costs ~4 commands per poll, one poll a
+  second (~240 a minute) — only for that browser, only while WebSockets fail. The checkpoint blob was
+  7 KB (gzip + base64) 3 minutes into a war; it grows with the number of units and is capped at 256 KB.
+* **Vercel Hobby** (included per month as of 2025: 1M function invocations, 4 h Active CPU, 360 GB-h
+  provisioned memory, 100 GB fast data transfer; check Settings → Usage):
+  * invocations: a socket is one invocation and reconnects at most every 300 s → 6 × 24 per evening
+    ≈ 4.3k a month, plus `/api/health` and `/api/players` per page load: well under 1 %.
+  * Active CPU: only while code runs (WebSocket waits are free): ONE_CPU_MONTH a month measured (upper bound).
+  * provisioned memory is the tightest: Hobby functions have 2 GB, billed for as long as an instance holds
+    sockets. One instance 2 h a day ≈ 4 GB-h a day ≈ **120 GB-h a month (⅓ of the 360)**; two instances
+    ≈ 240 GB-h. With one instance the free memory lasts ~6 h of play a day.
+  * data transfer: the page is one 1.65 MB file (710 KB gzip) per load; the socket traffic is a few KB a minute.
 
 ## Local testing
 

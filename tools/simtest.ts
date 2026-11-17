@@ -4,7 +4,7 @@
 // unit control (orders, possession, validation, flow-field cache, snapshots and rollback).
 // npx tsx tools/simtest.ts <minutes> <seed>
 import { loadTerrain, lcAt, navIndex, passable, LC } from '../src/world/terrain';
-import { Sim, hashState, PT_DONER, PT_PLACE0, PT_COUNT, OM, ORD_MAX, POSS_IDLE, ORD_IDLE, canControl, type Cmd, type State, type U } from '../src/sim/sim';
+import { Sim, hashState, PT_DONER, PT_PLACE0, PT_COUNT, OM, ORD_MAX, ORD_FLOWS, POSS_IDLE, ORD_IDLE, canControl, type Cmd, type State, type U } from '../src/sim/sim';
 import {
   UNITS, CARDS, SIDE_NAME, RIDE, GOLEM, CHICKEN, CHIMAEV, BEKHAN, WOU, ADMIN, ERSNO, ADAM, MOHMAD, GELIK, SPORTIK, BOSS,
   HERO, PLACE, BUFF, Fx, SHOP, unitName, cardText, type Card, type Side,
@@ -986,6 +986,21 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
   check('orders of a side with no human for 3 min go back to auto', held && w.o === undefined);
 }
 {
+  // a flood of destinations: 40 lone units sent to 40 different far spots — at most ORD_FLOWS flow
+  // fields per tick (picked from the state, the same on every client), each built once; all still walk
+  const s = ctlBox(), a = s.st.pts[0];
+  freeze(s, 1);
+  const us: U[] = [];
+  for (let i = 0; i < 40; i++) us.push(s.spawn(0, 1, a.x + 3 + (i % 8), a.z + 2 + Math.floor(i / 8), -1));
+  const p0 = us.map(u => ({ x: u.x, z: u.z }));
+  const b0 = s.flowBuilds;
+  stepC(s, ...us.map((u, i) => C(s, 'pa', { k: 'ord', s: 0, ids: [u.id], m: 'move', x: a.x + 30 + (i % 8) * 6, z: a.z + 20 + Math.floor(i / 8) * 6 })));
+  const cells = new Set(us.map(u => u.o?.c)).size, b1 = s.flowBuilds;
+  runN(s, 30);
+  const b2 = s.flowBuilds, walked = us.filter((u, i) => dist(u, p0[i].x, p0[i].z) > 2).length;
+  check(`a flood of ${cells} destinations: ≤ ${ORD_FLOWS} flow fields, built once, everyone walks`, cells > ORD_FLOWS && b1 - b0 <= ORD_FLOWS && b2 === b1 && walked === 40, `built ${b1 - b0} then ${b2 - b1}, walked ${walked}`);
+}
+{
   // random order / control streams for both sides on a live AI war: JSON and structuredClone
   // restores, the flow-field cache evicting all the time, and a Session with late commands
   // (rollback) — all the same world
@@ -1038,6 +1053,7 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
   // C: structuredClone restores, a flow cache of one field (evicts on every new destination)
   const Cs = new Sim(terrain); Cs.load(structuredClone(JSON.parse(json0)) as State); Cs.quiet = true; Cs.flowCap = 1;
   let okB = true, okC = true;
+  const tC = performance.now();
   for (let i = 0; i < 3000; i++) {
     B.step(net.get(B.st.tick)); Cs.step(structuredClone(ref.at.get(Cs.st.tick)));
     if (i % 100 === 99) {
@@ -1047,7 +1063,7 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
     }
   }
   check(`random ord / ctl streams (${ref.ords} ord, ${ref.ctls} ctl, ${withOrd} units under orders at the end): JSON restores, commands through JSON`, okB);
-  check('… structuredClone restores with a 1-field flow cache (eviction changes nothing)', okC);
+  check('… structuredClone restores with a 1-field flow cache (eviction changes nothing)', okC, `${A.flowBuilds} builds with the cache of ${A.flowCap}, ${Cs.flowBuilds} with 1; B+C ${(performance.now() - tC).toFixed(0)} ms`);
   // D: a Session — every other command arrives 1..25 ticks late and forces a rollback
   const D = new Sim(terrain); D.load(JSON.parse(json0) as State); D.quiet = true;
   const backend: Backend = { kind: 'local', send() { /* nobody else */ }, checkpoint() { /* not stored */ } };

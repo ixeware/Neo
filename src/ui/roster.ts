@@ -86,7 +86,11 @@ export class Roster {
     const sim = this.d.sim;
     const me = e.pid === this.d.pid();
     const ctl = me ? this.d.riding() : e.ctl ?? -1;
-    const u = ctl > 0 ? sim.unit(ctl) : undefined;
+    let u = ctl > 0 ? sim.unit(ctl) : undefined;
+    if (!me && !(u && u.o?.m === OM.POSSESS)) { // the sim's word beats a stale presence field
+      const n = sim.st.players[e.pid]?.n;
+      u = n === undefined ? undefined : sim.st.units.find(q => q.o?.m === OM.POSSESS && q.o.p === n && q.hp > 0);
+    }
     if (u && u.hp > 0 && u.o?.m === OM.POSSESS) return `ведёт: ${unitLabel(u.t, u.s as Side)}`;
     const sel = me ? this.d.selected() : e.sel ?? 0;
     if (sel > 0) return `выделил ${sel}`;
@@ -98,6 +102,15 @@ export class Roster {
     const me = this.d.pid(), sim = this.d.sim;
     const list = [...this.list];
     if (!list.some(e => e.pid === me)) list.unshift({ pid: me, name: this.d.nick(), side: this.d.playing() ? this.d.side() : -1, me: true });
+    // players the sim heard from in the last 2 minutes but the presence transport does not list (no names there)
+    const st = sim.st;
+    for (const pid of Object.keys(st.players)) {
+      const p = st.players[pid];
+      if (pid === me || list.some(e => e.pid === pid) || st.tick - Math.max(p.last, p.joined) > 1200) continue;
+      let ctl = 0;
+      for (const u of st.units) if (u.o && u.o.m === OM.POSSESS && u.o.p === p.n && u.hp > 0) { ctl = u.id; break; }
+      list.push({ pid, name: `Игрок ${p.n + 1}`, side: p.s, ...(ctl ? { ctl } : {}) });
+    }
     list.sort((a, b) => (a.pid === me ? -1 : b.pid === me ? 1 : 0) || a.side - b.side);
     const rows: string[] = [];
     const esc = (s: string) => s.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]!));

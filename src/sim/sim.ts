@@ -57,6 +57,13 @@ export const ORD_IDLE = 1800;
 const ORD_STUCK = 40;
 /** Formation spacing of a group move. */
 const ORD_SP = 1.2;
+/**
+ * At most this many distinct flow fields steer player orders in one tick (the first ones met in unit
+ * order; an order beyond them walks straight that tick). Equal to the default cache size, so a steady
+ * set of destinations is built once per client, and a flood of destinations costs at most this many
+ * builds per tick instead of one per unit.
+ */
+export const ORD_FLOWS = 24;
 /** Unit flags (U.f). */
 export const UF = { LAGMAN: 1, GONE: 2, UNLOADED: 4, FLEE: 8, ADM: 16 } as const; // ADM: removed by the admin (no bounty, no burst, no spill)
 export interface P {
@@ -260,7 +267,11 @@ export class Sim {
   private donerSpot: { x: number; z: number };
   /** Flow fields to the cells player orders go to: an LRU of at most flowCap, not part of the state (rebuilt identically anywhere). */
   private oflows = new Map<number, Flow>();
-  flowCap = 24;
+  flowCap = ORD_FLOWS;
+  /** The flow fields orders may use this tick (prepFlows): chosen from the state alone, so the cache never changes what a unit does. */
+  private tickFlow = new Map<number, Flow>();
+  /** Flow fields built so far (cache misses), for tests and the perf overlay; not state. */
+  flowBuilds = 0;
 
   constructor(public terrain: Terrain) {
     this.hw = Math.ceil(terrain.W / 4); this.hh = Math.ceil(terrain.H / 4);
@@ -726,9 +737,34 @@ export class Sim {
     if (f) { m.delete(cell); m.set(cell, f); return f; }
     const T = this.terrain, i = cell % T.nw, j = (cell - i) / T.nw;
     f = buildFlow(T, (i + 0.5) * NAV, (j + 0.5) * NAV, 0.5);
+    this.flowBuilds++;
     m.set(cell, f);
     while (m.size > Math.max(1, this.flowCap)) m.delete(m.keys().next().value as number);
     return f;
+  }
+
+  /** Nav cell in the middle of the 3×3-cell block around (x, z): the chase flow of an attack order (a moving target does not rebuild it every step). */
+  private blockCell(x: number, z: number): number {
+    const T = this.terrain, ci = Math.max(0, Math.min(T.nw - 1, Math.floor(x / NAV))), cj = Math.max(0, Math.min(T.nh - 1, Math.floor(z / NAV)));
+    return Math.min(T.nh - 1, cj - (cj % 3) + 1) * T.nw + Math.min(T.nw - 1, ci - (ci % 3) + 1);
+  }
+
+  /** Before the units move: the flow fields orders use this tick, at most ORD_FLOWS, picked from the state in unit order. */
+  private prepFlows() {
+    const tf = this.tickFlow;
+    tf.clear();
+    for (const u of this.st.units) {
+      const o = u.o;
+      if (!o || u.hp <= 0) continue;
+      let k = -1;
+      if ((o.m === OM.MOVE || o.m === OM.AMOVE) && o.c >= 0) k = o.c;
+      else if (o.m === OM.ATTACK) {
+        const t = this.byId.get(o.tg);
+        if (t && t.hp > 0 && (t.x - u.x) ** 2 + (t.z - u.z) ** 2 >= 100) k = this.blockCell(t.x, t.z);
+      }
+      if (k < 0 || tf.has(k) || tf.size >= ORD_FLOWS) continue;
+      tf.set(k, this.oflow(k));
+    }
   }
 
   private holdHere(u: U) { u.o = { m: OM.HOLD, x: u.x, z: u.z, c: -1, tg: -1, k: 0 }; }
@@ -785,10 +821,9 @@ export class Sim {
         if (!has) return;
         const dx = tx - u.x, dz = tz - u.z, d2 = dx * dx + dz * dz;
         if (d2 < 100) { const l = Math.sqrt(d2); if (l > 0.001) this.stepDir(u, dx / l, dz / l, S.spd); return; }
-        // far: the flow field to the target's 3×3-cell block (a moving target does not rebuild it every step)
-        const T = this.terrain, ci = Math.max(0, Math.min(T.nw - 1, Math.floor(tx / NAV))), cj = Math.max(0, Math.min(T.nh - 1, Math.floor(tz / NAV)));
-        const bi = Math.min(T.nw - 1, ci - (ci % 3) + 1), bj = Math.min(T.nh - 1, cj - (cj % 3) + 1);
-        if (flowDir(T, this.oflow(bj * T.nw + bi), u.x, u.z, this.tmp)) this.stepDir(u, this.tmp.x, this.tmp.z, S.spd);
+        // far: the flow field to the target's 3×3-cell block, when it is one of this tick's (prepFlows)
+        const f = this.tickFlow.get(this.blockCell(tx, tz));
+        if (f && flowDir(this.terrain, f, u.x, u.z, this.tmp)) this.stepDir(u, this.tmp.x, this.tmp.z, S.spd);
         else { const l = Math.sqrt(d2); this.stepDir(u, dx / l, dz / l, S.spd); }
         return;
       }
@@ -810,7 +845,7 @@ export class Sim {
     if (d2 < 0.36 || o.k > ORD_STUCK) { this.holdHere(u); return; }
     let dirx: number, dirz: number;
     if (d2 < 36) { const l = Math.sqrt(d2); dirx = dx / l; dirz = dz / l; }
-    else if (o.c >= 0 && flowDir(this.terrain, this.oflow(o.c), u.x, u.z, this.tmp)) { dirx = this.tmp.x; dirz = this.tmp.z; }
+    else if (o.c >= 0 && this.tickFlow.has(o.c) && flowDir(this.terrain, this.tickFlow.get(o.c)!, u.x, u.z, this.tmp)) { dirx = this.tmp.x; dirz = this.tmp.z; }
     else { const l = Math.sqrt(d2); dirx = dx / l; dirz = dz / l; }
     const x0 = u.x, z0 = u.z;
     this.stepDir(u, dirx, dirz, spd);
@@ -1467,6 +1502,7 @@ export class Sim {
     const st = this.st, us = st.units, now = st.tick;
     const sec = now % 10 === 0;
     const frz = st.adm ? st.adm.frz : null; // admin «заморозить»: neither move nor attack
+    this.prepFlows();
     for (let i = 0; i < us.length; i++) {
       const u = us[i];
       if (u.hp <= 0) continue;

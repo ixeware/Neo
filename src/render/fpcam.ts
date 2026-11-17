@@ -35,7 +35,7 @@ function patch(mat: THREE.Material) {
       'void main() {',
       '#ifdef NEAR_FADE',
       '{ float nfD = distance(vNfW, uNfPos);',
-      '  if (nfD < uNfR) { float nfA = smoothstep(uNfR * 0.3, uNfR, nfD);',
+      '  if (nfD < uNfR) { float nfA = smoothstep(uNfR * 0.55, uNfR, nfD);',
       '    float nfN = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));',
       '    if (nfA < nfN) discard; } }',
       '#endif',

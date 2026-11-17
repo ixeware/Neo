@@ -77,6 +77,8 @@
 @media (pointer: coarse) {
   .fp-stick, .fp-hit { display: block; }
   .fp-help { display: none; }
+  /* a phone has no room for the сход card in the eyes of a unit: it waits for «Выйти» (the feed still says a vote is on) */
+  #hud.fp .vote { display: none !important; }
 }
 /* riding: the RTS slips step aside */
 #hud.fp .deck, #hud.fp .bank, #hud.fp .mini, #hud.fp .toolbar, #hud.fp .hint, #hud.fp .cmdbar, #hud.fp .cardinfo, #hud.fp .roster { display: none !important; }
@@ -94,6 +96,7 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
   .cb-amove { order: 0; } .cb-hold { order: 1; } .cb-auto { order: 2; } .cb-all { order: 3; } .cb-fp { order: 4; } .cb-x { order: 5; min-width: 0; } .cb-g { order: 6; min-width: 0; }
   .roster { top: calc(var(--edge-t) + 112px); left: var(--edge-l); right: var(--edge-r); width: auto; }
   .fp-top { top: calc(var(--edge-t) + 64px); }
+  #hud.fp .feed { top: calc(var(--edge-t) + 134px); }
   .fp-name { font-size: 12.5px; }
   .lbl-drive { font-size: 16px; }
 }

@@ -1125,13 +1125,19 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
   (z.units[3] as unknown as Record<string, unknown>).o = { m: OM.POSSESS, x: 0, z: 0, c: -1, tg: -1, k: 0, p: 0, dx: 99, dz: 0, fx: 0, fz: 0, a: 0, at: 0 };
   const zz = new Sim(terrain); zz.load(z);
   check('junk orders in a save are dropped', !zz.st.units.some(u => u.o));
-  // a side nobody plays for 3 min goes back to auto
+  // shared war: a side nobody plays for 3 min goes back to auto
   const s = ctlBox(), w = s.spawn(0, 1, s.st.pts[0].x + 4, s.st.pts[0].z + 3, -1);
+  s.st.mp = 1;
   stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: [w.id], m: 'hold' }));
   runN(s, ORD_IDLE - 20);
   const held = w.o?.m === OM.HOLD;
   runN(s, 40);
-  check('orders of a side with no human for 3 min go back to auto', held && w.o === undefined);
+  check('shared war: orders of a side with no human for 3 min go back to auto', held && w.o === undefined);
+  // a local game (st.mp 0): the only player's orders stay however long they just watch
+  const l = ctlBox(), lw = l.spawn(0, 1, l.st.pts[0].x + 4, l.st.pts[0].z + 3, -1);
+  stepC(l, C(l, 'pa', { k: 'ord', s: 0, ids: [lw.id], m: 'hold' }));
+  runN(l, ORD_IDLE * 2);
+  check('local game: a hold order outlives ORD_IDLE ×2 without clicks', l.st.mp === 0 && lw.o?.m === OM.HOLD);
 }
 {
   // a flood of destinations: 40 lone units sent to 40 different far spots — at most ORD_FLOWS flow
@@ -1235,6 +1241,131 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
   check(`… a Session with half the commands late (${rolled} rollbacks, ${tail} at the very end): same world`, hashState(D.st) === hashState(A.st) && D.st.tick === A.st.tick, `${(performance.now() - t0D).toFixed(0)} ms`);
   check('… no NaN / null in the state', !JSON.stringify(A.st).includes('null'));
   console.log(`  stream run ${msA.toFixed(0)} ms for 3000 ticks (orders + flow fields included)`);
+}
+{
+  // 40 attackers, each chasing its own fast target across the map: the chase cell (Ord.c) follows the
+  // target only now and then, so the default cache builds few fields; a cache of ORD_FLOWS thrashes and a
+  // tiny one rebuilds all the time, and all of them make the same world
+  const chase = (cap: number, ticks: number) => {
+    const s = ctlBox(4), a = s.st.pts[0], k = s.st.pts[1];
+    s.flowCap = cap;
+    const att: U[] = [], tgt: U[] = [];
+    for (let i = 0; i < 40; i++) att.push(s.spawn(0, 1, a.x + 3 + (i % 8), a.z + 2 + Math.floor(i / 8), -1));
+    for (let i = 0; i < 40; i++) tgt.push(s.spawn(1, 3, k.x - 3 - (i % 8) * 1.5, k.z + Math.floor(i / 8) * 1.5, -1));
+    stepC(s, ...tgt.map((u, i) => C(s, 'pk', { k: 'ord', s: 1, ids: [u.id], m: 'move', x: 40 + (i % 8) * 20, z: 40 + Math.floor(i / 8) * 25 })),
+      ...att.map((u, i) => C(s, 'pa', { k: 'ord', s: 0, ids: [u.id], m: 'attack', tg: tgt[i].id })));
+    const b0 = s.flowBuilds, c0 = att.map(u => u.o!.c);
+    let picks = 0, worst = 0;
+    for (let i = 0; i < ticks; i++) {
+      const t0 = performance.now(); s.step(undefined); worst = Math.max(worst, performance.now() - t0);
+      att.forEach((u, j) => { if (u.o && u.o.c !== c0[j]) { picks++; c0[j] = u.o.c; } });
+    }
+    return { h: hashState(s.st), builds: s.flowBuilds - b0, picks, worst, chasing: att.filter(u => u.o?.m === OM.ATTACK).length };
+  };
+  const big = chase(ORD_FLOWS * 3, 300), mid = chase(ORD_FLOWS, 300), tiny = chase(3, 60), big60 = chase(ORD_FLOWS * 3, 60);
+  check(`40 chases on moving targets: ${big.builds} flow builds in 300 ticks with the default cache (${mid.builds} with ${ORD_FLOWS}), ${big.picks} chase-cell changes`,
+    big.builds < 150 && big.builds < mid.builds && big.picks < 40 * 300 / 10 && big.chasing === 40, `worst tick ${big.worst.toFixed(0)} ms`);
+  check('… the same world with a cache of ORD_FLOWS and of 3 fields (eviction changes nothing)', big.h === mid.h && tiny.h === big60.h);
+}
+{
+  // «buildings only» (Чимаев, UnitDef.bldg) keeps to it under orders: an attack order on a unit makes
+  // him attack-move to the enemy high-rise, and driven by a player he hits only the high-rise
+  const s = ctlBox(), a = s.st.pts[0];
+  freeze(s, 0);
+  const ch = s.spawn(1, CHIMAEV, a.x + 30, a.z + 4, -1), mate = s.spawn(1, 1, a.x + 31, a.z + 6, -1);
+  const vic = s.spawn(0, 1, ch.x - 1.2, ch.z, -1); vic.hp = vic.mhp = 1e6;
+  ch.ab = 1e6; // no «Землетряс» here: only his hits count
+  stepC(s, C(s, 'pk', { k: 'ord', s: 1, ids: [ch.id, mate.id], m: 'attack', tg: vic.id }));
+  check('Чимаев: an attack order on a unit = attack-move to the enemy high-rise (the others attack the unit)',
+    ch.o?.m === OM.AMOVE && dist(ch.o, a.x, a.z) < 6 && ch.o.c >= 0 && mate.o?.m === OM.ATTACK && mate.o.tg === vic.id && ch.tg !== vic.id);
+  stepC(s, C(s, 'pk', { k: 'ord', s: 1, ids: [mate.id], m: 'move', x: a.x + 60, z: a.z + 6 }));
+  const s2 = ctlBox(), a2 = s2.st.pts[0];
+  freeze(s2, 0);
+  const c2 = s2.spawn(1, CHIMAEV, a2.x + 30, a2.z + 4, -1), v2 = s2.spawn(0, 1, c2.x - 1.2, c2.z, -1);
+  v2.hp = v2.mhp = 1e6; c2.ab = 1e6;
+  c2.o = { m: OM.ATTACK, x: v2.x, z: v2.z, c: -1, tg: v2.id, k: 0 }; // as an older save may hold it
+  let unitTg = false;
+  for (let i = 0; i < 40; i++) { s2.step(undefined); if (c2.tg >= 0) unitTg = true; }
+  check('…an attack order on a unit from an older save turns into the run at the high-rise; the unit next to him is never hit',
+    c2.o?.m === OM.AMOVE && !unitTg && v2.hp === v2.mhp && dist(c2, a2.x, a2.z) < 30 - 3);
+  // possessed: the attack button next to an enemy unit does nothing, next to the high-rise it hits it
+  const s3 = ctlBox(), a3 = s3.st.pts[0];
+  freeze(s3, 0);
+  const c3 = s3.spawn(1, CHIMAEV, a3.x + 30, a3.z + 4, -1), v3 = s3.spawn(0, 1, c3.x - 1.2, c3.z, -1);
+  v3.hp = v3.mhp = 1e6; c3.ab = 1e6;
+  stepC(s3, C(s3, 'pk', { k: 'ctl', s: 1, u: c3.id, dx: 0, dz: 0, atk: 1 }));
+  runN(s3, 30);
+  const vOk = v3.hp === v3.mhp && c3.o?.m === OM.POSSESS;
+  const hq0 = s3.st.sides[0].hq;
+  c3.x = a3.x + HQ.radius[0] + 0.8; c3.z = a3.z;
+  runN(s3, 30);
+  check('…possessed Чимаев: the attack button skips units and hits the high-rise (×3)', vOk && s3.st.sides[0].hq < hq0 && (hq0 - s3.st.sides[0].hq) % (UNITS[CHIMAEV].dmg[1] * UNITS[CHIMAEV].bldg!) < 1e-6,
+    `unit ${v3.mhp - v3.hp}, high-rise −${hq0 - s3.st.sides[0].hq}`);
+}
+{
+  // taunts beat orders: Амин «Рейджбайт» pulls Атаги units under move / attack / attack-move / hold onto
+  // him (orders kept), the unit a player drives stays free, and after the taunt they carry on
+  const s = ctlBox(), a = s.st.pts[0];
+  freeze(s, 1); // Амин pulses only when we say so
+  const am = s.spawn(1, WOU, a.x + 22, a.z + 6, -1); am.hp = am.mhp = 1e6;
+  const far = s.spawn(1, 0, a.x + 62, a.z + 6, -1); far.hp = far.mhp = 1e6;
+  const mv = s.spawn(0, 1, am.x - 3, am.z - 2, -1), at = s.spawn(0, 1, am.x - 3, am.z, -1), amv = s.spawn(0, 1, am.x - 3, am.z + 2, -1);
+  const hd = s.spawn(0, 1, am.x - 4.5, am.z + 4, -1), pz = s.spawn(0, 1, am.x - 3, am.z - 4, -1);
+  stepC(s, C(s, 'pa', { k: 'ord', s: 0, ids: [mv.id], m: 'move', x: a.x - 6, z: a.z - 25 }), C(s, 'pa', { k: 'ord', s: 0, ids: [at.id], m: 'attack', tg: far.id }),
+    C(s, 'pa', { k: 'ord', s: 0, ids: [amv.id], m: 'attackMove', x: a.x - 6, z: a.z + 30 }), C(s, 'pa', { k: 'ord', s: 0, ids: [hd.id], m: 'hold' }),
+    C(s, 'pb', { k: 'ord', s: 0, ids: [pz.id], m: 'possessed' }));
+  const spot = { x: hd.o!.x, z: hd.o!.z }, pz0 = { x: pz.x, z: pz.z };
+  P(s).hash(); P(s).taunt(am);
+  const four = [mv, at, amv, hd];
+  runN(s, 3);
+  check('taunt vs orders: move / attack / attack-move / hold all go for Амин, orders kept; the possessed one stays free',
+    four.every(u => u.tg === am.id && u.tt > s.st.tick) && mv.o?.m === OM.MOVE && at.o?.m === OM.ATTACK && at.o.tg === far.id && amv.o?.m === OM.AMOVE && hd.o?.m === OM.HOLD
+    && pz.tg !== am.id && dist(pz, pz0.x, pz0.z) < 0.3, four.map(u => u.tg).join(' '));
+  const hits = four.map(() => 0), hd0 = dist(hd, am.x, am.z);
+  for (let i = 0; i < 25; i++) { s.step(undefined); four.forEach((u, j) => { if (u.cd === UNITS[1].cd && u.tg === am.id) hits[j]++; }); }
+  s.fx.length = 0;
+  check('…they go for him: move, attack and attack-move hit him, the holder walks off its spot towards him',
+    hits.slice(0, 3).every(h => h > 0) && dist(hd, am.x, am.z) < hd0 - 1 && am.mhp - am.hp >= 3 * UNITS[1].dmg[0], `hits ${hits.join(' ')}, holder ${hd0.toFixed(1)} → ${dist(hd, am.x, am.z).toFixed(1)}, Амин −${am.mhp - am.hp}`);
+  runN(s, HERO.tauntFor);
+  const d0 = dist(mv, mv.o!.x, mv.o!.z);
+  runN(s, 60);
+  check('…and once it wears off they carry on: move walks on, attack goes back to its target, hold returns to its spot',
+    mv.o?.m === OM.MOVE && mv.tg === -1 && dist(mv, mv.o.x, mv.o.z) < d0 - 5 && at.o?.m === OM.ATTACK && at.tg === far.id && hd.o?.m === OM.HOLD && dist(hd, spot.x, spot.z) < 1.5,
+    `move ${d0.toFixed(1)} → ${dist(mv, mv.o!.x, mv.o!.z).toFixed(1)}, hold ${dist(hd, spot.x, spot.z).toFixed(1)} from its spot`);
+  // Амина's aura (type 18, Атаги) on Курчалой units under orders
+  const k = ctlBox(), b = k.st.pts[4];
+  freeze(k, 0);
+  const ai = k.spawn(0, AMINA, b.x, b.z, -1); ai.hp = ai.mhp = 1e6;
+  const tg2 = k.spawn(0, 0, b.x + 40, b.z, -1);
+  const q1 = k.spawn(1, 1, b.x + 3, b.z, -1), q2 = k.spawn(1, 1, b.x + 3, b.z + 2, -1);
+  stepC(k, C(k, 'pk', { k: 'ord', s: 1, ids: [q1.id], m: 'move', x: b.x - 30, z: b.z }), C(k, 'pk', { k: 'ord', s: 1, ids: [q2.id], m: 'attack', tg: tg2.id }));
+  P(k).hash(); P(k).taunt(ai, false);
+  runN(k, 2);
+  check('Амина\'s taunt aura beats move and attack orders too', q1.tg === ai.id && q2.tg === ai.id && q1.o?.m === OM.MOVE && q2.o?.m === OM.ATTACK);
+}
+{
+  // «Креатин» gives Мохьмад (ersno, 420 hp) 525: a load (Session rollbacks are structuredClone + load) must keep it
+  const s = sandbox(), k = s.st.pts[1], cre = CARDS.find(c => c.fx === Fx.Creatine)!;
+  const e = s.spawn(1, ERSNO, k.x - 4, k.z, -1);
+  P(s).applyCard(1, cre, -1);
+  const B = new Sim(terrain); B.load(structuredClone(s.st)); B.quiet = true;
+  const J = new Sim(terrain); J.load(JSON.parse(JSON.stringify(s.st)) as State); J.quiet = true;
+  let same = hashState(B.st) === hashState(s.st) && hashState(J.st) === hashState(s.st);
+  const bm = B.unit(e.id)!.mhp;
+  s.quiet = true;
+  for (let i = 0; i < 200; i++) { s.step(undefined); B.step(undefined); J.step(undefined); }
+  same = same && hashState(B.st) === hashState(s.st) && hashState(J.st) === hashState(s.st);
+  check('«Креатин»\'d Мохьмад (525 hp): structuredClone / JSON loads keep him, same hash then and 200 ticks later', e.mhp === 525 && bm === 525 && same, `${e.mhp} → ${bm}`);
+  // a pre-v3 save (no U.fr) with the old 1100 hp tank ersno: rescaled to the 420 hp thief once, never again
+  const old = JSON.parse(JSON.stringify(s.st)) as State;
+  for (const u of old.units) delete (u as Partial<U>).fr;
+  const oe = old.units.find(u => u.id === e.id)!; oe.mhp = 1100; oe.hp = 800;
+  const M = new Sim(terrain); M.load(old);
+  const m1 = M.unit(e.id)!, ok1 = m1.mhp === UNITS[ERSNO].hp && m1.hp === Math.floor((800 * UNITS[ERSNO].hp) / 1100) && m1.fr === 0, first = `${m1.hp}/${m1.mhp}`;
+  P(M).applyCard(1, cre, -1);
+  const M2 = new Sim(terrain); M2.load(structuredClone(M.st));
+  check('pre-v3 tank ersno: rescaled to 420 on the first load only (a later «Креатин» 525 survives the next load)',
+    ok1 && M2.unit(e.id)!.mhp === 525 && hashState(M2.st) === hashState(M.st), `800/1100 → ${first}, then «Креатин» → ${M2.unit(e.id)!.mhp} after a load`);
 }
 const ctlFails = fails.slice(ctlFails0);
 console.log(ctlFails.length ? `unit control checks FAILED: ${ctlFails.join('; ')}` : 'unit control checks OK');

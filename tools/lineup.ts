@@ -468,7 +468,7 @@ if (view === 'all') {
     gz('ansar', -2.8, 0, {}, 0, true, 'Ансар · открыт');
     const shut = gz('ansar', 2.8, 0, {}, 0, true, 'Ансар · setClosed(true)');
     setLandmarkClosed(shut, true);
-    v4unit('ipit', 0, -1.6, 2.6, 0.5, false); unit(0, 1, 3.6, 2.4, -0.4, false); unit(1, 1, 2.2, 2.7, 0.2, false);
+    v4unit('ipit', 0, -1.6, 2.6, 0.5, false); unit(0, 1, 5.9, 2.0, -0.6, false); unit(1, 1, 6.7, 1.4, -0.3, false); // beside, not in front of the shut door
   } else if (k === 'pringles') {
     gz('pringles', -0.45, 0, { spicy: false }, 0.25, true, 'Принглс');
     gz('pringles', 0.45, 0, { spicy: true }, -0.25, true, 'Принглс · 18+');

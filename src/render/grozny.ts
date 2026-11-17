@@ -948,19 +948,20 @@ function shaiba(g: THREE.Group) {
 function ansar(g: THREE.Group, closed: boolean) {
   const white = col('#f0f0ec'), frame = col('#2b2f36'), green = col('#17a36b'), b = new Builder();
   const W = 3.8, D = 2.4, H1 = 1.05, H2 = 1.0, z0 = -0.4, front = z0 + D / 2;
+  // light-box sign, two rows (a one-row 8:1 sign loses the small line to mipmapping at any distance)
+  const SIGN_W = W - 0.5, SIGN_H = SIGN_W * 0.1875;
   b.box(K.pave, [0, 0.03, 0.35], [4.8, 0.06, 3.7]);
   b.box(frame, [0, H1 / 2, z0], [W, H1, D]);
   b.box(white, [0, H1 + H2 / 2, z0], [W, H2, D]);
   b.box(lift(white, 0.85), [0, H1 + H2 + 0.05, z0], [W + 0.08, 0.1, D + 0.08]);
   b.box(green, [-W / 2 + 0.12, (H1 + H2) / 2, front + 0.04], [0.24, H1 + H2, 0.1]);
   // второй этаж: лента окон
-  flat(b, K.winBlue, [0.15, H1 + 0.5, front], '+z', W - 0.7, 0.42, 0.003);
-  for (let k = 0; k < 5; k++) flat(b, white, [-1.4 + k * 0.78, H1 + 0.5, front], '+z', 0.05, 0.42, 0.006);
+  flat(b, K.winBlue, [0.15, H1 + 0.57, front], '+z', W - 0.7, 0.36, 0.003);
+  for (let k = 0; k < 5; k++) flat(b, white, [-1.4 + k * 0.78, H1 + 0.57, front], '+z', 0.05, 0.36, 0.006);
   for (const s of [-1, 1]) flat(b, K.winBlue, [(W / 2) * s, H1 + 0.5, z0], s > 0 ? '+x' : '-x', 1.6, 0.42, 0.003);
   flat(b, K.winBlue, [0, H1 + 0.5, z0 - D / 2], '-z', W - 0.6, 0.42, 0.003);
   // короб вывески
-  b.box(col('#3a3e45'), [0.12, H1 + 0.02, front + 0.06], [W - 0.4, 0.4, 0.1]);
-  for (const x of [-1.2, 0.0, 1.2]) b.box(K.chromeD, [x, H1 + 0.02, front + 0.115], [0.04, 0.04, 0.01]);
+  b.box(col('#3a3e45'), [0.12, H1 + 0.02, front + 0.06], [W - 0.4, SIGN_H + 0.04, 0.1]);
   // крыша: кондиционеры, антенна
   b.box(col('#d8d8d2'), [1.0, H1 + H2 + 0.24, z0 - 0.3], [0.5, 0.28, 0.4]);
   b.box(col('#d8d8d2'), [0.3, H1 + H2 + 0.2, z0 - 0.5], [0.4, 0.2, 0.3]);
@@ -976,28 +977,30 @@ function ansar(g: THREE.Group, closed: boolean) {
   const ob = new Builder();
   flat(ob, K.cool, [-0.25, 0.48, front], '+z', 2.4, 0.84, 0.004);
   for (const x of [-1.15, -0.55, 0.05, 0.65]) {
-    flat(ob, K.ink, [x, 0.42, front], '+z', 0.32, 0.22, 0.006);
-    flat(ob, x < 0 ? K.code : glow(0.5, 1.2, 2.2), [x, 0.42, front], '+z', 0.26, 0.16, 0.008);
+    flat(ob, K.ink, [x, 0.36, front], '+z', 0.32, 0.22, 0.006);
+    flat(ob, x < 0 ? K.code : glow(0.5, 1.2, 2.2), [x, 0.36, front], '+z', 0.26, 0.16, 0.008);
   }
   flat(ob, K.cool, [1.35, 0.46, front], '+z', 0.56, 0.84, 0.004);
   flat(ob, K.ink, [1.35, 0.46, front], '+z', 0.03, 0.84, 0.008);
   open.add(solid(ob.build()));
-  const signT = canvasTex(1024, 128, (c, w, h) => {
+  const signT = canvasTex(1024, 192, (c, w, h) => {
     c.fillStyle = '#ffffff'; c.fillRect(0, 0, w, h);
-    c.fillStyle = '#17a36b'; c.fillRect(14, 14, h - 28, h - 28);
-    c.strokeStyle = '#ffffff'; c.lineWidth = 9; c.lineCap = 'round'; c.lineJoin = 'round';
-    const m = h / 2;
-    c.beginPath(); c.moveTo(48, m - 22); c.lineTo(30, m); c.lineTo(48, m + 22); c.stroke();
-    c.beginPath(); c.moveTo(70, m + 26); c.lineTo(84, m - 26); c.stroke();
-    c.beginPath(); c.moveTo(97, m - 22); c.lineTo(115, m); c.lineTo(97, m + 22); c.stroke();
-    c.fillStyle = '#1b1d22'; c.textBaseline = 'middle'; c.textAlign = 'left';
-    fitFont(c, 'ANSAR', '900', DISPLAY, 82, 360); c.fillText('ANSAR', 150, m + 4);
-    c.fillStyle = '#c9cdd3'; c.fillRect(508, 26, 5, h - 52);
+    const q = h - 36;
+    c.fillStyle = '#17a36b'; c.fillRect(18, 18, q, q);
+    c.strokeStyle = '#ffffff'; c.lineWidth = 13; c.lineCap = 'round'; c.lineJoin = 'round';
+    const m = h / 2, cx = 18 + q / 2;
+    c.beginPath(); c.moveTo(cx - 28, m - 34); c.lineTo(cx - 56, m); c.lineTo(cx - 28, m + 34); c.stroke();
+    c.beginPath(); c.moveTo(cx - 10, m + 40); c.lineTo(cx + 10, m - 40); c.stroke();
+    c.beginPath(); c.moveTo(cx + 28, m - 34); c.lineTo(cx + 56, m); c.lineTo(cx + 28, m + 34); c.stroke();
+    c.textBaseline = 'middle'; c.textAlign = 'left';
+    const x0 = 18 + q + 30, maxW = w - x0 - 24;
+    c.fillStyle = '#1b1d22';
+    fitFont(c, 'ANSAR', '900', DISPLAY, 104, maxW); c.fillText('ANSAR', x0, 66);
     c.fillStyle = '#0c6a44';
-    fitFont(c, 'школа программирования', '800', TEXT, 50, 480); c.fillText('школа программирования', 530, m + 2);
+    fitFont(c, 'школа программирования', '800', TEXT, 56, maxW); c.fillText('школа программирования', x0 + 2, 150);
   });
-  const signM = addSign(open, signT, W - 0.5, (W - 0.5) / 8, [0.12, H1 + 0.02, front + 0.115]);
-  addSign(open, signTex('НАБОР ОТКРЫТ', { bg: '#17a36b', fg: '#ffffff', sub: 'с нуля до джуна', subFg: '#e6fff3' }, 256, 128), 0.6, 0.3, [-1.1, 0.72, front + 0.012]);
+  const signM = addSign(open, signT, SIGN_W, SIGN_H, [0.12, H1 + 0.02, front + 0.115]);
+  addSign(open, signTex('НАБОР ОТКРЫТ', { bg: '#17a36b', fg: '#ffffff', sub: 'с нуля до джуна', subFg: '#e6fff3' }, 256, 128), 0.5, 0.25, [-0.85, 0.62, front + 0.012]);
   // closed: dark glass, tape across, «ЗАКРЫТО», the sign taken down and leaning on the wall
   const cb = new Builder();
   flat(cb, col('#232b33'), [-0.25, 0.48, front], '+z', 2.4, 0.84, 0.004);
@@ -1008,13 +1011,16 @@ function ansar(g: THREE.Group, closed: boolean) {
   }
   shut.add(solid(cb.build()));
   addSign(shut, signTex('ЗАКРЫТО', { bg: '#ffffff', fg: '#c8261c', border: '#c8261c' }, 256, 96), 0.5, 0.19, [1.35, 0.62, front + 0.07]);
-  const fallen = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.5, (W - 0.5) / 8), (signM.material as THREE.MeshBasicMaterial).clone());
-  fallen.position.set(2.15, 0.2, front - 0.3);
+  // a paper «ЗАКРЫТО» taped over the empty light box: reads from the game camera
+  const paper = addSign(shut, signTex('ЗАКРЫТО', { bg: '#f4f1e8', fg: '#c8261c', border: '#c8261c', sub: 'подписка отменена', subFg: '#3a3e45' }, 512, 160), SIGN_W * 0.66, SIGN_W * 0.66 * 160 / 512, [0.05, H1 + 0.02, front + 0.116]);
+  paper.rotation.z = -0.035;
+  const fallen = new THREE.Mesh(new THREE.PlaneGeometry(SIGN_W, SIGN_H), (signM.material as THREE.MeshBasicMaterial).clone());
+  fallen.position.set(2.15, 0.25, front - 0.3);
   fallen.rotation.set(-0.1, -HALF_PI + 0.15, 0.08);
   fallen.scale.setScalar(0.62);
   shut.add(fallen);
-  const back = new THREE.Mesh(new THREE.BoxGeometry((W - 0.5) * 0.62, ((W - 0.5) / 8) * 0.62, 0.04), new THREE.MeshLambertMaterial({ color: '#3a3e45' }));
-  back.position.set(2.17, 0.2, front - 0.3);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(SIGN_W * 0.62, SIGN_H * 0.62, 0.04), new THREE.MeshLambertMaterial({ color: '#3a3e45' }));
+  back.position.set(2.17, 0.25, front - 0.3);
   back.rotation.copy(fallen.rotation);
   back.translateZ(-0.025);
   shut.add(back);

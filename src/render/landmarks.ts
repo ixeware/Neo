@@ -10,6 +10,7 @@
 import { BRIDGES, LC, heightM, lcAt, passable, type Terrain } from '../world/terrain';
 import { TERRAIN_META } from '../data/terrain';
 import { PLACES, CAPTURE_PLACES, type PlaceKind } from '../data/places';
+import { roadClearance, RC } from './roads';
 
 export interface LmSpot {
   /** PLACES id or CAPTURE_PLACES key */
@@ -112,6 +113,7 @@ function okSpot(t: Terrain | null, x: number, z: number, r: number, keep: Circle
   if (x < r + 1 || z < r + 1 || x > TERRAIN_META.gw - r - 1 || z > TERRAIN_META.gh - r - 1) return false;
   for (const k of keep) if ((k.x - x) ** 2 + (k.z - z) ** 2 < (k.r + r) ** 2) return false;
   for (const b of BRIDGES) if (segDist(x, z, b.x0, b.z0, b.x1, b.z1) < r + 1.1) return false;
+  if (roadClearance(x, z, (1 << RC.MAIN) | (1 << RC.ROAD) | (1 << RC.RAIL)) < r * 0.8) return false; // not on a main road
   if (!t) return true;
   let lo = Infinity, hi = -Infinity;
   for (const [ox, oz] of [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1], [0, 1], [0, -1], [1, 0], [-1, 0]]) {

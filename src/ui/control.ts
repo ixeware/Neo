@@ -134,6 +134,10 @@ export class Control {
   }
   /** The unit under a screen point: own (controllable) or enemy, closest relative to its size. */
   pickAt(x: number, y: number, touch: boolean, want: 'own' | 'enemy'): U | null {
+    return this.pickScored(x, y, touch, want)?.u ?? null;
+  }
+  /** pickAt with its score (distance over picking radius, 0 = dead centre, < 1 = a hit). */
+  private pickScored(x: number, y: number, touch: boolean, want: 'own' | 'enemy'): { u: U; s: number } | null {
     let best: U | null = null, bs = 1;
     const side = this.d.side();
     for (const u of this.d.sim.st.units) {
@@ -144,7 +148,7 @@ export class Control {
       const s = Math.hypot(x - p.x, y - p.y) / p.r;
       if (s < bs) { bs = s; best = u; }
     }
-    return best;
+    return best ? { u: best, s: bs } : null;
   }
 
   // ---- selection ------------------------------------------------------------------------------
@@ -243,8 +247,12 @@ export class Control {
   tap(x: number, y: number, m: InputMods): boolean {
     if (!this.d.playing()) return false;
     const now = m.at && m.at > 0 ? m.at : performance.now();
-    const own = this.pickAt(x, y, m.touch, 'own');
-    const foe = own ? null : this.pickAt(x, y, m.touch, 'enemy');
+    // own unit or enemy under the finger: with a selection the enemy wins unless an own unit is clearly closer
+    // (fat touch radii: our fighters standing on the target must not steal the tap that orders the attack)
+    const po = this.pickScored(x, y, m.touch, 'own'), pf = this.pickScored(x, y, m.touch, 'enemy');
+    const foeFirst = !!pf && (!po || (this.sel.size > 0 || this.amove) && pf.s <= po.s * 1.25 + 0.05);
+    const own = foeFirst ? null : po?.u ?? null;
+    const foe = own ? null : pf?.u ?? null;
     if (this.amove) {
       if (foe) this.issue('attack', undefined, undefined, foe.id);
       else { const p = this.d.stage.pick(x, y); if (p) this.issue('attackMove', p.x, p.z); }

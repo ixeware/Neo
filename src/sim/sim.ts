@@ -15,7 +15,7 @@ import { CAPTURE_PLACES } from '../data/places';
 import { BUILDINGS, BKEY } from './bdefs';
 import {
   newBIdx, bldReindex, bldApply, bldStep, bldCleanup, bldIncome, bldPick, bldFront, bldMove, attackBld, bldProj, bldAoe, bldAi, bldAdmin,
-  bldWarEnd, bldNewWar, bldEff, bldSafe, bldMark, ordBld, canBuild, canUp, canSell, canRep, canFire, bcost, buildZone, baseLevel, bldCaps,
+  bldWarEnd, bldNewWar, bldEff, bldSafe, bldMark, ordBld, canBuild, canBuildType, canUp, canSell, canRep, canFire, bcost, buildZone, baseLevel, bldCaps,
   bldOn, bldAt, type B, type BIdx,
 } from './bld';
 export type { B } from './bld';
@@ -1098,6 +1098,8 @@ export class Sim {
   // ---- base buildings: queries for the UI, the AI and tests (src/sim/bld.ts; all pure) -----------------
   /** null when side s may build type t at (x, z) now, else a clean Russian reason. Never writes: call it every frame for the ghost. */
   canBuild(s: Side, t: number, x: number, z: number, pl?: Player): string | null { return canBuild(this, s, t, x, z, pl); }
+  /** The same without a spot: may side s build type t at all now (tier, caps, money, cooldown)? For the build menu. */
+  canBuildType(s: Side, t: number, pl?: Player): string | null { return canBuildType(this, s, t, pl); }
   canUp(s: Side, id: number, pl?: Player): string | null { return canUp(this, s, id, pl); }
   canSell(s: Side, id: number, pl?: Player): string | null { return canSell(this, s, id, pl); }
   canRep(s: Side, id: number, pl?: Player): string | null { return canRep(this, s, id, pl); }

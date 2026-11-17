@@ -234,16 +234,15 @@ function groundWhy(T: Terrain, c: number): string | null {
 }
 
 /**
- * May side s build type t at (x, z) right now? null = yes, else a clean Russian reason. A pure query: the
- * command, the AI and the placement ghost call it (every frame), so it never writes and never draws a
- * random number. pl: the placing player (its build cooldown).
+ * May side s build type t at all right now, wherever it puts it (the build menu: grey cards and why)? Pure.
+ * The checks of canBuild that do not depend on the spot: type, war over, the player's cooldown, tier, caps, money.
  */
-export function canBuild(sim: Sim, s: Side, t: number, x: number, z: number, pl?: Player): string | null {
-  const h = H(sim), st = h.st, T = h.terrain, bi = h.bi;
+export function canBuildType(sim: Sim, s: Side, t: number, pl?: Player): string | null {
+  const h = H(sim), st = h.st, bi = h.bi;
   if (!isInt(t, 0, NB - 1) || (s !== 0 && s !== 1)) return 'Нет такой постройки';
   if (st.winner !== -1) return 'Жди следующую войну';
   if (pl && pl.bc !== undefined && pl.bc > st.tick) return 'Не так быстро';
-  const d = BUILDINGS[t], bl = baseLevel(sim, s), sd = st.sides[s];
+  const d = BUILDINGS[t], bl = baseLevel(sim, s);
   if (d.tier > bl) return bl === 0 ? 'Сначала поставь Прорабскую' : `Нужна Прорабская ${d.tier}-го уровня`;
   const walls = bi.ty[s][T_ZABOR].length;
   if (d.cap === 0) { if (walls >= BASE.walls[bl]) return 'Забора хватит: подними Прорабскую'; }
@@ -251,7 +250,20 @@ export function canBuild(sim: Sim, s: Side, t: number, x: number, z: number, pl?
     if (bi.ty[s][t].length >= d.cap) return 'Больше таких нельзя';
     if (bi.side[s].length - walls >= BASE.caps[bl]) return 'База застроена: подними Прорабскую';
   }
-  if (sd.money < bcost(sim, s, t, 1)) return 'Голда не на балике';
+  if (st.sides[s].money < bcost(sim, s, t, 1)) return 'Голда не на балике';
+  return null;
+}
+
+/**
+ * May side s build type t at (x, z) right now? null = yes, else a clean Russian reason. A pure query: the
+ * command, the AI and the placement ghost call it (every frame), so it never writes and never draws a
+ * random number. pl: the placing player (its build cooldown).
+ */
+export function canBuild(sim: Sim, s: Side, t: number, x: number, z: number, pl?: Player): string | null {
+  const h = H(sim), st = h.st, T = h.terrain, bi = h.bi;
+  const tw = canBuildType(sim, s, t, pl);
+  if (tw) return tw;
+  const d = BUILDINGS[t], bl = baseLevel(sim, s);
   if (!isNum(x) || !isNum(z) || x < 1 || z < T.z0 + 1 || x > T.W - 1 || z > T.H - 1) return 'Тут не построишь';
   const c = navIndex(T, x, z), cx = cellX(T, c), cz = cellZ(T, c);
   const p = st.pts[s], dx = cx - p.x, dz = cz - p.z, d2 = dx * dx + dz * dz, zr = BASE.zone + BASE.zoneStep * bl, keep = HQ.radius[s] + BASE.keep;
@@ -928,13 +940,15 @@ function spots(sim: Sim, s: Side): number[] {
 function aiSpot(sim: Sim, s: Side, t: number, skip: number): number {
   const h = H(sim), T = h.terrain, p = h.st.pts[s], d = BUILDINGS[t], list = spots(sim, s);
   const zr = BASE.zone + BASE.zoneStep * baseLevel(sim, s), keep = HQ.radius[s] + BASE.keep;
-  const back = d.fam === 'eco' || d.fam === 'sup' || d.fam === 'super';
+  // the generator and the relay stand among the towers they serve; the rest of the tech and the economy hide behind the high-rise
+  const back = d.fam === 'eco' || d.fam === 'super' || (d.fam === 'sup' && t !== T_GEN && t !== T_VYSHKA);
   const lo = d.fam === 'trap' ? 10 : d.fam === 'wall' ? 11 : back ? keep + 0.5 : 6.5;
   const hi = d.fam === 'trap' ? zr : d.fam === 'wall' ? 13.5 : back ? 12 : 11.5;
   for (let k = 0; k < list.length; k++) {
     const c = list[back ? list.length - 1 - k : k], x = cellX(T, c), z = cellZ(T, c), dx = x - p.x, dz = z - p.z, d2 = dx * dx + dz * dz;
     if (d2 < lo * lo || d2 > hi * hi) continue;
     if (canBuild(sim, s, t, x, z) !== null) continue;
+    if (t === T_TESLA && !H(sim).bi.ty[s][T_GEN].some(g => (g.x - x) * (g.x - x) + (g.z - z) * (g.z - z) <= BASE.genR * BASE.genR)) continue; // within its generator's reach
     if (skip-- > 0) continue;
     return c;
   }
@@ -951,7 +965,8 @@ export function bldAi(sim: Sim, s: Side): void {
   const h = H(sim), st = h.st, sd = st.sides[s], now = st.tick, bi = h.bi;
   if (now < sd.aiB) return;
   sd.aiB = now + BASE.aiEvery + rint(st, BASE.aiJit);
-  const bank = sd.money - BASE.aiReserve;
+  // the reserve: a unit's price stays in the bank, and so does what the AI is saving for a hero or a ride (Sim.ai: aiWant)
+  const bank = sd.money - BASE.aiReserve - (sd.aiWant >= 0 && now < sd.aiWantUntil ? sim.cost(s, sd.aiWant) : 0);
   if (bank <= 0) return;
   const mine = bi.side[s], ty = bi.ty[s], T = h.terrain;
   // a charged «Арбузомёт»: at the enemy closest to our high-rise, else at theirs

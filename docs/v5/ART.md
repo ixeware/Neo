@@ -1,8 +1,9 @@
 # ВЫСОТКА v5 — art guide and contract for the new graphics style
 
-Status: **v2 — the foundation is in the code** (`src/render/style.ts`, `src/render/toon/*`), the numbers
-below are measured. This is the contract: three art tracks build on it at the same time and must not step
-on each other.
+Status: **final for the foundation track** — the style system is in the code (`src/render/style.ts`,
+`src/render/toon/*`), the numbers below are measured (§6, §10) and classic is proven unchanged (§11). This
+is the contract: three art tracks (ART-GROUND, ART-ARCH, ART-CHARS) build on it at the same time and must
+not step on each other; their files and task lists are in §9.
 
 The user picks the look in the menu: «Графика: Новая / Старая». `toon` is the new default, `classic` is
 the game exactly as it was before v5. **Classic must never change**: every hook you add is behind
@@ -429,9 +430,9 @@ jitter), `terrainMesh.ts` (`ground(native(…))`, the toon water), `roads.ts` (`
 
 | Track | May edit (existing) | Creates (new) |
 |---|---|---|
-| **Ground and nature** | `src/render/lowpoly.ts`, `terrainMesh.ts`, `trees.ts`, `roads.ts`; and by agreement the foundation's `toon/land.ts` and `toon/water.ts` (land palette values, water look) | `src/render/toon/ground/**` (field details, river banks, rocks, plants, animals, birds, road furniture) |
-| **Architecture and base buildings** | `src/render/world.ts`, `city.ts`, `grozny.ts`, `decor.ts`, `landmarks.ts`, `placeMarks.ts` | `src/render/toon/arch/**` (house kits, fences, village props, mosques, high-rises, city blocks, landmarks), `src/render/toon/base/**` (player-built buildings: geometry per kind and level, construction and damage states, a `BaseView` class the integrator wires to the sim) |
-| **Characters and vehicles** | `src/render/models.ts`, `heroes.ts`, `girls.ts`, `props.ts`, `units.ts`, `fx.ts`, `abilityFx.ts`, `src/ui/portraits.ts` | `src/render/toon/chars/**` (unit, hero, boss and vehicle rebuilds, projectiles, civilian cars and people for the richness recipe) |
+| **Ground and nature** (ART-GROUND) | `src/render/lowpoly.ts`, `terrainMesh.ts`, `trees.ts`, `roads.ts`; and by agreement the foundation's `toon/land.ts` and `toon/water.ts` (land palette values, water look) | `src/render/toon/ground/**` (field details, river banks, rocks, plants, animals, birds, road furniture) |
+| **Architecture and base buildings** (ART-ARCH) | `src/render/world.ts`, `city.ts`, `grozny.ts`, `decor.ts`, `landmarks.ts`, `placeMarks.ts` | `src/render/toon/arch/**` (house kits, fences, village props, mosques, high-rises, city blocks, landmarks), `src/render/toon/base/**` (player-built buildings: geometry per kind and level, construction and damage states, a `BaseView` class the integrator wires to the sim) |
+| **Characters and vehicles** (ART-CHARS) | `src/render/models.ts`, `heroes.ts`, `girls.ts`, `props.ts`, `units.ts`, `fx.ts`, `abilityFx.ts`, `src/ui/portraits.ts` | `src/render/toon/chars/**` (unit, hero, boss and vehicle rebuilds, projectiles, civilian cars and people for the richness recipe) |
 
 Cross-file facts to respect:
 - `models.ts` also holds the house kit and façade textures, `props.ts` the 2GIS landmark models,
@@ -446,7 +447,7 @@ Cross-file facts to respect:
 
 ### Task lists (priority order) and deliverables
 
-**Ground and nature**
+**Ground and nature (ART-GROUND)**
 1. Land palette tuned on real views; field patches with borders and furrows; rock faces.
 2. River: banks, gravel, boulders, reeds, bridges' surroundings; water glint tuning with the foundation hook.
 3. Trees: round and cone kits (near and far), fruit trees in villages, bushes, poplar rows on main roads.
@@ -457,7 +458,7 @@ Screenshots (desktop and `?lq`, toon, and one classic to show it is unchanged): 
 field close-up (dist 25), the river at a bridge (dist 30), the foothills south of Шали (dist 90), a road
 crossing (dist 20), the whole map.
 
-**Architecture and base buildings**
+**Architecture and base buildings (ART-ARCH)**
 1. Village house kits (3 sizes × 3 roofs, fence + gate), instanced, with a far kit; village props.
 2. Base buildings: the five families × three levels, construction and damage states, `BaseView`.
 3. The two high-rises (floors must still collapse one by one), mosques (Шали, brick, Ottoman).
@@ -468,7 +469,7 @@ Screenshots: a village street (dist 14 and 38), Атаги and Курчалой 
 mosque, Грозный centre (dist 38 and 90), a sheet of all base buildings (families × levels × both teams,
 plus construction and damage), `tools/lineup.html?view=bld` in both styles.
 
-**Characters and vehicles**
+**Characters and vehicles (ART-CHARS)**
 1. Crowd units 0–4 and 17 for both sides, then bosses (Ислам, Зураб).
 2. Heroes 6–11 and 18, summons (Голем, chickens), then rides and Гелик, Камри, the ram.
 3. Projectiles and ability props (Себозол, гантели, the pack) in palette colours.
@@ -479,3 +480,100 @@ Screenshots: `tools/lineup.html?view=all`, `view=heroes`, `view=game` in both st
 
 Each track also reports `renderer.info` (draw calls, triangles) for its views on both tiers against the
 budget in §6, and the size of `dist/index.html`.
+
+## 10. How the look was decided (measured)
+
+**Shading.** Tuned Lambert against a stepped ramp, both on the old flat-shaded, vertex-coloured, merged
+and instanced geometry (nothing in the scene needs smooth normals). The ramp wins for free: every face
+has one normal, so a ramp costs two `smoothstep`s per pixel and turns the noisy facets of the plain into
+flat fields while the foothills fall into clean bands. It is applied by patching three's Lambert / Phong
+light chunks once, so merged meshes, `InstancedMesh` with instance colours, textured façades and the
+terrain all change together and no builder was touched. Colour: ACES tone mapping was what made the old
+palette muddy; the toon output is a straight sRGB curve with a soft shoulder.
+
+**Outlines.** Three options were compared on the same build, the same views and the same 96 units
+(`…/ART-FOUND/meas/`; draw calls and triangles are exact, whole frames with the shadow pass):
+
+**Desktop 1440×900, shadows on** — views: Атаги overview / close fight / Грозный overview / whole map
+
+| Option | Draw calls | Triangles |
+|---|---|---|
+| Classic (no outlines) | 347 / 223 / 230 / 558 | 460k / 357k / 613k / 444k |
+| Toon shading only, `?ol=off` | 347 / 223 / 230 / 558 | 460k / 357k / 613k / 444k |
+| Depth pass, `lite` (6 fetches) | 348 / 224 / 231 / 559 | 460k / 357k / 613k / 444k |
+| Depth pass, `full` (10 fetches) | 348 / 224 / 231 / 559 | 460k / 357k / 613k / 444k |
+| Inverted hull on every lit mesh, `?ol=hull` | 483 / 306 / 320 / 996 | 612k / 454k / 819k / 757k |
+
+**Phone tier 390×844, `?lq`** — views: Атаги overview / close fight / Грозный overview / whole map
+
+| Option | Draw calls | Triangles |
+|---|---|---|
+| Classic (no outlines) | 152 / 91 / 105 / 186 | 236k / 230k / 324k / 221k |
+| Toon shading only, `?ol=off` | 152 / 91 / 105 / 186 | 236k / 230k / 324k / 221k |
+| Depth pass, `lite` (6 fetches) | 153 / 92 / 106 / 187 | 236k / 230k / 324k / 221k |
+| Depth pass, `full` (10 fetches) | 153 / 92 / 106 / 187 | 236k / 230k / 324k / 221k |
+| Inverted hull on every lit mesh, `?ol=hull` | 254 / 162 / 183 / 349 | 314k / 303k / 491k / 316k |
+
+
+Frame time: the cost of the pass itself, measured inside one page by switching the mode every few
+frames so machine load cancels out (best of 3 rounds, three views summed; software GL, where a frame
+takes 0.2–0.7 s, so only the ratios mean anything — a real GPU pays far less for a full-screen pass than
+for the scene, and the governor covers the devices where that is not true):
+
+| Tier | `off` | `lite` | `full` |
+|---|---|---|---|
+| Desktop 1440×900 | 1.000 | 1.057 | 1.077 |
+| Phone tier 390×844 | 1.000 | 1.084 | 1.095 |
+
+- **Inverted hull** (a back-face copy of every lit mesh pushed out by 1.3 px along smoothed normals, the
+  instanced ones sharing their instance matrices): on the phone tier draw calls go up by 67–88% and
+  triangles by 31–51% (desktop +37–78% and +27–70%; less in relative terms only because the shadow pass
+  is not hulled). That is far over the 1.3× draw-call budget, and the Грозный overview alone reaches 491k
+  triangles before any new art. And it still inks only silhouettes: no line where a roof meets its wall,
+  none between touching units of one mesh, and open kits (house walls without caps, roofs without a
+  bottom) get half a line — compare `meas/desktop_hull/desktop_fight.png` with
+  `meas/desktop_full/desktop_fight.png`. It also needs a welded-normal copy of every geometry
+  (flat-shaded models tear at each edge otherwise). Rejected; the code stays as `?ol=hull` so the
+  comparison can be repeated.
+- **Post-process on depth** (chosen): one extra draw call and one triangle whatever is on screen. The
+  Laplacian of the raw depth buffer is zero on any flat face and non-zero at silhouettes and creases, so
+  depth alone gives both — no normal or id pass, so the scene is still drawn once. The alpha channel of
+  the colour target carries the «no ink» mask (terrain, roads, water), and transparent effects blend it
+  up, which hides the lines behind smoke and sprites. It looks like the reference: one even dark line.
+  The colour target is plain RGBA8 holding display-ready colour (the materials write the toon curve and
+  sRGB themselves), so the composite is a copy plus the line; desktop renders it with 4× MSAA.
+- **Dark trims baked into geometry**: free at run time, but it only exists on models rebuilt for it, it
+  cannot outline a silhouette against the ground, and thin trim quads shimmer at distance. Not a global
+  answer; it is the right **supplement** for the weak tier, which is why §3 asks for plinth strips and
+  colour contrast between neighbouring parts.
+
+**Tiers.** Desktop: `full` (10 texture reads per pixel, line on both sides of an edge). Phone tier:
+`lite` (6 reads, mask from the centre pixel: a slightly thinner line). Weak devices: a governor watches
+the frame time and steps `full → lite → off` when the average stays above 40 ms; `off` draws straight to
+the canvas with no extra pass, so the cost over classic is the ramp alone.
+
+**Sun shadows** stay desktop-only as in classic (they double the draw calls: 152 → 347 in the Атаги
+overview). The phone tier gets the cool shade of the ramp, cloud shadows and fake ground shadows.
+
+## 11. Classic stays classic: how it is checked
+
+`…/scratchpad/v5/ART-FOUND/` holds the harness (not in the repo; the scripts are short):
+
+- `cap.cjs <out> desktop|phone "<query>"` drives the game with a fake clock (frames advance only when the
+  script steps them), a seeded `Math.random` and fonts blocked, spawns the same two armies, pauses the
+  sim and dumps the canvas at 10 fixed cameras, with `renderer.info` per frame. Two runs of the base
+  commit are pixel-identical, so any difference is a real one.
+- `lineup.cjs <out> "<query>"` dumps `tools/lineup.html` views (all, heroes, bld, decor, v4units, v4bld,
+  city, lm, game, skyline).
+- `cmp.cjs <a> <b>` compares two folders pixel by pixel.
+
+- `portraits.cjs <url> <out.json>` collects the 28 portrait images (`src/ui/portraits.ts`) the menu and the
+  deck show, as data URLs.
+- `switch.cjs desktop|phone <out>` clicks through «Графика: Новая → Старая → Новая» inside a running war
+  and checks that the style, the saved preference and the war (the tick keeps counting, units alive)
+  survive each reload, and that `?gfx=` overrides the saved choice.
+
+Result on the final code of this branch: every desktop view (10), every phone view (10) and every lineup
+view (10) rendered with `?gfx=classic` is **identical** to the base commit (`4b8c2dc`) — 0 pixels differ
+in 30 images — and the 28 portraits are byte-identical. Re-run it after merging the art tracks: a hook
+that is not behind `TOON` shows up here at once.

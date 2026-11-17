@@ -199,7 +199,7 @@ export class Labels {
     this.updateLandmarks(d);
     if (this.edge) {
       const dp = st.pts.find(q => q.kind === 2), there = !!dp && (dp.x - this.edge.x) ** 2 + (dp.z - this.edge.z) ** 2 < 9;
-      const e = this.edge, p = this.project(e.x, e.y, e.z), on = p.vis && d > 28 && d < 230 && !there;
+      const e = this.edge, p = this.project(e.x, e.y, e.z), on = p.vis && d < 230 && !there;
       if (!on) { if (e.el.style.display !== 'none') e.el.style.display = 'none'; }
       else { e.el.style.display = ''; e.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`; }
     }

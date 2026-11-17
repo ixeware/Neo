@@ -543,7 +543,10 @@ export function buildCityLandmarks(t: Terrain, make: { doner(): { group: THREE.G
   return { group, signs, tris, doner };
 }
 
-/** Map tags of the city landmarks (labels.ts shows them up close): name, position, height of the model. */
+/**
+ * Map tags of the city landmarks (labels.ts shows them up close): name, position, height of the model.
+ * Донер Бей has none: its address label (labels.ts) is its tag.
+ */
 export function cityTags(t: Terrain): { name: string; x: number; z: number; y: number; real: boolean }[] {
-  return CITY_SITES.map(s => ({ name: s.name, x: s.x, z: s.z, y: heightY(t, s.x, s.z) + siteHeight(s) + 0.45, real: !s.key.startsWith('stop') }));
+  return CITY_SITES.filter(s => s.key !== 'doner').map(s => ({ name: s.name, x: s.x, z: s.z, y: heightY(t, s.x, s.z) + siteHeight(s) + 0.45, real: !s.key.startsWith('stop') }));
 }

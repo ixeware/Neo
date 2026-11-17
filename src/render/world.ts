@@ -181,7 +181,7 @@ export function keepOut(t: Terrain, pts: Pt[]): KeepOut[] {
 }
 
 /** Oriented house footprints placed so far (1-unit spatial hash from z0), for the overlap test. */
-export class Lots {
+class Lots {
   private x: number[] = []; private z: number[] = []; private c: number[] = []; private s: number[] = [];
   private hx: number[] = []; private hz: number[] = []; private next: number[] = [];
   private head: Int32Array;

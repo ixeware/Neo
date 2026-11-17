@@ -93,6 +93,10 @@ export const BASE = {
   stick: 1.5,
   /** «Buildings only» units (UnitDef.bldg) and structure-busting pulses multiply damage against buildings by min(their factor, this); the high-rise takes the full factor. */
   bldgVs: 3,
+  /** «Buildings only» units look for buildings this much further than their aggro radius. */
+  bldgSeek: 4,
+  /** Units whose shots splash (the boss aside) hit a building this much harder: the blast has nobody else to spread over. */
+  splashVs: 3,
   /** «Бараний загон»: +zagonStep ₽/s every zagonEvery ticks without a hit, from zagonBase. */
   zagonBase: 0.5, zagonStep: 0.5, zagonEvery: 300,
   /** Superweapons: charge time in ticks; the wave's trigger; the strike's flight time and its factor against buildings and the high-rise. */

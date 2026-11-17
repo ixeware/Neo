@@ -538,6 +538,20 @@ export function baseChecks(ctx: BaseCtx): void {
     runN(s, 60);
     const dmg = 1e6 - larek.hp, per = UNITS[CHIMAEV].dmg[1] * Math.min(UNITS[CHIMAEV].bldg!, BASE.bldgVs);
     check('Чимаев prefers a building to the high-rise, never the unit next to him, and hits it ×bldg', ch.tg === -10 - larek.id && vic.hp === vic.mhp && dmg > 0 && Math.abs(dmg / per - Math.round(dmg / per)) < 1e-9, `−${dmg} = ${dmg / per} hits of ${per}`);
+    // a splash shooter (Курчалой's ranged) lands its whole blast on the building; a plain shooter hits as usual
+    const blast = (side: Side) => {
+      const z = box(), e = (1 - side) as Side;
+      freeze(z, e);
+      const lk = give(z, e, 'larek', q.x, q.z);
+      lk.hp = lk.mhp = 1e6;
+      const sh = dummy(z, side, 2, q.x - 7, q.z);
+      runN(z, 90);
+      return { d: 1e6 - lk.hp, on: sh.tg === -10 - lk.id };
+    };
+    const b1 = blast(1), b0 = blast(0), per1 = UNITS[2].dmg[1] * BASE.splashVs, per0 = UNITS[2].dmg[0];
+    const whole = (v: number) => v > 0 && Math.abs(v - Math.round(v)) < 1e-9;
+    check('a unit whose shots splash hits a building ×BASE.splashVs (Курчалой\'s ranged: about what Атаги\'s does), a plain shooter ×1',
+      b1.on && b0.on && UNITS[2].splash![1] > 0 && !UNITS[2].splash![0] && whole(b1.d / per1) && whole(b0.d / per0) && BASE.splashVs > 1, `${b1.d / per1} hits of ${per1} / ${b0.d / per0} hits of ${per0}`);
     // «Землетряс» shakes buildings too
     const hp0 = larek.hp;
     s.st.aoe.push({ s: 1, x: q.x + 1, z: q.z, r: 5, dmg: 40, hq: 3, at: s.st.tick, n: 1, every: 0, k: 'quake' });

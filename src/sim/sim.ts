@@ -1717,7 +1717,7 @@ export class Sim {
       if (u.o) this.ordTarget(u, u.o, S);
       else if (d.bldg) { // хог райдер: только здания
         const e = st.pts[1 - u.s], dx = e.x - u.x, dz = e.z - u.z, r = d.aggro + HQ.radius[1 - u.s] + 3;
-        u.tg = bldPick(this, u, d.aggro + 4, S.range, dx * dx + dz * dz <= r * r ? -2 : -1); // buildings first, then the high-rise
+        u.tg = bldPick(this, u, d.aggro + BASE.bldgSeek, S.range, dx * dx + dz * dz <= r * r ? -2 : -1); // buildings first, then the high-rise
       } else {
         const tgU = u.tg >= 0 ? this.byId.get(u.tg) : undefined;
         if ((u.tg >= 0 && (!tgU || tgU.hp <= 0)) || (now + u.id) % 4 === 0) this.acquire(u, d.aggro);

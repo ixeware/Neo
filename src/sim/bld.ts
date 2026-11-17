@@ -552,6 +552,7 @@ export function attackBld(sim: Sim, u: U, b: B, dmg: number, cd: number): void {
   u.cd = cd;
   if (d.noFight) return;
   if (d.bldg) dmg *= Math.min(d.bldg, BASE.bldgVs);
+  if (d.splash && d.splash[u.s] > 0 && u.t !== BOSS) dmg *= BASE.splashVs; // a blast spends itself on the one thing it hit
   if (d.proj && !(u.t === BOSS && u.s === 1)) {
     const dx = b.x - u.x, dz = b.z - u.z, l = Math.sqrt(dx * dx + dz * dz);
     const at = st.tick + Math.max(1, Math.ceil(l / d.proj));

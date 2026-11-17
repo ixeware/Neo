@@ -123,26 +123,31 @@ players appear within one heartbeat (≤ 5 s).
 Measured with `tools/vbcost.ts` against the devserver with production timings: 6 clients (3 per side),
 ~25 commands a minute in total plus presence changes, a checkpoint every 15 s. "Month" = 30 evenings × 2 h.
 
-| | one function instance (the usual case) | two instances (sockets split) |
-| --- | --- | --- |
-| Redis commands / min | 65 (XADD 25, HSET 16, HGETALL 12, checkpoint 12) | TWO_PER_MIN |
-| per evening (2 h) | 7.8k | TWO_EVENING |
-| per month | **233k** | **TWO_MONTH** |
-| Redis traffic / month | 0.17 GB | TWO_GB |
-| hub CPU (wall-time upper bound) | ONE_CPU | TWO_CPU |
+| | one function instance (the usual case) | two instances (sockets split), default | two instances, `VY_POLL_MS=1500` |
+| --- | --- | --- | --- |
+| Redis commands / min | 65 (XADD 25, HSET 16, HGETALL 12, checkpoint 12) | 275 (XRANGE polls 177) | P15_PER_MIN |
+| per evening (2 h) | 7.9k | 33k | P15_EVENING |
+| per month | **236k** | **990k** | **P15_MONTH** |
+| Redis traffic / month | 0.17 GB | 0.32 GB | ≈ 0.3 GB |
+| hub CPU (wall time, upper bound) | 0.03 s/min → 0.03 h/month | 0.06 s/min → 0.06 h/month | same |
 
 * **Upstash free plan** (500k commands a month as of 2025, 256 MB): one instance uses under half of it.
-  Two instances for every evening of a month would go over it; pay-as-you-go is $0.20 per 100k commands,
-  so the worst case is TWO_DOLLARS a month. Nobody connected → 0 commands (no timers run without sockets).
+  If Vercel puts the sockets on two instances every evening of the month, the default polling would go
+  over it (~1M); either set `VY_POLL_MS=1500` (cross-instance commands then arrive ~1 s later and roll
+  back a bit more) or switch the database to pay-as-you-go ($0.20 per 100k commands as of 2025: about
+  $2 a month in that worst case). When a free database runs out, the shared war stops answering and the
+  menu says it is unavailable; single player keeps working. Nobody connected → 0 commands (no timers
+  run without sockets).
   The menu costs 1 command per page load (`/api/players`) plus at most one PING per 15 s per instance
   (`/api/health`). A client on the HTTP fallback (WebSocket blocked) costs ~4 commands per poll, one poll a
   second (~240 a minute) — only for that browser, only while WebSockets fail. The checkpoint blob was
-  7 KB (gzip + base64) 3 minutes into a war; it grows with the number of units and is capped at 256 KB.
+  7–9 KB (gzip + base64) 2–3 minutes into a war; it grows with the number of units and is capped at 256 KB.
 * **Vercel Hobby** (included per month as of 2025: 1M function invocations, 4 h Active CPU, 360 GB-h
   provisioned memory, 100 GB fast data transfer; check Settings → Usage):
   * invocations: a socket is one invocation and reconnects at most every 300 s → 6 × 24 per evening
     ≈ 4.3k a month, plus `/api/health` and `/api/players` per page load: well under 1 %.
-  * Active CPU: only while code runs (WebSocket waits are free): ONE_CPU_MONTH a month measured (upper bound).
+  * Active CPU: only while code runs (WebSocket waits are free): the hubs measured 0.03–0.06 s a minute
+    (0.05–0.1 % of a core) → under 0.1 h of the 4 h a month.
   * provisioned memory is the tightest: Hobby functions have 2 GB, billed for as long as an instance holds
     sockets. One instance 2 h a day ≈ 4 GB-h a day ≈ **120 GB-h a month (⅓ of the 360)**; two instances
     ≈ 240 GB-h. With one instance the free memory lasts ~6 h of play a day.

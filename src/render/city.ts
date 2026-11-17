@@ -12,7 +12,7 @@ import { LC, BRIDGES, heightY, passable, lcAt, type Terrain } from '../world/ter
 import { roadNet, roadClearance, ROAD_HALF, RC, ALL_MASK, type KeepOut } from './roads';
 import { hash2 } from './lowpoly';
 import { cityBlock, cityBlockFootprint, cityBlockHeight, groznyLandmark, GROZNY_FOOTPRINT, type GroznyKey } from './grozny';
-import { CITY_POINTS, CITY_DECOR } from '../data/season';
+import { CITY_POINTS } from '../data/season';
 
 // ---- the city area ----------------------------------------------------------------------------------
 /** Centre and half-axes of the city fill (central Grozny; the map's west edge cuts the rest). */
@@ -547,6 +547,3 @@ export function buildCityLandmarks(t: Terrain, make: { doner(): { group: THREE.G
 export function cityTags(t: Terrain): { name: string; x: number; z: number; y: number; real: boolean }[] {
   return CITY_SITES.map(s => ({ name: s.name, x: s.x, z: s.z, y: heightY(t, s.x, s.z) + siteHeight(s) + 0.45, real: !s.key.startsWith('stop') }));
 }
-
-/** CITY_DECOR keys this module draws (so a data check can tell a missing one). */
-export const CITY_DECOR_KEYS = CITY_DECOR.map(d => d.key);

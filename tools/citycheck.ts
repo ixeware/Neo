@@ -204,6 +204,20 @@ console.log(`nav: ${t.nw}×${t.nh} cells of ${NAV}, north edge z0 ${t.z0}`);
   for (let i = 0; i < 600; i++) sim.step(undefined);
   console.log(`  sim: on auto it walks from z ${z0.toFixed(1)} to ${u.z.toFixed(1)}`);
   if (!(u.z > z0 + 10)) bad('a unit in the city band does not find its way south');
+  // a pre-v4 save: a move order's nav cell counted from z = 0 (18 rows short); load() re-anchors it, and
+  // leaves a current order alone
+  const v = sim.spawn(0, 0, 120, 150, -1);
+  sim.step([C({ k: 'ord', s: 0, ids: [v.id], m: 'move', x: 130, z: 160 })]);
+  const cNow = v.o!.c, old = JSON.parse(JSON.stringify(st));
+  const ov = old.units.find((q: { id: number }) => q.id === v.id);
+  ov.o.c = cNow - (-t.z0 / NAV) * t.nw;
+  const cOld = ov.o.c;
+  const re = new Sim(t); re.load(old);
+  const rv = re.st.units.find(q => q.id === v.id)!;
+  const cur = new Sim(t); cur.load(JSON.parse(JSON.stringify(st)));
+  const cv = cur.st.units.find(q => q.id === v.id)!;
+  console.log(`  sim: a pre-v4 order cell ${cOld} loads as ${rv.o?.c} (now ${cNow}); a current one stays ${cv.o?.c}`);
+  if (rv.o?.c !== cNow || cv.o?.c !== cNow) bad('old order cells are not re-anchored on load (or current ones move)');
   // two enemies in the band see each other (the spatial hash covers z < 0)
   const a = sim.spawn(0, 0, 30, -30, -1), e = sim.spawn(1, 0, 31, -30, -1);
   const hp0 = a.hp + e.hp;

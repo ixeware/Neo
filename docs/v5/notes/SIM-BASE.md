@@ -56,6 +56,12 @@ Nothing.
 - Towers sleep while no enemy unit is within `BASE.reach` of the box around the side's buildings; `Sim.moveTo`
   asks buildings only within `BASE.near` of the enemy's box (both are pure speed-ups: 13–14 k ticks/s).
 
+## Checked in the real page
+`npx vite --port 5271`, `?lq`, a local game as Атаги: `session.submit({ k: 'bld', s: 0, op: 'put', b: 0, x, z })`
+builds a Рогатка owned by the player, the AI then builds for the idle human side and for the enemy, 3600
+ticks at ×8 with no page errors. Buildings are not drawn yet (the renderer is another track): the old
+renderer ignores `st.bld`, draws shots of unknown looks as look 0 and skips `bld` / `bhit` / `zap` events.
+
 ## How to verify
 `npx tsc --noEmit; npx tsc --noEmit -p api; npx tsx tools/simtest.ts 3 7; npx tsx tools/cleanscan.ts;
 node tools/gen-admcheck.mjs --check; npx vite build; npx tsx tools/symtest.ts asym 45 16;

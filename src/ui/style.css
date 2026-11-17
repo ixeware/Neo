@@ -257,7 +257,8 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .tb svg { width: 20px; height: 20px; }
 .tb.off { opacity: .55; }
 
-.banner { position: absolute; left: 50%; top: 28%; transform: translate(-50%, -50%) rotate(-3deg); pointer-events: none; text-align: center; display: grid; gap: 6px; justify-items: center; }
+/* a click-through announcement; as wide as the screen allows (left: 50% alone would cap it at half the screen) */
+.banner { position: absolute; left: 50%; top: 30%; width: max-content; max-width: min(640px, calc(100vw - var(--edge-l) - var(--edge-r) - 16px)); transform: translate(-50%, -50%) rotate(-3deg); pointer-events: none; text-align: center; display: grid; gap: 6px; justify-items: center; }
 .banner .big { font-family: var(--f-display); font-weight: 900; font-size: clamp(22px, 4.4vw, 40px); line-height: 1.05; text-transform: uppercase; padding: 8px 16px 10px; color: #fff; box-shadow: 4px 4px 0 rgba(0,0,0,.35); }
 .banner .big.s0 { background: var(--pen-a); } .banner .big.s1 { background: var(--pen-k); } .banner .big.n { background: var(--graphite); }
 .banner .small { font-family: var(--f-hand); font-size: clamp(22px, 3vw, 30px); color: #fff; text-shadow: 0 1px 3px #000, 0 0 10px rgba(0,0,0,.6); }
@@ -456,11 +457,12 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .center[data-nb="2"] .evchip { top: 110px; }
   /* the сход sheet is open: the world-event sticker makes room */
   #hud:has(> .vote:not([hidden])) .evchip { display: none; }
+  /* banners: in the open band between the toolbar and the bottom cluster */
+  .banner { top: calc((var(--edge-t) + 124px + 100% - var(--edge-b) - var(--stack)) / 2); }
 }
 /* short phones upright (iPhone SE, 390 × 664): a сход leaves the chat its last line, and the sheet drops its extras */
 @media (max-width: 760px) and (min-height: 501px) and (max-height: 700px) {
-  .vote .lead { display: none; }
-  .vote:not(.done) .who { display: none; }
+  .vote .lead, .vote .who { display: none; } /* the result sheet too: stamp only, the banner carries the quote */
   #hud:has(> .vote:not([hidden])) .feed .msg:nth-last-child(n+2) { display: none; }
 }
 /* the narrowest phones: slimmer tabs and minimap, so the minimap still clears the tabs */

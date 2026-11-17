@@ -65,7 +65,7 @@ export function placeholder(key: string, lv: number, side: Side): { geo: THREE.B
     case 'kamera': { bx(dark, 0, 0.12, 0, 0.8, 0.24, 0.8); bx(T.main, 0, 0.3, 0, 0.6, 0.12, 0.6); cy(C.metalDark, 0, 1.2, 0, 0.16, 2, 0.16); bx(C.white, 0, 2.3, 0.2, 0.42, 0.32, 0.8); bx(C.glass, 0, 2.3, 0.62, 0.26, 0.22, 0.06); bx(C.metalDark, 0, 2.5, 0.25, 0.5, 0.06, 0.95); ic(C.danger, 0.15, 2.42, 0.6, 0.08); studY = 0.2; break; }
     case 'kuryatnik': { for (const x of [-0.6, 0.6]) for (const z of [-0.5, 0.5]) bx(C.woodDark, x, 0.25, z, 0.12, 0.5, 0.12); bx(body, 0, 0.95, 0, 1.5, 0.9, 1.3); bx(T.main, -0.42, 1.62, 0, 1, 0.1, 1.5, 0, 0, 0.5); bx(T.main, 0.42, 1.62, 0, 1, 0.1, 1.5, 0, 0, -0.5); bx(C.ink, 0, 0.9, 0.66, 0.36, 0.42, 0.04); bx(C.woodDark, 0, 0.3, 1, 0.32, 0.06, 0.9, 0.55); ic(C.white, 0.5, 2, 0, 0.34); bx(C.danger, 0.5, 2.2, 0.05, 0.08, 0.12, 0.14); studZ = 0.67; studY = 1.25; break; }
     case 'bukva_n': { const y = tower(1.6, 0.66); bx(C.magic, -0.32, y + 0.55, 0, 0.18, 1.1, 0.18); bx(C.magic, 0.32, y + 0.55, 0, 0.18, 1.1, 0.18); bx(C.magic, 0, y + 0.55, 0, 0.6, 0.18, 0.18); break; }
-    case 'zabor': { const h = 0.8 + lv * 0.15, c = [C.fence[0], C.wall[2], C.concrete][lv - 1]; bx(dark, 0, h / 2 + 0.1, 0, 0.36, h + 0.2, 0.36); bx(c, 0, h / 2, 0, 2, h, 0.2); studZ = 0.2; studY = 0.3; break; }
+    case 'zabor': { const h = 0.8 + lv * 0.15, c = [C.fence[2], C.wall[3], C.concrete][lv - 1]; bx(T.main, 0, h / 2 + 0.1, 0, 0.36, h + 0.2, 0.36); bx(c, 0, h / 2, 0, 2, h, 0.2); studZ = 0.2; studY = 0.3; break; }
     case 'shlagbaum': { bx(T.main, -0.75, 0.07, 0, 0.5, 0.14, 0.5); bx(C.metalDark, -0.75, 0.6, 0, 0.3, 1.1, 0.3); bx(C.metalDark, 0.85, 0.4, 0, 0.14, 0.8, 0.14); for (let i = 0; i < 5; i++) bx(i % 2 ? C.danger : C.white, -0.6 + i * 0.36, 0.95, 0, 0.36, 0.12, 0.12); bx(dark, -1.05, 0.95, 0, 0.3, 0.26, 0.26); studZ = 0.16; studY = 0.5; break; }
     case 'grabli': { bx(C.earth[1], 0, 0.03, 0, 1.3, 0.06, 1.3); bx(C.wood, 0, 0.1, 0.1, 0.08, 0.08, 1.2); bx(C.metalDark, 0, 0.1, -0.5, 0.7, 0.08, 0.1); for (let i = 0; i < 4; i++) bx(C.danger, -0.27 + i * 0.18, 0.18, -0.5, 0.06, 0.14, 0.06); studZ = 0.6; studY = 0.08; break; }
     case 'yama': { cy(C.ink, 0, 0.03, 0, 1.6, 0.06, 1.6); bx(C.woodDark, 0, 0.09, 0, 1.7, 0.06, 0.1, 0, 0.5); bx(C.woodDark, 0, 0.11, 0, 1.6, 0.06, 0.1, 0, -0.7); bx(C.leaf[0], 0.3, 0.14, 0.2, 0.5, 0.06, 0.4, 0, 0.3); bx(C.gold, -0.4, 0.14, -0.3, 0.2, 0.06, 0.2); studZ = 0.8; studY = 0.08; break; }
@@ -253,7 +253,7 @@ export class BaseView {
   }
 
   private buildWalls(walls: B[], tick: number) {
-    const cols = [C.fence[0], C.wall[2], C.concrete], dark = [C.woodDark, C.concrete, C.metal];
+    const cols = [C.fence[2], C.wall[3], C.concrete]; // sheet metal → brick → concrete: neutral, the posts carry the team colour
     let np = 0, na = 0;
     const isWall = (x: number, z: number, s: Side) => { const o = this.sim.bldAt(x, z); return !!o && o.s === s && !!BUILDINGS[o.t].line && bldVisible(o, this.side); };
     for (const b of walls) {
@@ -262,7 +262,7 @@ export class BaseView {
       const y = this.y(b.x, b.z);
       this.m4.compose(this.v.set(b.x, y, b.z), this.q.identity(), this.s.set(1, hh + 0.2, 1));
       this.posts.setMatrixAt(np, this.m4);
-      this.posts.setColorAt(np++, this.col.copy(dark[lv - 1]).lerp(TEAM[b.s].main, 0.35));
+      this.posts.setColorAt(np++, TEAM[b.s].main);
       const C2 = BASE.cell;
       let any = 0;
       const arm = (dx: number, dz: number) => {

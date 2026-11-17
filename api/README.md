@@ -125,17 +125,18 @@ Measured with `tools/vbcost.ts` against the devserver with production timings: 6
 
 | | one function instance (the usual case) | two instances (sockets split), default | two instances, `VY_POLL_MS=1500` |
 | --- | --- | --- | --- |
-| Redis commands / min | 65 (XADD 25, HSET 16, HGETALL 12, checkpoint 12) | 275 (XRANGE polls 177) | P15_PER_MIN |
-| per evening (2 h) | 7.9k | 33k | P15_EVENING |
-| per month | **236k** | **990k** | **P15_MONTH** |
+| Redis commands / min | 65 (XADD 25, HSET 16, HGETALL 12, checkpoint 12) | 275 (XRANGE polls 177) | 184 (XRANGE 89) |
+| per evening (2 h) | 7.9k | 33k | 22k |
+| per month | **236k** | **990k** | **660k** |
 | Redis traffic / month | 0.17 GB | 0.32 GB | ≈ 0.3 GB |
 | hub CPU (wall time, upper bound) | 0.03 s/min → 0.03 h/month | 0.06 s/min → 0.06 h/month | same |
 
 * **Upstash free plan** (500k commands a month as of 2025, 256 MB): one instance uses under half of it.
-  If Vercel puts the sockets on two instances every evening of the month, the default polling would go
-  over it (~1M); either set `VY_POLL_MS=1500` (cross-instance commands then arrive ~1 s later and roll
-  back a bit more) or switch the database to pay-as-you-go ($0.20 per 100k commands as of 2025: about
-  $2 a month in that worst case). When a free database runs out, the shared war stops answering and the
+  If Vercel splits the sockets over two instances every evening of the month, it goes over: ~1M at the
+  default polling, ~660k with `VY_POLL_MS=1500`, ~500k with `VY_POLL_MS=3000` (commands from the other
+  instance then arrive up to ~3 s late and roll back that much on screen). Splits are usually partial,
+  so the real number lies between the columns; if the free quota still runs out, switch the database to
+  pay-as-you-go ($0.20 per 100k commands as of 2025: about $1–2 a month in the worst case). When a free database runs out, the shared war stops answering and the
   menu says it is unavailable; single player keeps working. Nobody connected → 0 commands (no timers
   run without sockets).
   The menu costs 1 command per page load (`/api/players`) plus at most one PING per 15 s per instance

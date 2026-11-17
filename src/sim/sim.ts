@@ -760,7 +760,8 @@ export class Sim {
       if ((o.m === OM.MOVE || o.m === OM.AMOVE) && o.c >= 0) k = o.c;
       else if (o.m === OM.ATTACK) {
         const t = this.byId.get(o.tg);
-        if (t && t.hp > 0 && (t.x - u.x) ** 2 + (t.z - u.z) ** 2 >= 100) k = this.blockCell(t.x, t.z);
+        const dx = t ? t.x - u.x : 0, dz = t ? t.z - u.z : 0;
+        if (t && t.hp > 0 && dx * dx + dz * dz >= 100) k = this.blockCell(t.x, t.z);
       }
       if (k < 0 || tf.has(k) || tf.size >= ORD_FLOWS) continue;
       tf.set(k, this.oflow(k));

@@ -122,6 +122,9 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
   .roster { top: calc(var(--edge-t) + 54px); left: calc(var(--edge-l) + 180px); max-height: calc(100vh - 80px); }
   .ro-list { max-height: calc(100vh - 170px); }
   .fp-top { top: calc(var(--edge-t) + 54px); }
+  /* riding sideways: the chat keeps to the left of the name card, last message only (the joystick is below) */
+  #hud.fp .feed { width: min(230px, 30vw); }
+  #hud.fp .feed .msg:nth-last-child(n+2) { display: none; }
   .fp-stick { width: 116px; height: 116px; bottom: calc(var(--edge-b) + 12px); }
   .fp-hit { width: 92px; height: 92px; bottom: calc(var(--edge-b) + 16px); }
 }

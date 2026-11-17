@@ -114,8 +114,11 @@ COST_TABLE
 ```
 npm run build && npx tsx tools/devserver.mjs --test --instances 2      # http://127.0.0.1:5243
 npx tsx tools/vbtest.ts 5243 20       # multi-client test (two instances, ≥ 20 checkpoints, attacks, wake)
-npx tsx tools/vbcost.ts 5243 150 1    # Redis commands per minute with production settings
+npx tsx tools/vbcost.ts 5243 150 1    # Redis commands per minute with production settings (1 or 2 instances)
 node tools/gen-admcheck.mjs --check   # the bundled admin validator matches src/sim/admin.ts
+# the real page in Chromium (Playwright on NODE_PATH): menu, nickname, two browsers, admin panel login
+npx tsx tools/devserver.mjs --test --instances 2 --cp-every 3000 &  node tools/vbbrowser.cjs 1 5243
+npx tsx tools/devserver.mjs --no-redis &  node tools/vbbrowser.cjs 2 5243   # menu: shared war unavailable
 ```
 
 The devserver serves `dist/` and mounts the same handlers with an in-memory Redis (`tools/memredis.ts`,

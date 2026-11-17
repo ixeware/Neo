@@ -231,8 +231,8 @@ export class Labels {
       }
       const x = l.sx!, y = l.sy!;
       const full = { x0: x - l.w! / 2 - 2, y0: y - l.h! - 2, x1: x + l.w! / 2 + 2, y1: y + 2 };
-      // the name line alone sits on top (the label hangs from its anchor: translate(-50%, -100%))
-      const name = { x0: x - l.nw! / 2 - 2, y0: y - l.h! - 2, x1: x + l.nw! / 2 + 2, y1: y - l.h! + l.nh! + 2 };
+      // without its second line the label shrinks to the name, still hanging from the anchor (translate(-50%, -100%))
+      const name = { x0: x - l.nw! / 2 - 2, y0: y - l.nh! - 2, x1: x + l.nw! / 2 + 2, y1: y + 2 };
       let dc = 2, r: Rect | null = null;
       if (!hits(full, placed)) { dc = 0; r = full; }
       else if (l.nh! < l.h! - 1 && !hits(name, placed)) { dc = 1; r = name; }

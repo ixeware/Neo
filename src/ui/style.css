@@ -70,7 +70,8 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .lbl-hero.s0 { color: var(--pen-a-deep); } .lbl-hero.s1 { color: var(--pen-k-deep); }
 .lbl-hero.me { background: #fff6b8; }
 .lbl-doner .nm { font-family: var(--f-display); font-weight: 800; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; background: var(--marker); }
-.lbl.far .sub, .lbl.far .fl { display: none; }
+/* far (zoomed out past 150): names only; nosub: decluttered down to the name line (labels.ts) */
+.lbl.far .sub, .lbl.far .fl, .lbl.nosub .sub, .lbl.nosub .fl { display: none; }
 .lbl.vfar { display: none; }
 /* v3 capture places: a handwritten name with the perk icon, the perk underneath */
 .lbl-place .nm { display: inline-flex; align-items: center; gap: 4px; font-family: var(--f-hand); font-weight: 700; font-size: 19px; line-height: 1; padding: 1px 7px 3px 5px; }
@@ -90,8 +91,14 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 @keyframes edgeUp { 50% { transform: translateY(-3px) } }
 
 /* ---------- HUD ---------- */
-#hud { position: absolute; inset: 0; pointer-events: none; }
-#hud > * { pointer-events: auto; }
+/* Layout variables (px), measured by Hud.layout(): --deck-h, --cards-h (the visible card row), --bank-h, --bank-w,
+   --mini-w, --mini-h, --vote-h (an open сход), --side-h (the right side slip). The bottom cluster stacks on them:
+   the deck at the bottom, the bank and the command bar on top of it (the minimap beside it, or above it on narrow
+   screens), the chat and the hint above those — so nothing depends on a guessed offset. */
+#hud { position: absolute; inset: 0; pointer-events: none; --deck-h: 191px; --cards-h: 150px; --bank-h: 72px; --bank-w: 124px; --mini-w: 239px; --mini-h: 167px; --vote-h: 0px; --side-h: 60px; }
+/* Slips take taps; :where() keeps this at zero specificity, so the click-through layers below (.feed, .hint, .banner,
+   .tip, .ach-toast and the containers .top, .deck, .cmdbar, .fp-hud) really are click-through. */
+:where(#hud) > * { pointer-events: auto; }
 .top { position: absolute; top: var(--edge-t); left: var(--edge-l); right: var(--edge-r); display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: start; pointer-events: none; }
 .top > * { pointer-events: auto; }
 .side { display: flex; gap: 10px; align-items: flex-end; padding: 8px 10px; min-width: 0; }
@@ -113,7 +120,8 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .score .war { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--graphite-2); }
 .clock { font-family: var(--f-hand); font-size: 21px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.85); }
 
-.bank { position: absolute; left: var(--edge-l); bottom: calc(var(--edge-b) + 118px); padding: 8px 12px 9px; display: grid; gap: 0; }
+/* the bank sits on top of the deck (its height is measured, so taller cards never cover the income line) */
+.bank { position: absolute; left: var(--edge-l); bottom: calc(var(--edge-b) + var(--deck-h) + 8px); padding: 8px 12px 9px; display: grid; gap: 0; }
 .bank .money { font-size: 28px; font-weight: 900; line-height: 1; }
 .bank .inc { font-family: var(--f-hand); font-size: 20px; color: var(--ok); }
 .bank .inc.off { color: var(--pen-k); }
@@ -139,30 +147,41 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .buffs.them .buff::before { content: "у них:"; font-family: var(--f-hand); font-size: 14px; font-weight: 700; color: var(--graphite-2); }
 .side.s1 .buffs.them { justify-items: end; }
 
-/* deck: two notebook tabs («Юниты», «Пацаны») over a row of cards */
-.deck { position: absolute; left: 50%; transform: translateX(-50%); bottom: var(--edge-b); display: grid; justify-items: start; gap: 8px; pointer-events: none; }
+/* deck: two notebook tabs («Юниты», «Пацаны») over a row of cards. The deck never reaches into the minimap's
+   column: it lives in [left edge, minimap − gap], centred there (on wide screens centred on the screen). Cards
+   shrink to a minimum, then the row scrolls sideways with snap; a fade on the edge says there is more. */
+.deck { position: absolute; left: var(--edge-l); right: calc(var(--edge-r) + var(--mini-w) + 12px); bottom: var(--edge-b); display: grid; grid-template-columns: minmax(0, max-content); justify-content: center; justify-items: start; gap: 4px; pointer-events: none; }
 .deck > * { pointer-events: auto; }
 .tabs { display: inline-flex; background: var(--paper); border: 1.5px solid var(--graphite); box-shadow: 2px 2px 0 rgba(0,0,0,.28); }
-.tab { border: 0; background: transparent; height: 34px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13.5px; color: var(--graphite); }
+.tab { border: 0; background: transparent; height: 34px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13.5px; color: var(--graphite); white-space: nowrap; }
 .tab + .tab { border-left: 1.5px solid var(--graphite); }
 .tab.on { background: var(--graphite); color: var(--paper); }
 .tab-n { font-style: normal; font-family: var(--f-hand); font-weight: 700; font-size: 19px; line-height: 1; color: var(--pen-k); min-width: 0; }
 .tab.on .tab-n { color: var(--marker); }
-.cards { display: flex; gap: 8px; align-items: flex-end; padding-top: 4px; }
-.card { width: 104px; padding: 0 0 7px; display: grid; gap: 2px; justify-items: center; text-align: center; position: relative; transition: transform .12s ease-out; border: 1.5px solid var(--graphite); -webkit-touch-callout: none; }
-.card img, .card .pf { width: 86px; height: 72px; object-fit: contain; display: block; margin-top: 2px; pointer-events: none; }
+/* the row is a scroll container: room on top for the lifted (selected) card */
+.cards { display: flex; gap: 8px; align-items: flex-end; max-width: 100%; box-sizing: border-box; padding: 12px 2px 3px; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; scroll-padding-inline: 2px; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x; }
+.cards::-webkit-scrollbar { display: none; }
+.cards.more-r { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.cards.more-l { -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); mask-image: linear-gradient(90deg, transparent, #000 28px); }
+.cards.more-l.more-r { -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+/* fixed height: names clamp to two lines, so every card in a row is the same size */
+.card { flex: 0 1 104px; min-width: 86px; height: 138px; box-sizing: border-box; padding: 0 0 6px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 2px; justify-items: center; align-items: center; text-align: center; position: relative; transition: transform .12s ease-out; border: 1.5px solid var(--graphite); -webkit-touch-callout: none; scroll-snap-align: start; touch-action: pan-x; }
+.card img, .card .pf { width: 86px; max-width: calc(100% - 8px); height: 72px; object-fit: contain; display: block; margin-top: 2px; pointer-events: none; }
 .pf { display: grid !important; place-items: center; font-family: var(--f-hand); font-weight: 700; border: 1.5px dashed currentColor; box-sizing: border-box; overflow: hidden; }
 .pf span { font-size: 30px; line-height: 1; transform: rotate(-5deg); white-space: nowrap; }
 .pf.t0 { color: var(--pen-a); background: rgba(42, 82, 209, .1); }
 .pf.t1 { color: var(--pen-k); background: rgba(216, 54, 31, .1); }
 .pf.t2 { color: var(--graphite); background: rgba(35, 38, 43, .07); }
-.card .cn { font-weight: 700; font-size: 12.5px; line-height: 1.15; padding: 0 4px; min-height: 2.3em; display: grid; align-items: center; }
+.card .cn { font-weight: 700; font-size: 12.5px; line-height: 1.15; padding: 0 4px; max-width: 100%; box-sizing: border-box; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; hyphens: manual; }
+/* phones get the short name (two lines at most, never hyphenated) */
+.card .cn .sh { display: none; }
 .card .cc { font-family: var(--f-display); font-weight: 800; font-size: 14px; white-space: nowrap; }
 .card .cc s { font-family: var(--f-ui); font-weight: 600; font-size: 11px; color: var(--graphite-2); }
 .card.sale .cc { color: var(--ok); }
 .card .key { position: absolute; top: 3px; left: 5px; font-family: var(--f-hand); font-size: 17px; color: var(--graphite-2); }
 .card.sel { transform: translateY(-10px); background-color: #fff6b8; box-shadow: 3px 6px 0 rgba(20,16,12,.38); }
-.card.sel::after { content: ""; position: absolute; inset: -6px; border: 2px dashed var(--graphite); pointer-events: none; }
+/* the dashed «in hand» frame sits inside the card: the row clips anything outside it */
+.card.sel::after { content: ""; position: absolute; inset: 2px; border: 2px dashed var(--graphite); pointer-events: none; }
 .card.poor { filter: grayscale(1) contrast(.85); opacity: .72; }
 .card.poor .cc { color: var(--pen-k); }
 .card .cdbar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--graphite); }
@@ -205,7 +224,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .mini { position: absolute; right: var(--edge-r); bottom: var(--edge-b); padding: 4px; }
 .mini canvas { display: block; width: 228px; height: 156px; cursor: crosshair; touch-action: none; }
 
-.vote { position: absolute; right: var(--edge-r); top: calc(var(--edge-t) + 96px); width: 300px; padding: 10px 12px 12px; display: grid; gap: 8px; }
+/* сход: under the right side slip, never down into the minimap (it scrolls instead) */
+.vote { position: absolute; right: var(--edge-r); top: calc(var(--edge-t) + 96px); width: 300px; box-sizing: border-box; max-height: calc(100% - var(--edge-t) - 96px - var(--edge-b) - max(var(--mini-h), var(--deck-h)) - 12px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 10px 12px 12px; display: grid; align-content: start; gap: 8px; }
+#hud.has-sel .vote { max-height: calc(100% - var(--edge-t) - 96px - var(--edge-b) - max(var(--mini-h), var(--deck-h) + var(--cb-h, 48px) + 16px) - 12px); }
 .vote h3 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 14px; letter-spacing: .03em; text-transform: uppercase; display: flex; justify-content: space-between; gap: 8px; }
 .vote .lead { font-family: var(--f-hand); font-size: 20px; line-height: 1; margin-top: -4px; }
 .vote .opt { display: grid; gap: 3px; text-align: left; padding: 7px 9px 8px; background: var(--paper); border: 1.5px solid var(--graphite); position: relative; overflow: hidden; }
@@ -222,7 +243,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .vote.done .opt { cursor: default; }
 .stamp { justify-self: center; font-family: var(--f-display); font-weight: 900; font-size: 15px; text-transform: uppercase; letter-spacing: .04em; padding: 6px 10px; border: 3px solid currentColor; transform: rotate(-4deg); }
 
-.feed { position: absolute; left: var(--edge-l); bottom: calc(var(--edge-b) + 196px); width: min(330px, 46vw); display: grid; gap: 5px; pointer-events: none; }
+/* беседа: above the bank; while units are selected, also above the command bar (it never sits under the bar) */
+.feed { position: absolute; left: var(--edge-l); bottom: calc(var(--edge-b) + var(--deck-h) + var(--bank-h) + 16px); width: min(330px, 46vw); max-height: calc(100% - var(--edge-t) - 150px - var(--edge-b) - var(--deck-h) - var(--bank-h) - 16px); overflow: hidden; display: grid; align-content: end; gap: 5px; pointer-events: none; }
+#hud.has-sel .feed { bottom: max(calc(var(--edge-b) + var(--deck-h) + var(--bank-h) + 16px), calc(var(--edge-b) + var(--deck-h) + 8px + var(--cb-h, 48px) + 8px)); }
 .feed .hd { font-family: var(--f-hand); font-size: 18px; color: #fff; text-shadow: 0 1px 2px #000; }
 .msg { background: var(--paper); border: 1.5px solid var(--graphite); padding: 5px 9px 6px; font-size: 13.5px; line-height: 1.3; box-shadow: 2px 2px 0 rgba(0,0,0,.25); animation: msgIn .25s ease-out; transition: opacity .6s; }
 .msg b { font-weight: 700; margin-right: 4px; }
@@ -234,7 +257,8 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .tb svg { width: 20px; height: 20px; }
 .tb.off { opacity: .55; }
 
-.banner { position: absolute; left: 50%; top: 28%; transform: translate(-50%, -50%) rotate(-3deg); pointer-events: none; text-align: center; display: grid; gap: 6px; justify-items: center; }
+/* a click-through announcement; as wide as the screen allows (left: 50% alone would cap it at half the screen) */
+.banner { position: absolute; left: 50%; top: 30%; width: max-content; max-width: min(640px, calc(100vw - var(--edge-l) - var(--edge-r) - 16px)); transform: translate(-50%, -50%) rotate(-3deg); pointer-events: none; text-align: center; display: grid; gap: 6px; justify-items: center; }
 .banner .big { font-family: var(--f-display); font-weight: 900; font-size: clamp(22px, 4.4vw, 40px); line-height: 1.05; text-transform: uppercase; padding: 8px 16px 10px; color: #fff; box-shadow: 4px 4px 0 rgba(0,0,0,.35); }
 .banner .big.s0 { background: var(--pen-a); } .banner .big.s1 { background: var(--pen-k); } .banner .big.n { background: var(--graphite); }
 .banner .small { font-family: var(--f-hand); font-size: clamp(22px, 3vw, 30px); color: #fff; text-shadow: 0 1px 3px #000, 0 0 10px rgba(0,0,0,.6); }
@@ -249,7 +273,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .tip.tip-plus { background: transparent; color: #1d8a3c; font-size: 27px; font-weight: 700; text-shadow: 0 0 3px #fff, 0 0 2px #fff, 0 0 6px #fff; }
 .tip.tip-plus.tip-big { font-size: 38px; animation-duration: 1.9s; }
 
-.hint { position: absolute; left: 50%; bottom: calc(var(--edge-b) + 196px); transform: translateX(-50%); font-family: var(--f-hand); font-size: 22px; color: #fff; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.7); pointer-events: none; text-align: center; max-width: min(640px, 90vw); }
+/* the hint line: centred above the deck, clear of the chat column on the left and the minimap on the right */
+.hint { position: absolute; left: 50%; bottom: calc(var(--edge-b) + var(--deck-h) + 12px); transform: translateX(-50%); font-family: var(--f-hand); font-size: 22px; line-height: 1.1; color: #fff; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.7); pointer-events: none; text-align: center; width: max-content; max-width: min(640px, calc(100vw - 2 * (var(--edge-l) + var(--bank-w) + 16px))); }
+#hud.has-sel .hint { bottom: calc(var(--edge-b) + var(--deck-h) + 8px + var(--cb-h, 48px) + 10px); max-width: min(640px, calc(100vw - 2 * (var(--edge-l) + min(330px, 46vw) + 16px))); }
 .hint.rot { font-size: 20px; opacity: .92; }
 
 /* achievement: a paper sticker slapped on with a red stamp */
@@ -341,6 +367,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .ach-desc { font-size: 12.5px; line-height: 1.3; }
 .ach-quote { font-family: var(--f-hand); font-weight: 700; font-size: 18px; line-height: 1.05; color: var(--pen-a); }
 
+/* ---------- small screens: type and slips (layout per orientation is below) ---------- */
 @media (max-width: 760px) {
   :root { --cell: 10px; }
   .m-sides { grid-template-columns: 1fr; }
@@ -353,24 +380,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .score { padding: 4px 9px 5px; gap: 6px; }
   .score .num { font-size: 19px; } .score .war { display: none; }
   .clock { font-size: 18px; }
-  .deck { left: var(--edge-l); right: var(--edge-r); transform: none; gap: 6px; }
-  .deck .cards { width: 100%; justify-content: space-between; gap: 5px; }
-  .tab { height: 44px; padding: 0 13px; font-size: 13px; }
-  .card { width: auto; flex: 1 1 0; min-width: 0; padding-bottom: 5px; }
-  .card img, .card .pf { width: 100%; height: 46px; }
-  .pf span { font-size: 22px; }
-  .card .cn { font-size: 10.5px; min-height: 2.4em; padding: 0 2px; letter-spacing: -.015em; overflow-wrap: break-word; hyphens: auto; }
-  .card .cc { font-size: 11.5px; }
-  .card .cc s { display: none; }
-  .card .key { display: none; }
-  .card .st { top: 14px; font-size: 17px; }
-  .card.cool .st { font-size: 21px; }
-  .card.away .st { font-size: 8.5px; padding: 2px 3px; }
-  .bank { bottom: calc(var(--edge-b) + 160px); padding: 5px 9px 6px; }
-  .bank .money { font-size: 21px; } .bank .inc { font-size: 17px; }
-  .mini { bottom: calc(var(--edge-b) + 108px); }
-  .mini canvas { width: 132px; height: 90px; }
-  .vote { left: var(--edge-l); right: var(--edge-r); width: auto; top: auto; bottom: calc(var(--edge-b) + 154px); padding: 8px 10px 10px; gap: 6px; z-index: 2; }
+  .tab { padding: 0 13px; font-size: 13px; }
   .evchip { position: absolute; right: 0; top: 64px; max-width: 36vw; padding: 4px 7px 5px; grid-template-columns: 1fr auto; transform: rotate(1.5deg); }
   .evchip b { font-size: 11.5px; }
   .evchip .et { justify-self: start; font-size: 11px; }
@@ -379,16 +389,11 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .who-card { grid-template-columns: 72px 1fr; gap: 10px; padding: 10px; }
   .who-img { width: 72px; height: 92px; }
   .m-tab { padding: 0 12px; font-size: 12px; }
-  .vote .opt { padding: 5px 8px 6px; } .vote .opt .q { display: none; }
-  .feed { top: calc(var(--edge-t) + 112px); bottom: auto; width: min(200px, 50vw); gap: 3px; }
+  .vote .opt .q { display: none; }
   .feed .hd { display: none; }
-  .feed .msg:nth-last-child(n+3) { display: none; }
-  .msg { font-size: 11px; line-height: 1.25; padding: 3px 6px 4px; border-width: 1px; box-shadow: 1px 1px 0 rgba(0,0,0,.2); background: color-mix(in srgb, var(--paper) 88%, transparent); }
+  .msg { font-size: 11px; line-height: 1.25; padding: 3px 6px 4px; border-width: 1px; box-shadow: 1px 1px 0 rgba(0,0,0,.2); background: color-mix(in srgb, var(--paper) 88%, transparent); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
   .msg b { margin-right: 3px; }
-  .toolbar { top: calc(var(--edge-t) + 64px); }
   .tb { width: 34px; height: 34px; }
-  .hint { bottom: calc(var(--edge-b) + 262px); font-size: 16px; max-width: 78vw; line-height: 1.15; }
-  .hint.rot { font-size: 15px; }
   .lbl-v .nm { font-size: 11.5px; }
   .lbl-hero { font-size: 10.5px; padding: 1px 5px 2px; }
   /* card buffs: short names, small, and never wider than the side slip */
@@ -400,26 +405,103 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .buffs.them .buff::before, .buffs.them .buff i { display: none; } /* the slip is narrow: their buff by name only */
   .buff i { font-size: 10px; }
   .bank-flash { font-size: 24px; }
+  .bank { padding: 5px 9px 6px; }
+  .bank .money { font-size: 21px; } .bank .inc { font-size: 17px; }
+  .card .cn .fl { display: none; } .card .cn .sh { display: inline; }
 }
-/* phones held sideways: short screen, so the tabs stand to the left of the cards */
+
+/* ---------- phones upright: full-width deck (scrolls, ~5 cards in view), minimap beside the tabs, bank on top
+   of the deck, the сход sheet above the bank and the minimap ---------- */
+@media (max-width: 760px) and (min-height: 501px) {
+  /* --stack: how high the bottom cluster (deck + bank on the left, minimap beside the tabs on the right) reaches */
+  #hud { --stack: max(calc(var(--deck-h) + 8px + var(--bank-h)), calc(var(--cards-h) + 4px + var(--mini-h))); --feed-top: calc(var(--edge-t) + 116px); }
+  .deck { left: var(--edge-l); right: var(--edge-r); grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 4px; }
+  .tab { height: 44px; }
+  .cards { gap: 5px; padding: 8px 1px 3px; }
+  .card { flex: none; width: clamp(60px, calc((100vw - var(--edge-l) - var(--edge-r) - 22px) / 5.4), 80px); min-width: 0; height: 98px; padding-bottom: 4px; gap: 1px; }
+  .card img, .card .pf { width: 100%; max-width: none; height: 44px; }
+  .pf span { font-size: 22px; }
+  .card .cn { font-size: 10.5px; line-height: 1.12; padding: 0 2px; letter-spacing: -.015em; }
+  .card .cc { font-size: 11.5px; }
+  .card .cc s { display: none; }
+  .card .key { display: none; }
+  .card .st { top: 12px; font-size: 17px; }
+  .card.cool .st { font-size: 21px; }
+  .card.away .st { font-size: 8.5px; padding: 2px 3px; }
+  .card.sel { transform: translateY(-6px); }
+  .mini { bottom: calc(var(--edge-b) + var(--cards-h) + 4px); }
+  .mini canvas { width: 132px; height: 90px; }
+  /* сход: full width, right above the bank and the minimap; the options stand in one row, so the sheet stays short */
+  .vote, #hud.has-sel .vote { left: var(--edge-l); right: var(--edge-r); width: auto; top: auto; bottom: calc(var(--edge-b) + var(--stack) + 8px); max-height: calc(100% - var(--feed-top) - var(--edge-b) - var(--stack) - 8px); padding: 7px 9px 9px; gap: 5px; z-index: 2; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .vote > :not(.opt) { grid-column: 1 / -1; }
+  .vote h3 { font-size: 13px; }
+  .vote .opt { padding: 4px 6px 5px; align-content: center; }
+  .vote .opt .t { font-size: 12px; line-height: 1.12; padding-right: 10px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  .vote .opt .n { right: 4px; top: 3px; font-size: 11px; }
+  /* беседа: under the toolbar, last two lines */
+  .feed, #hud.has-sel .feed { top: var(--feed-top); bottom: auto; max-height: calc(100% - var(--feed-top) - var(--edge-b) - var(--stack) - 16px); align-content: start; width: min(200px, 50vw); gap: 3px; }
+  .feed .msg:nth-last-child(n+3) { display: none; }
+  /* units selected: the command bar is a block at the right edge, so the chat keeps to its left */
+  #hud.has-sel .feed { width: min(200px, calc(100vw - var(--edge-l) - var(--edge-r) - 166px - 10px)); }
+  .toolbar { top: calc(var(--edge-t) + 64px); }
+  .hint { bottom: calc(var(--edge-b) + var(--stack) + 10px); font-size: 16px; max-width: 78vw; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  #hud.has-sel .hint { left: var(--edge-l); transform: none; text-align: left; bottom: calc(var(--edge-b) + var(--stack) + 10px); max-width: calc(100vw - var(--edge-l) - var(--edge-r) - 176px); }
+  /* a сход is open: the hint goes above the sheet; the roster card open over it: the hint waits */
+  #hud:has(> .vote:not([hidden])) .hint { bottom: calc(var(--edge-b) + var(--stack) + 8px + var(--vote-h) + 8px); }
+  #hud:has(> .roster:not([hidden])) .hint { visibility: hidden; }
+  .hint.rot { font-size: 15px; }
+  /* phones upright: the toolbar sits under the clock, so our buffs go to the right edge under the side
+     slip, and the world-event sticker moves down past them */
+  .center .buffs.mine { position: absolute; right: 0; top: 62px; justify-items: end; }
+  .center[data-nb="1"] .evchip { top: 88px; }
+  .center[data-nb="2"] .evchip { top: 110px; }
+  /* the сход sheet is open: the world-event sticker makes room */
+  #hud:has(> .vote:not([hidden])) .evchip { display: none; }
+  /* banners: in the open band between the toolbar and the bottom cluster */
+  .banner { top: calc((var(--edge-t) + 124px + 100% - var(--edge-b) - var(--stack)) / 2); }
+}
+/* short phones upright (iPhone SE, 390 × 664): a сход leaves the chat its last line, and the sheet drops its extras */
+@media (max-width: 760px) and (min-height: 501px) and (max-height: 700px) {
+  .vote .lead, .vote .who { display: none; } /* the result sheet too: stamp only, the banner carries the quote */
+  #hud:has(> .vote:not([hidden])) .hint { display: none; } /* no room for the hint line above the sheet */
+  #hud:has(> .vote:not([hidden])) .feed .msg:nth-last-child(n+2) { display: none; }
+}
+/* the narrowest phones: slimmer tabs and minimap, so the minimap still clears the tabs */
+@media (max-width: 359px) and (min-height: 501px) {
+  .tab { padding: 0 10px; font-size: 12.5px; }
+  .mini canvas { width: 118px; height: 81px; }
+}
+/* narrow phones: the side slips and the clock shrink so the top row never overlaps */
+@media (max-width: 380px) {
+  .top { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; }
+  .side { padding: 5px 6px; gap: 5px; }
+  .side .vname { font-size: 9.5px; letter-spacing: 0; }
+  .tower { width: 16px; }
+  .score { padding: 4px 7px 5px; }
+  .clock { font-size: 16px; line-height: 1; text-align: center; }
+}
+
+/* ---------- phones held sideways: short screen, so the tabs stand to the left of the cards; the deck ends at the
+   minimap and scrolls; bank and command bar on top of the deck ---------- */
 @media (max-height: 500px) and (min-width: 600px) {
-  .deck { left: var(--edge-l); right: auto; transform: none; display: flex; align-items: flex-end; gap: 8px; }
-  .deck .cards { width: auto; justify-content: flex-start; }
-  .tabs { flex-direction: column; }
+  .deck { left: var(--edge-l); right: calc(var(--edge-r) + var(--mini-w) + 8px); display: flex; align-items: flex-end; justify-content: flex-start; gap: 6px; }
+  .deck .cards { flex: 0 1 auto; min-width: 0; }
+  .tabs { flex-direction: column; flex: none; }
   .tab { height: 44px; padding: 0 12px; }
   .tab + .tab { border-left: 0; border-top: 1.5px solid var(--graphite); }
-  .cards { gap: 6px; padding-top: 0; }
-  .card { width: 70px; flex: none; padding-bottom: 4px; }
-  .card img, .card .pf { width: 62px; height: 36px; }
+  .cards { gap: 6px; padding: 7px 1px 1px; }
+  .card { flex: none; width: 70px; min-width: 0; height: 82px; padding-bottom: 3px; gap: 1px; }
+  .card img, .card .pf { width: 62px; height: 34px; }
   .pf span { font-size: 19px; }
-  .card .cn { font-size: 10px; min-height: 2.3em; }
+  .card .cn { font-size: 10px; line-height: 1.12; }
   .card .cc { font-size: 11px; }
   .card .cc s { display: none; }
   .card .key { font-size: 14px; top: 1px; left: 3px; }
-  .card .st { top: 8px; font-size: 16px; }
+  .card .st { top: 6px; font-size: 16px; }
   .card.cool .st { font-size: 20px; }
   .card.away .st { font-size: 8px; padding: 2px 3px; }
   .card.sel { transform: translateY(-6px); }
+  .card .cn .fl { display: none; } .card .cn .sh { display: inline; }
   .side { padding: 5px 8px; gap: 7px; }
   .side .hqn { display: none; }
   .side .vname { font-size: 12px; } .side .stat { font-size: 16px; }
@@ -430,18 +512,25 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .evchip { position: relative; top: auto; right: auto; max-width: 40vw; padding: 3px 8px 4px; transform: rotate(-1.5deg); } .evchip .ef { display: none; }
   .toolbar { top: calc(var(--edge-t) + 54px); }
   .tb { width: 34px; height: 34px; }
-  .bank { bottom: calc(var(--edge-b) + 100px); padding: 4px 9px 5px; }
-  .bank .money { font-size: 20px; } .bank .inc { font-size: 16px; }
+  .bank { bottom: calc(var(--edge-b) + var(--deck-h) + 6px); padding: 4px 9px 5px; }
+  .bank .money { font-size: 18px; } .bank .inc { font-size: 15px; }
   .mini { bottom: var(--edge-b); }
   .mini canvas { width: 150px; height: 102px; }
-  .feed { top: calc(var(--edge-t) + 96px); bottom: auto; width: min(360px, 46vw); }
+  .feed, #hud.has-sel .feed { top: calc(var(--edge-t) + 102px); bottom: auto; max-height: calc(100% - var(--edge-t) - 102px - var(--edge-b) - var(--deck-h) - 6px - var(--bank-h) - 8px); align-content: start; width: min(360px, 46vw); }
   .feed .hd { display: none; }
   .feed .msg:nth-last-child(n+3) { display: none; }
-  .msg { line-height: 1.25; }
-  .msg { font-size: 12px; padding: 4px 8px 5px; }
-  .vote { top: calc(var(--edge-t) + 54px); left: auto; right: var(--edge-r); bottom: auto; width: 270px; padding: 7px 10px 9px; gap: 5px; max-height: calc(100vh - 170px); overflow-y: auto; }
-  .vote .opt { padding: 4px 8px 5px; } .vote .opt .q { display: none; } .vote .lead { display: none; }
-  .hint { bottom: calc(var(--edge-b) + 104px); left: auto; right: calc(var(--edge-r) + 168px); transform: none; font-size: 18px; max-width: 40vw; text-align: right; }
+  .msg { font-size: 12px; line-height: 1.25; padding: 4px 8px 5px; -webkit-line-clamp: 1; line-clamp: 1; }
+  /* сход: right column under the side slip; the options stand in one row so the sheet stays short */
+  .vote { top: calc(var(--edge-t) + var(--side-h) + 6px); left: auto; right: var(--edge-r); bottom: auto; width: 300px; max-height: calc(100% - var(--edge-t) - var(--side-h) - 6px - var(--edge-b) - var(--mini-h) - 8px); padding: 6px 9px 8px; gap: 5px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .vote > :not(.opt) { grid-column: 1 / -1; }
+  .vote h3 { font-size: 12.5px; }
+  .vote .opt { padding: 4px 6px 5px; align-content: center; }
+  .vote .opt .t { font-size: 11.5px; line-height: 1.12; padding-right: 10px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  .vote .opt .n { right: 4px; top: 3px; font-size: 11px; }
+  .vote .opt .q, .vote .lead { display: none; }
+  .vote:not(.done) .who { display: none; }
+  #hud:has(> .vote:not([hidden])) .evchip { display: none; }
+  .hint, #hud.has-sel .hint { bottom: calc(var(--edge-b) + var(--deck-h) + 8px); left: calc(var(--edge-l) + var(--bank-w) + 12px); right: calc(var(--edge-r) + var(--mini-w) + 8px); width: auto; transform: none; font-size: 18px; max-width: none; text-align: right; }
   .ach-toast { top: calc(var(--edge-t) + 54px); }
   .banner { top: 34%; }
   .buff .fl { display: none; } .buff .sh { display: inline; }
@@ -449,12 +538,39 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .buffs.them .buff { font-size: 10px; }
   .buffs.them .buff i { display: inline; }
 }
-/* phones upright: the toolbar sits under the clock, so our buffs go to the right edge under the side
-   slip, and the world-event sticker moves down past them */
-@media (max-width: 760px) and (orientation: portrait) {
-  .center .buffs.mine { position: absolute; right: 0; top: 62px; justify-items: end; }
-  .center[data-nb="1"] .evchip { top: 88px; }
-  .center[data-nb="2"] .evchip { top: 110px; }
+
+/* ---------- tablets upright (iPad 768 × 1024) and narrow windows: full-width deck, bank and minimap on top of it;
+   the command bar above both; the chat lifts over the bar while units are selected ---------- */
+@media (min-width: 761px) and (max-width: 1023px) and (min-height: 501px) {
+  .deck { left: var(--edge-l); right: var(--edge-r); }
+  .mini { bottom: calc(var(--edge-b) + var(--deck-h) + 8px); }
+  .mini canvas { width: 200px; height: 137px; }
+  .hint { bottom: calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px); max-width: min(640px, 90vw); }
+  #hud.has-sel .hint { left: auto; right: var(--edge-r); transform: none; text-align: right; bottom: calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px + var(--cb-h, 48px) + 10px); max-width: calc(100vw - var(--edge-l) - var(--edge-r) - min(330px, 46vw) - 16px); }
+  #hud.has-sel .feed { bottom: max(calc(var(--edge-b) + var(--deck-h) + var(--bank-h) + 16px), calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px + var(--cb-h, 48px) + 8px)); }
+  .vote { max-height: calc(100% - var(--edge-t) - 96px - var(--edge-b) - var(--deck-h) - max(var(--bank-h), var(--mini-h)) - 20px); }
+  #hud.has-sel .vote { max-height: calc(100% - var(--edge-t) - 96px - var(--edge-b) - var(--deck-h) - max(var(--bank-h), var(--mini-h)) - var(--cb-h, 48px) - 36px); }
+}
+/* wide screens: the deck is centred on the screen (a mirror of the minimap column on the left) */
+@media (min-width: 1400px) and (min-height: 501px) {
+  .deck { left: calc(var(--edge-r) + var(--mini-w) + 12px); }
+}
+
+/* ---------- touch: every target at least 44 px ---------- */
+@media (pointer: coarse) {
+  .tb { width: 44px; height: 44px; }
+  .tab { height: 44px; }
+  .vote .opt { min-height: 44px; box-sizing: border-box; }
+  .seg button { min-height: 44px; }
+  .m-cont { min-height: 44px; }
+}
+@media (pointer: coarse) and (max-width: 760px) and (min-height: 501px) {
+  .toolbar { gap: 5px; }
+  .feed, #hud.has-sel .feed { top: calc(var(--edge-t) + 118px); }
+}
+@media (pointer: coarse) and (max-height: 500px) and (min-width: 600px) {
+  .toolbar { gap: 5px; }
+  .feed, #hud.has-sel .feed { top: calc(var(--edge-t) + 106px); max-height: calc(100% - var(--edge-t) - 106px - var(--edge-b) - var(--deck-h) - 6px - var(--bank-h) - 8px); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

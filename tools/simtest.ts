@@ -16,6 +16,7 @@ import { HEROES as HEROES_T, HQ, ECON } from '../src/sim/defs';
 import { normAdm, cleanSay } from '../src/sim/admin';
 import { Session, type Backend } from '../src/net/session';
 import { validCmd, validAdmCmd } from '../src/net/shared';
+import { okPid, bound, checkState, explained, decide, verdicts, stateShape, moneyBound } from '../src/net/guard';
 import { admBody, localChannel } from '../src/net/adminChannel';
 
 const MIN = Number(process.argv[2] || 30);
@@ -1237,3 +1238,97 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
 }
 const ctlFails = fails.slice(ctlFails0);
 console.log(ctlFails.length ? `unit control checks FAILED: ${ctlFails.join('; ')}` : 'unit control checks OK');
+
+// ---- shared war input checks (src/net/guard.ts, Sim.apply): forged ids, states and checkpoints ------------
+console.log('\n== shared war input checks: player ids, bound commands, checkpoint states, who vouches ==');
+const netFails0 = fails.length;
+{
+  const PROTO = ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf', 'isPrototypeOf', '__defineGetter__', 'prototype'];
+  check('okPid: platform-like ids pass, prototype keys / empty / dots / spaces / 201 chars do not',
+    ['u_01HXYZabc', 'p3k9x0', 'x', 'u-1.2~3:4@5+6', 'a'.repeat(200)].every(okPid) && ![...PROTO, '', '.', '..', 'a b', 'a/b', 'a'.repeat(201), 5, null].some(okPid));
+  const dep = { t: 5, id: 'uA:k1:0', p: 'uA', k: 'dep', s: 0, u: 0, x: 1, z: 1 };
+  check('validCmd refuses prototype-key player ids', validCmd(dep) && PROTO.every(p => !validCmd({ ...dep, p, id: p + ':1' })) && !validCmd({ ...dep, p: 7 }));
+  check('bound: p is the vouched-for sender and the id is in its space',
+    bound(dep, 'uA') && !bound(dep, 'uB') && !bound({ ...dep, p: 'uB' }, 'uA') && !bound({ ...dep, id: 'uB:k1:0' }, 'uA') && !bound(dep, null) && !bound(dep, '__proto__') && !bound({ ...dep, p: '__proto__', id: '__proto__:1' }, '__proto__'));
+
+  // Sim.apply with prototype-key ids: nothing happens, nothing is polluted, the world equals one that never saw them
+  const a = sandbox(9), b = sandbox(9);
+  const cmds: Cmd[] = [];
+  PROTO.forEach((p, i) => cmds.push({ t: a.st.tick, id: `${p}:${i}`, p, k: 'join', s: (i % 2) as 0 | 1 }));
+  PROTO.forEach((p, i) => cmds.push({ t: a.st.tick, id: `${p}:d${i}`, p, k: 'dep', s: 0, u: 0, x: a.st.pts[0].x + 3, z: a.st.pts[0].z }));
+  PROTO.forEach((p, i) => cmds.push({ t: a.st.tick, id: `${p}:o${i}`, p, k: 'ord', s: 0, ids: [1, 2, 3], m: 'possessed' }));
+  cmds.push({ t: a.st.tick, id: 'q:j', p: 'q', k: 'join', s: 7 as unknown as 0 });
+  a.step(cmds); b.step(undefined);
+  for (let i = 0; i < 50; i++) { a.step(undefined); b.step(undefined); }
+  const polluted = ({} as Record<string, unknown>).s !== undefined || (Object.prototype.toString as unknown as Record<string, unknown>).s !== undefined
+    || (Object as unknown as Record<string, unknown>).s !== undefined || Object.getPrototypeOf(a.st.players) !== Object.prototype;
+  check('Sim.apply: prototype-key ids add no player, pollute nothing, and change nothing (same hash as a world without them)',
+    Object.keys(a.st.players).length === 0 && !polluted && hashState(a.st) === hashState(b.st), `players ${JSON.stringify(Object.keys(a.st.players))} polluted ${polluted}`);
+  // a malformed Player.n (from a forged state) never drives a unit
+  const c = sandbox(9);
+  c.step([{ t: c.st.tick, id: 'q:j', p: 'q', k: 'join', s: 0 }]);
+  c.step([{ t: c.st.tick, id: 'q:d', p: 'q', k: 'dep', s: 0, u: 0, x: c.st.pts[0].x + 4, z: c.st.pts[0].z }]);
+  for (let i = 0; i < 8; i++) c.step(undefined);
+  const mine = c.st.units.filter(u => u.s === 0 && canControl(u.t)).map(u => u.id);
+  (c.st.players.q as unknown as Record<string, unknown>).n = undefined;
+  c.step([{ t: c.st.tick, id: 'q:o', p: 'q', k: 'ord', s: 0, ids: mine.slice(0, 3), m: 'possessed' }]);
+  c.step([{ t: c.st.tick, id: 'q:c', p: 'q', k: 'ctl', s: 0, u: mine[0], dx: 8, dz: 0, atk: 0 }]);
+  check('possess / ctl with a malformed player number: no unit is taken (no o.p undefined)', mine.length > 0 && !c.st.units.some(u => u.o && u.o.m === OM.POSSESS), `${mine.length} units`);
+
+  // checkpoint states: a real one passes; garbage, prototype keys, NaN, a wrong hash, a broken unit do not — and nothing throws
+  const real = runTo(11, 900).snapshot();
+  const rh = hashState(real);
+  const T = (st: unknown, h?: number) => checkState(st, terrain, h);
+  const withPlayers = JSON.parse(JSON.stringify(real).replace('"players":{', '"players":{"__proto__":{"s":0,"cd":0,"joined":0,"last":0,"n":0}' + (Object.keys(real.players).length ? ',' : '')));
+  const nan = structuredClone(real); nan.sides[1].money = NaN;
+  const badUnit = structuredClone(real); (badUnit.units[0] as unknown as Record<string, unknown>).t = 999;
+  const dup = structuredClone(real); if (dup.units.length > 1) dup.units[1].id = dup.units[0].id;
+  let threw = false, results: (string | null)[] = [];
+  try { results = [T({}), T(null), T('x'), T({ v: 1, tick: 5, units: [] }), T(withPlayers), T(nan), T(badUnit), T(dup), T(real, rh ^ 1), T({ ...real, sides: [real.sides[0]] })]; } catch { threw = true; }
+  check('checkState: a real checkpoint passes with its hash', T(real, rh) === null && T(real) === null);
+  check('checkState: {}, null, junk, a stub, a __proto__ player, NaN money, a unit of type 999, duplicate ids, a wrong hash, one side — all refused, none throws',
+    !threw && results.every(r => typeof r === 'string'), results.join(', '));
+  let loadThrows = false;
+  try { new Sim(terrain).load({} as State); } catch { loadThrows = true; }
+  check('…which is why: Sim.load({}) itself throws (the shared wars check first, then reset)', loadThrows && stateShape({}) !== null);
+
+  // plausibility: the review's forgery (god mode, 10 M money, a 1-floor high-rise) is unexplained without an admin command
+  const forged = structuredClone(real);
+  forged.sides[1].money = 10_000_000; forged.adm = { frz: [1, 0], god: [0, 1], ai: [2, 0] }; forged.sides[0].floors = 1;
+  const rich = structuredClone(real); rich.sides[0].money += moneyBound(150) + 1;
+  const spent = structuredClone(real); spent.sides[0].money -= 300; spent.units = spent.units.slice(1);
+  const toggled = structuredClone(real); toggled.adm = { frz: [0, 0], god: [1, 0], ai: [0, 0] };
+  const backWins = structuredClone(real); backWins.sides[0].wins = real.sides[0].wins - 1;
+  check('checkState accepts the well-formed forgery (its shape is fine)…', T(forged, hashState(forged)) === null);
+  check('…but explained() refuses it, and money / admin toggles / a lower score from nowhere',
+    explained(real, forged, 150, false) === 'adm' && explained(real, rich, 150, false) === 'money' && explained(real, toggled, 150, false) === 'adm' && explained(real, backWins, 150, false) === 'wins',
+    [explained(real, forged, 150, false), explained(real, rich, 150, false), explained(real, toggled, 150, false), explained(real, backWins, 150, false)].join(','));
+  check('explained() lets through an ordinary difference (a missed deploy) and anything after an admin command',
+    explained(real, spent, 150, false) === null && explained(real, forged, 150, true) === null);
+
+  // who vouches: editors outrank, a strict majority counts, a tie counts for nobody, each uid once
+  const H1 = 111, H2 = 222;
+  const V = (cl: { uid: string; h: number; editor?: boolean }[], me?: { uid: string; h: number; editor?: boolean }) => decide(cl, me);
+  const v1 = V([{ uid: 'uA', h: H1, editor: true }, { uid: 'uC', h: H1 }, { uid: 'uB', h: H2 }]);
+  const v2 = V([{ uid: 'uA', h: H1 }, { uid: 'uC', h: H1 }, { uid: 'uB', h: H2 }]);
+  const v3 = V([{ uid: 'uB', h: H2 }], { uid: 'uA', h: H1 });
+  const v4 = V([{ uid: 'uB', h: H2 }, { uid: 'uB', h: H2 }, { uid: 'uB', h: H2 }], { uid: 'uA', h: H1 });
+  const v5 = V([{ uid: 'uB', h: H2 }, { uid: 'uX', h: H2 }, { uid: 'uA', h: H1, editor: true }]);
+  const v6 = V([{ uid: 'uE', h: H1, editor: true }, { uid: 'uF', h: H2, editor: true }, { uid: 'uB', h: H2 }]);
+  const v7 = V([{ uid: 'uB', h: H2 }]);
+  const v8 = V([{ uid: '__proto__', h: H2 }, { uid: 'constructor', h: H2 }], { uid: 'uA', h: H1 });
+  check('decide: the editor wins; else a strict majority; a 1:1 tie is no verdict; one uid counts once; an editor tie falls back to everyone; a lone writer is "alone"; prototype-key uids do not count',
+    v1?.why === 'editor' && v1.h === H1 && v2?.why === 'majority' && v2.h === H1 && v3 === null && v4 === null && v5?.why === 'editor' && v5.h === H1
+    && v6?.why === 'majority' && v6.h === H2 && v7?.why === 'alone' && v8?.why === 'alone' && v8.h === H1,
+    JSON.stringify([v1, v2, v3, v4, v5, v6, v7, v8].map(v => v && `${v.why}:${v.h}`)));
+  const vs = verdicts([
+    { uid: 'uA', editor: false, hv: [{ t: 150, h: H1 }, { t: 300, h: H1 }, { t: 450, h: H1 }] },
+    { uid: 'uB', editor: false, hv: [{ t: 150, h: H1 }, { t: 300, h: H2 }, { t: 450, h: H2 }] },
+    { uid: 'uC', editor: false, hv: [{ t: 150, h: H1 }, { t: 300, h: H1 }] },
+  ]);
+  check('verdicts: newest first; a forger outvoted where three attest, a tie where only two do',
+    vs.map(x => x.t).join() === '450,300,150' && vs[0].v === null && vs[1].v?.h === H1 && vs[1].v.why === 'majority' && vs[2].v?.n === 3,
+    JSON.stringify(vs.map(x => [x.t, x.v && `${x.v.why}:${x.v.h}:${x.v.n}/${x.v.of}`])));
+}
+const netFails = fails.slice(netFails0);
+console.log(netFails.length ? `shared war input checks FAILED: ${netFails.join('; ')}` : 'shared war input checks OK');

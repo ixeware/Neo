@@ -6,7 +6,7 @@ import {
   MILITIA_EVERY, FIRST_VOTE, VOTE_EVERY, VOTE_LEN, WAR_RESET, BOSS_RESPAWN, type Side,
   BOSS, CHIMAEV, WOU, ADMIN, ERSNO, BEKHAN, ADAM, MOHMAD, GOLEM, RIDE, CHICKEN, HEROES,
   HERO, DONER, EVENTS, EVENT_FIRST, EVENT_EVERY, JAM_R, AI_W, unitName,
-  GELIK, SPORTIK, PLACE, BUFF, type Card,
+  GELIK, SPORTIK, AMINA, PLACE, BUFF, type Card,
 } from './defs';
 import { buildFlow, flowDir, type Flow } from './flow';
 import { normAdm, ADM_MAX, type Adm } from './admin';
@@ -61,6 +61,8 @@ export interface SideState {
   loop: number;
   /** админ «Курение убивает» is ready at this tick (0 = ready). */
   pack: number;
+  /** Мохьмад (type 9) may bring a new Голем at this tick (0 = ready); the old summoner 12 keeps using U.ab. */
+  golem: number;
 }
 export interface Vote {
   open: number; start: number; end: number; opts: number[]; focusPt: number;
@@ -249,7 +251,7 @@ export class Sim {
       lastHuman: -100000, aiNext: 30 + s * 7, turretCd: 0, found4: 0, kills: 0, deployed: 0, income: 0,
       hero: filled(-1), heroCd: filled(0),
       hack: 0, poor: 0, weak: 0, sauce: 0, sauceM: 1, dodge: 0, immune: 0, skip: 0, aiWant: -1, aiWantUntil: 0,
-      snus: 0, loop: 0, pack: 0,
+      snus: 0, loop: 0, pack: 0, golem: 0,
     };
   }
 
@@ -418,7 +420,7 @@ export class Sim {
           const sd = st.sides[s];
           for (const t of HEROES) if (sd.heroCd[t] > 0) { sd.heroCd[t] = 0; n++; this.emit({ e: 'heroBack', s, t, id: -1 }); }
           for (const u of st.units) if (u.s === s && u.hp > 0 && (u.t === BOSS || UNITS[u.t].hero)) { u.ab = 0; u.f &= ~UF.LAGMAN; }
-          sd.pack = 0;
+          sd.pack = 0; sd.golem = 0;
         }
         fx(n);
         return;
@@ -875,7 +877,7 @@ export class Sim {
       case Fx.Shampoo: sd.dodge = now + c.v; break;
       case Fx.Ult:
         for (const u of st.units) if (u.s === s && (u.t === BOSS || UNITS[u.t].hero)) { u.ab = 0; u.f &= ~UF.LAGMAN; }
-        sd.pack = 0;
+        sd.pack = 0; sd.golem = 0;
         break;
       case Fx.Poverty: en.poor = now + c.v; break;
       case Fx.Ersno:
@@ -1205,9 +1207,11 @@ export class Sim {
         else if (u.t === ADMIN) this.adminN(u);
         else if (u.t === MOHMAD) this.summonGolem(u);
         else if (u.t === ERSNO) this.cardSteal(u);
+        else if (u.t === AMINA) this.slam(u);
       }
+      if (u.t === ERSNO && now >= sd.golem) this.summonGolem(u); // Мохьмад = ersno: his Голем runs on its own timer
       if (u.t === ADMIN && now >= sd.pack) this.packUlt(u);
-      if (u.t === WOU && (now + u.id) % HERO.tauntEvery === 0) this.taunt(u);
+      if ((u.t === WOU || u.t === AMINA) && (now + u.id) % HERO.tauntEvery === 0) this.taunt(u, u.t === WOU);
       if (d.kind === Kind.Heal && u.cd === 0) this.healAround(u, d.heal![u.s], S.range);
       // engage
       let tx = 0, tz = 0, engage = false, inRange = false;
@@ -1474,8 +1478,8 @@ export class Sim {
     this.emit({ e: 'hack', s: u.s, v, id: u.id, x: u.x, z: u.z, until });
   }
 
-  /** WOU «Рейджбайт»: nearby enemies (not bosses, not Чимаев) must hit him. */
-  private taunt(u: U) {
+  /** WOU «Рейджбайт» / Амина's aura: nearby enemies (not bosses, not Чимаев) must hit them. Амина's pulses emit nothing. */
+  private taunt(u: U, emit = true) {
     const st = this.st, us = st.units, R = UNITS[u.t].aura!, until = st.tick + HERO.tauntFor;
     let n = 0;
     this.near(u.x, u.z, R, k => {
@@ -1487,7 +1491,7 @@ export class Sim {
       if (dx * dx + dz * dz > R * R) return;
       o.tg = u.id; o.tt = until; o.tn = u.id; n++;
     });
-    if (n) this.emit({ e: 'taunt', s: u.s, id: u.id, x: u.x, z: u.z, r: R, n });
+    if (n && emit) this.emit({ e: 'taunt', s: u.s, id: u.id, x: u.x, z: u.z, r: R, n });
   }
 
   /** админ «Н»: everybody around is marked absent and stands still. */
@@ -1509,17 +1513,18 @@ export class Sim {
     this.emit({ e: 'stunN', s: u.s, id: u.id, x: u.x, z: u.z, r: R, n });
   }
 
-  /** Мохьмад: «у меня Голем был всю игру». */
+  /** Мохьмад: «у меня Голем был всю игру». Type 9 waits on SideState.golem, the old summoner 12 on U.ab. */
   private summonGolem(u: U) {
     const g = u.ld >= 0 ? this.byId.get(u.ld) : undefined;
-    if (g && g.hp > 0) { u.ab = 20; return; }
+    const sd = this.st.sides[u.s], own = u.t === ERSNO;
+    if (g && g.hp > 0) { if (own) sd.golem = this.st.tick + 20; else u.ab = 20; return; }
     const dir = u.s === 0 ? 1 : -1;
     let x = u.x + dir * 1.6, z = u.z + 0.8;
     if (!passable(this.terrain, x, z)) { x = u.x; z = u.z; }
     const go = this.spawn(u.s, GOLEM, x, z, u.own);
     go.ld = u.id; go.g = u.g; go.rt = this.st.tick + 25;
     u.ld = go.id;
-    u.ab = UNITS[u.t].abCd!;
+    if (own) sd.golem = this.st.tick + HERO.golemCd; else u.ab = UNITS[u.t].abCd!;
     this.emit({ e: 'ability', s: u.s, t: u.t, id: u.id, x, z, key: 'golem', r: 0 });
     this.emit({ e: 'summon', s: u.s, t: GOLEM, x, z, n: 1 });
   }
@@ -1534,6 +1539,15 @@ export class Sim {
     if (n <= 0) { u.ab = 10; return; } // пустой счёт: попробуем позже
     u.ab = d.abCd!;
     this.emit({ e: 'ability', s: u.s, t: u.t, id: u.id, x: u.x, z: u.z, key: 'card', r: R });
+  }
+
+  /** Амина «Плюхнулась»: ≥ slamMin enemies around her get hit, knocked back and stunned for a second. */
+  private slam(u: U) {
+    const d = UNITS[u.t], R = d.abR!;
+    if (this.enemiesIn(u, R, false) < HERO.slamMin) { u.ab = 10; return; }
+    this.splash(u.s, u.x, u.z, R, HERO.slamDmg, 0, HERO.slamKnock, HERO.slamStun);
+    u.ab = d.abCd!;
+    this.emit({ e: 'ability', s: u.s, t: u.t, id: u.id, x: u.x, z: u.z, key: 'slam', r: R });
   }
 
   /** админ «Курение убивает»: a pack lands in the middle of ≥ packMin enemies around him. */
@@ -1821,7 +1835,11 @@ export class Sim {
         }
         if (u.t === GOLEM && u.ld >= 0) {
           const m = this.byId.get(u.ld);
-          if (m && m.ld === u.id) { m.ld = -1; m.ab = Math.max(m.ab, UNITS[MOHMAD].abCd!); }
+          if (m && m.ld === u.id) {
+            m.ld = -1;
+            if (m.t === ERSNO) st.sides[m.s].golem = Math.max(st.sides[m.s].golem, now + HERO.golemCd);
+            else m.ab = Math.max(m.ab, UNITS[MOHMAD].abCd!);
+          }
         }
         if (d.deathR && !adm) st.aoe.push({ s: u.s, x: u.x, z: u.z, r: d.deathR, dmg: d.deathDmg!, hq: 0, at: now + 1, n: 1, every: 0, k: d.key });
         if (u.t === RIDE && !(u.f & UF.UNLOADED) && !adm) spill.push(u);
@@ -1879,8 +1897,8 @@ export class Sim {
 
 const DIRS = [[1, 0], [0.5, 0.866], [-0.5, 0.866], [-1, 0], [-0.5, -0.866], [0.5, -0.866]];
 const RING8 = [[1, 0], [0.7071, 0.7071], [0, 1], [-0.7071, 0.7071], [-1, 0], [-0.7071, -0.7071], [0, -1], [0.7071, -0.7071]];
-// Heavy units push others around and are not knocked back (ersno is no tank since v3; the Гелик is).
-const MASS = UNITS.map((d, t) => (t === BOSS ? 9 : t === GOLEM || t === GELIK ? 4 : 1));
+// Heavy units push others around and are not knocked back (UnitDef.mass: Голем, Гелик, Амина; bosses 9).
+const MASS = UNITS.map((d, t) => (t === BOSS ? 9 : d.mass ?? 1));
 const CAPW = UNITS.map(d => (d.capW !== undefined ? d.capW : 1));
 
 export function cardTitle(c: typeof CARDS[number], village: string): string {

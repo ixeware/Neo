@@ -48,8 +48,12 @@ export interface UnitDef {
   max?: number;
   /** «КРА номера»: immune to stun, slow, taunt, fear and the jam/flood slowdowns. */
   kra?: true;
-  /** Every melee hit moves this many ₽ from the enemy bank to ours: [vs units, vs the high-rise] (ersno). */
+  /** Every melee hit moves this many ₽ from the enemy bank to ours: [vs units, vs the high-rise] (Мохьмад, type 9). */
   steal?: [number, number];
+  /** Heavy: pushes the crowd aside and is never knocked back (sim MASS; default 1, bosses 9). */
+  mass?: number;
+  /** Brings a Голем with him: summoned when none is linked, again HERO.golemCd ticks after it falls. */
+  golem?: true;
 }
 
 const BOTH: [boolean, boolean] = [true, true];
@@ -89,7 +93,7 @@ export const UNITS: UnitDef[] = [
   },
   {
     key: 'boss', name: ['Ислам #1 ranked chad', 'Качок Зураб'],
-    blurb: ['Высокий. Барсетка. Перхоть замедляет врагов', 'Финальный босс Курчалоя. «Баля ма зверь йу со»'],
+    blurb: ['Высокий. Барсетка. Кидается Себозолом: шампунь от перхоти замедляет врагов', 'Финальный босс Курчалоя. «Баля ма зверь йу со»'],
     cost: [0, 0], count: 1, kind: Kind.Boss, avail: BOTH,
     hp: 4200, dmg: [34, 72], cd: 16, range: 9, speed: 0.22, aggro: 12, radius: 1.3,
     splash: [2.6, 3.0], proj: 1.6,
@@ -117,11 +121,12 @@ export const UNITS: UnitDef[] = [
     abCd: 120, abR: 6, aura: 6,
   },
   {
-    key: 'ersno', name: ['ersno', 'ersno'],
-    blurb: ['Оверсайз, в руках банковские карты. Каждый удар — «перевод по номеру карты» с соседского счёта. «Списание с карты»', 'Оверсайз, в руках банковские карты. Каждый удар — «перевод по номеру карты» с соседского счёта. «Списание с карты»'],
-    cost: [300, 300], count: 1, kind: Kind.Melee, avail: BOTH, hero: true, respawn: 750,
+    // ersno и есть Мохьмад (один человек): key 'ersno' остаётся для старых сохранений, ачивок и UI
+    key: 'ersno', name: ['Мохьмад', 'Мохьмад'],
+    blurb: ['Оверсайз, в руках банковские карты, с ним Голем. Каждый удар — «перевод по номеру карты» с соседского счёта. «Списание с карты»', 'Оверсайз, в руках банковские карты, с ним Голем. Каждый удар — «перевод по номеру карты» с соседского счёта. «Списание с карты»'],
+    cost: [360, 360], count: 1, kind: Kind.Melee, avail: BOTH, hero: true, respawn: 750,
     hp: 420, dmg: [20, 20], cd: 10, range: 1.3, speed: 0.31, aggro: 8, radius: 0.5,
-    steal: [4, 8], abCd: 120, abR: 10,
+    steal: [4, 8], abCd: 120, abR: 10, golem: true,
   },
   {
     key: 'bekhan', name: ['Бекхан', 'Бекхан'],
@@ -137,17 +142,19 @@ export const UNITS: UnitDef[] = [
     noFight: true, flee: 5, capW: 4,
   },
   {
-    key: 'mohmad', name: ['Мохьмад', 'Мохьмад'],
+    // старый Мохьмад-призыватель: только для сохранений до слияния с ersno. Не продаётся, ИИ не берёт;
+    // живой из старого сейва воюет и зовёт Голема как раньше (u.ab, abCd)
+    key: 'mohmad', name: ['Мохьмад (старый)', 'Мохьмад (старый)'],
     blurb: ['«Мы тебя по одиночке толпой забьём». «У меня Голем был всю игру»', '«Мы тебя по одиночке толпой забьём». «У меня Голем был всю игру»'],
-    cost: [380, 380], count: 1, kind: Kind.Melee, avail: BOTH, hero: true, respawn: 800,
-    hp: 420, dmg: [18, 18], cd: 10, range: 1.3, speed: 0.27, aggro: 8, radius: 0.5, abCd: 400,
+    cost: [380, 380], count: 1, kind: Kind.Melee, avail: [false, false], hero: true, respawn: 800,
+    hp: 420, dmg: [18, 18], cd: 10, range: 1.3, speed: 0.27, aggro: 8, radius: 0.5, abCd: 400, golem: true,
   },
   // ---- призывы и транспорт ------------------------------------------------------------------
   {
     key: 'golem', name: ['Голем', 'Голем'],
     blurb: ['Каменный и медленный. Разваливается с грохотом', 'Каменный и медленный. Разваливается с грохотом'],
     cost: [0, 0], count: 1, kind: Kind.Melee, avail: BOTH, summon: true,
-    hp: 1300, dmg: [40, 40], cd: 18, range: 1.6, speed: 0.15, aggro: 7, radius: 1.0, knock: 0.5,
+    hp: 1300, dmg: [40, 40], cd: 18, range: 1.6, speed: 0.15, aggro: 7, radius: 1.0, knock: 0.5, mass: 4,
     deathR: 3, deathDmg: 80,
   },
   {
@@ -169,7 +176,7 @@ export const UNITS: UnitDef[] = [
     key: 'gelik', name: ['Гелик', 'Гелик'],
     blurb: ['Чёрный гелик, номера КРА 95. Таранит; ни «Н», ни пробки, ни потоп ему не помеха. Не больше двух', 'Чёрный гелик, номера КРА 95. Таранит; ни «Н», ни пробки, ни потоп ему не помеха. Не больше двух'],
     cost: [300, 300], count: 1, kind: Kind.Fast, avail: BOTH, max: 2, kra: true,
-    hp: 900, dmg: [34, 34], cd: 13, range: 1.5, speed: 0.6, aggro: 8, radius: 1.0, knock: 0.5,
+    hp: 900, dmg: [34, 34], cd: 13, range: 1.5, speed: 0.6, aggro: 8, radius: 1.0, knock: 0.5, mass: 4,
   },
   {
     key: 'sportik', name: ['Спортики ×4', 'Спортики ×4'],
@@ -177,20 +184,29 @@ export const UNITS: UnitDef[] = [
     cost: [120, 120], count: 4, kind: Kind.Melee, avail: BOTH,
     hp: 80, dmg: [8, 8], cd: 7, range: 1.1, speed: 0.33, aggro: 7, radius: 0.42,
   },
+  // ---- Амина (18): танк Атагов --------------------------------------------------------------
+  {
+    key: 'amina', name: ['Амина', 'Амина'],
+    blurb: ['Танк Атагов в синем спортивном костюме. Враги рядом бьют только её. «Плюхнулась» — оглушает и раскидывает', 'Играет только за Атаги'],
+    cost: [320, 320], count: 1, kind: Kind.Melee, avail: [true, false], hero: true, respawn: 800,
+    hp: 2600, dmg: [22, 22], cd: 14, range: 1.4, speed: 0.2, aggro: 7, radius: 0.95, mass: 4,
+    abCd: 140, abR: 3.5, aura: 6,
+  },
 ];
 export const BOSS = 5, CHIMAEV = 6, WOU = 7, ADMIN = 8, ERSNO = 9, BEKHAN = 10, ADAM = 11, MOHMAD = 12, GOLEM = 13, RIDE = 14, CHICKEN = 15;
-export const GELIK = 16, SPORTIK = 17;
+export const GELIK = 16, SPORTIK = 17, AMINA = 18;
 /** Амин: the display name since v3; the internal id stays WOU = 7 (key 'wou'). */
 export const AMIN = WOU;
-export const HEROES = [6, 7, 8, 9, 10, 11, 12];
-/** Buy panel order: base deck, спортики, ride, гелик, then heroes. Filter per side with canBuy(). */
-export const SHOP = [0, 1, 2, 3, 4, 17, 14, 16, 6, 10, 7, 8, 9, 11, 12];
+/** Unique per side, respawn cooldown. 12 (the old Мохьмад) stays for saves from before the merge with ersno (9). */
+export const HEROES = [6, 7, 8, 9, 10, 11, 12, 18];
+/** Buy panel order: base deck, спортики, ride, гелик, then heroes (Амина last). Filter per side with canBuy(). */
+export const SHOP = [0, 1, 2, 3, 4, 17, 14, 16, 6, 10, 7, 8, 9, 11, 18];
 export function canBuy(s: Side, t: number): boolean {
   const d = UNITS[t];
   return !!d && t !== BOSS && !d.summon && d.avail[s];
 }
-/** Name for messages: «Чимаев уже на поле», «Амин уже на поле» (drops the «×4» of squads). */
-export function unitName(s: Side, t: number): string { return UNITS[t].name[s].replace(/ 5\.5$/, '').replace(/ ×\d+$/, ''); }
+/** Name for messages: «Чимаев уже на поле», «Амин уже на поле» (drops the «×4» of squads and «(старый)»). */
+export function unitName(s: Side, t: number): string { return UNITS[t].name[s].replace(/ 5\.5$/, '').replace(/ ×\d+$/, '').replace(/ \(старый\)$/, ''); }
 
 export const HERO = {
   wouIncome: 2, // ₽/с while WOU is alive («2 лярда токенов»)
@@ -206,6 +222,10 @@ export const HERO = {
   cardPct: 0.1, cardMax: 150, cardMin: 3,
   // админ «Курение убивает»: a pack lands on ≥ packMin enemies within packTrig of him
   packCd: 350, packFirst: 150, packTrig: 9, packMin: 4, packR: 7, packFor: 60, fearFor: 40, packPsn: 60,
+  // Мохьмад (9) brings a Голем: again golemCd ticks after it falls (the old summoner 12 used abCd 400)
+  golemCd: 400,
+  // Амина «Плюхнулась»: ≥ slamMin enemies within abR → damage, knockback, stun (ticks)
+  slamMin: 2, slamDmg: 70, slamKnock: 1.6, slamStun: 10,
 };
 
 /** Capture places: pts[9..12], kind 3, from CAPTURE_PLACES in src/data/places.ts. */
@@ -230,13 +250,13 @@ export const BUFF = {
 
 /** AI shopping weights per side by unit type (heroes and rides only while allowed; healer only with > 8 units). */
 export const AI_W: [number[], number[]] = [
-  [30, 20, 22, 14, 10, 0, 0, 3, 3, 3, 5, 3, 3, 0, 6, 0, 4, 10],
-  [30, 20, 22, 14, 10, 0, 6, 3, 3, 3, 0, 3, 3, 0, 10, 0, 4, 10],
+  [30, 20, 22, 14, 10, 0, 0, 3, 3, 4, 5, 3, 0, 0, 6, 0, 4, 10, 4],
+  [30, 20, 22, 14, 10, 0, 6, 3, 3, 4, 0, 3, 0, 0, 10, 0, 4, 10, 0],
 ];
 
 export const DONER = { r: 6, income: 5, healR: 10, heal: 0.015 /* of max hp per second */, aiWeight: 1.9 };
 
-// Zurab fights in melee; Islam throws dandruff from afar.
+// Zurab fights in melee; Islam throws Себозол (dandruff shampoo) from afar.
 export const BOSS_RANGE: [number, number] = [9, 2.4];
 export const BOSS_HP: [number, number] = [4800, 5200];
 export const BOSS_SPEED: [number, number] = [0.25, 0.2];
@@ -318,7 +338,7 @@ export const CARDS: Card[] = [
   { id: 25, side: 0, title: 'Шампунь +40 к удаче', quote: '«Шампунь +40 к удаче»: наши уворачиваются от 40% ударов', fx: Fx.Shampoo, v: 200 },
   { id: 26, side: -1, title: 'Копил ульту', quote: '«Я копил ульту». Все способности героев и босса готовы', fx: Fx.Ult, v: 1 },
   { id: 27, side: -1, title: 'Аура нищеты', quote: '«Слабая аура». Доход соседей вдвое меньше', fx: Fx.Poverty, v: 300 },
-  { id: 28, side: -1, title: 'Скинь номер карты', quote: 'ersno выходит в оверсайзе. В руках — чужие банковские карты', fx: Fx.Ersno, v: 1 },
+  { id: 28, side: -1, title: 'Скинь номер карты', quote: 'Мохьмад выходит в оверсайзе. В руках — чужие банковские карты, рядом Голем', fx: Fx.Ersno, v: 1 },
   { id: 29, side: 1, title: 'По чанганам!', quote: 'Две Камри без прав выезжают бесплатно', fx: Fx.Changans, v: 2 },
   // ---- v3: для масштаба (v: duration in ticks, or how many) -------------------------------
   { id: 30, side: -1, title: 'Энергетик в ларьке', quote: 'Наши бьют на 30% чаще и бегут на 15% быстрее. Через 25 секунд — сдулись', fx: Fx.Snus, v: 250,

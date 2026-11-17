@@ -112,7 +112,7 @@ const FACES: Record<Face, { u: V3; v: V3; n: V3; r: V3 }> = {
  * `arch` bends the baseline up in the middle (varsity lettering). Returns the triangle count.
  */
 export function strokeText(b: Builder, c: Col, text: string, centre: V3, face: Face, h: number,
-  o: { th?: number; w?: number; gap?: number; arch?: number; lift?: number; inset?: number } = {}) {
+  o: { th?: number; w?: number; gap?: number; arch?: number; lift?: number; inset?: number; font?: Record<string, number[]> } = {}) {
   const th = o.th ?? h * 0.16, w = o.w ?? h * 0.62, gap = o.gap ?? h * 0.2, arch = o.arch ?? 0, eps = o.lift ?? 0.003;
   // stroke centre lines are laid out with `inset` (default: th), so a thicker pass with the same inset outlines a thinner one
   const it = o.inset ?? th;
@@ -121,7 +121,7 @@ export function strokeText(b: Builder, c: Col, text: string, centre: V3, face: F
   const total = chars.length * w + (chars.length - 1) * gap;
   let n = 0;
   chars.forEach((ch, i) => {
-    const s = STROKES[ch];
+    const s = o.font?.[ch] ?? STROKES[ch];
     const cu = -total / 2 + i * (w + gap) + w / 2;
     const k = total > 0 ? cu / (total / 2) : 0;
     const cv = arch * (1 - k * k);
@@ -258,8 +258,9 @@ function buzz(b: Builder, f: BodyOut, c = col('#3b2e26')) {
 
 // ---- palette -------------------------------------------------------------------------------------
 const K = {
-  paint: col('#18191d'), paint2: col('#24262c'), roof: col('#33363d'), glass: col('#1c2733'),
-  chrome: col('#d3d8de'), chromeD: col('#80868e'), tyre: col('#141416'), rim: col('#3c3f45'),
+  paint: col('#232429'), paint2: col('#34363e'), roof: col('#2b2d33'), glass: col('#3a4c61'), glassF: col('#557089'),
+  rail: col('#5a5e67'), trim: col('#141518'), grille: col('#0d0e11'), mesh: col('#0a0b0d'), seam: col('#0b0b0d'), lens: col('#2a2f37'),
+  chrome: col('#d3d8de'), chromeD: col('#80868e'), tyre: col('#141416'), rim: col('#3a3d44'),
   plate: col('#f4f3ee'), ink: col('#111111'), lamp: glow(2.2, 2.1, 1.8), amber: col('#f29a1f'), tail: col('#b3241a'),
   flagW: col('#f5f5f5'), flagB: col('#2457c5'), flagR: col('#d22f27'),
   suit: col('#1f2125'), sneaker: col('#f4f2ec'), sole: col('#cfccc4'),
@@ -270,78 +271,210 @@ const K = {
 };
 
 // ---- Гелик (unit type 16) ---------------------------------------------------------------------
-/** «КРА 95» plate: black frame, white field, black letters, region with a tiny tricolour. */
+// After the Mercedes-AMG G 63 (W463, 2018+): 4873 × 1984 × 1966 mm with the spare wheel, wheelbase
+// 2890, 22" wheels. About 0.4 model units per metre, with chibi big wheels and a slightly taller
+// greenhouse (cabin ≈ lower body). Hand-built faces: the bottoms and the insides of add-ons are left
+// out so the whole car, both plates included, stays under 900 triangles.
+
+/** One flat triangle, wound so its normal points along `out`. */
+export function tri(b: Builder, c: Col, p0: V3, p1: V3, p2: V3, out: V3) {
+  const ax = p1[0] - p0[0], ay = p1[1] - p0[1], az = p1[2] - p0[2];
+  const bx = p2[0] - p0[0], by = p2[1] - p0[1], bz = p2[2] - p0[2];
+  let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+  const l = Math.hypot(nx, ny, nz) || 1;
+  nx /= l; ny /= l; nz /= l;
+  let q1 = p1, q2 = p2;
+  if (nx * out[0] + ny * out[1] + nz * out[2] < 0) { q1 = p2; q2 = p1; nx = -nx; ny = -ny; nz = -nz; }
+  for (const p of [p0, q1, q2]) { b.pos.push(p[0], p[1], p[2]); b.nor.push(nx, ny, nz); b.col.push(c.r, c.g, c.b); }
+}
+export function quad(b: Builder, c: Col, p0: V3, p1: V3, p2: V3, p3: V3, out: V3) {
+  tri(b, c, p0, p1, p2, out);
+  tri(b, c, p0, p2, p3, out);
+}
+/**
+ * A convex side profile, points as (z, y), extruded across x0 < x1. `caps` keeps the x0 / x1 ends,
+ * `skip` lists the profile edges (i → i+1) that stay open (hidden bottoms, joins).
+ */
+export function prismX(b: Builder, c: Col, prof: [number, number][], x0: number, x1: number, caps: [boolean, boolean] = [true, true], skip: number[] = []) {
+  const n = prof.length;
+  let cz = 0, cy = 0;
+  for (const [z, y] of prof) { cz += z / n; cy += y / n; }
+  const P = (x: number, i: number): V3 => [x, prof[i][1], prof[i][0]];
+  for (let i = 1; i < n - 1; i++) {
+    if (caps[0]) tri(b, c, P(x0, 0), P(x0, i), P(x0, i + 1), [-1, 0, 0]);
+    if (caps[1]) tri(b, c, P(x1, 0), P(x1, i), P(x1, i + 1), [1, 0, 0]);
+  }
+  for (let i = 0; i < n; i++) {
+    if (skip.includes(i)) continue;
+    const j = (i + 1) % n, [za, ya] = prof[i], [zb, yb] = prof[j];
+    let oz = yb - ya, oy = za - zb;
+    if (oz * ((za + zb) / 2 - cz) + oy * ((ya + yb) / 2 - cy) < 0) { oz = -oz; oy = -oy; }
+    quad(b, c, P(x0, i), P(x1, i), P(x1, j), P(x0, j), [0, oy, oz]);
+  }
+}
+/** A flat n-gon on an axis face (n triangles), `lift` off the surface. */
+export function disc(b: Builder, c: Col, centre: V3, face: Face, r: number, n = 8, lift = 0.002, rot = Math.PI / n) {
+  const F = FACES[face];
+  const o: V3 = [centre[0] + F.n[0] * lift, centre[1] + F.n[1] * lift, centre[2] + F.n[2] * lift];
+  const at = (a: number): V3 => [0, 1, 2].map(k => o[k] + (F.u[k] * Math.cos(a) + F.v[k] * Math.sin(a)) * r) as V3;
+  for (let k = 0; k < n; k++) tri(b, c, o, at(rot + (k / n) * Math.PI * 2), at(rot + ((k + 1) / n) * Math.PI * 2), F.n);
+}
 /** A flat quad (2 triangles) lying on an axis-aligned face, `lift` in front of `centre`. */
 function flat(b: Builder, c: Col, centre: V3, face: Face, w: number, h: number, lift = 0.002) {
   const F = FACES[face];
   b.add(PLANE, c, [centre[0] + F.n[0] * lift, centre[1] + F.n[1] * lift, centre[2] + F.n[2] * lift], F.r, [w, h, 1]);
 }
+/** Frame on a vertical surface turned `ry` about y (ry = 0 faces +z): u along the surface, n out of it. */
+function yawFrame(ry: number) {
+  return { u: [Math.cos(ry), 0, -Math.sin(ry)] as V3, n: [Math.sin(ry), 0, Math.cos(ry)] as V3 };
+}
+/** A flat w × h rectangle on a vertical surface facing `ry` (2 tris), `lift` off it. */
+export function panelAt(b: Builder, c: Col, centre: V3, ry: number, w: number, h: number, lift = 0.003) {
+  const { u, n } = yawFrame(ry);
+  const P = (du: number, dv: number): V3 => [centre[0] + u[0] * du + n[0] * lift, centre[1] + dv, centre[2] + u[2] * du + n[2] * lift];
+  quad(b, c, P(-w / 2, -h / 2), P(w / 2, -h / 2), P(w / 2, h / 2), P(-w / 2, h / 2), n);
+}
+/** A pointed-arch opening (window, door, niche) facing `ry`: a rectangle under a gable (3 tris). */
+export function archAt(b: Builder, c: Col, centre: V3, ry: number, w: number, h: number, lift = 0.003) {
+  const { u, n } = yawFrame(ry);
+  const P = (du: number, dv: number): V3 => [centre[0] + u[0] * du + n[0] * lift, centre[1] + dv, centre[2] + u[2] * du + n[2] * lift];
+  const s = h / 2 - w * 0.55;
+  quad(b, c, P(-w / 2, -h / 2), P(w / 2, -h / 2), P(w / 2, s), P(-w / 2, s), n);
+  tri(b, c, P(-w / 2, s), P(w / 2, s), P(0, h / 2), n);
+}
+/** Open 8-sided tube (16 triangles): tyres, with the caps drawn as discs where they show. */
+const TYRE = new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1, true);
 
-function plate(b: Builder, c: V3, face: '+z' | '-z', W = 0.52, H = 0.13) {
+/** The plate typeface: rounded ГОСТ glyphs as chamfered strokes (anything missing falls back to STROKES). */
+const PLATE_FONT: Record<string, number[]> = {
+  '0': [0.3, 0, 0.7, 0, 0.7, 0, 1, 0.2, 1, 0.2, 1, 0.8, 1, 0.8, 0.7, 1, 0.7, 1, 0.3, 1, 0.3, 1, 0, 0.8, 0, 0.8, 0, 0.2, 0, 0.2, 0.3, 0],
+  '9': [1, 0.52, 0.22, 0.52, 0.22, 0.52, 0, 0.68, 0, 0.68, 0, 0.84, 0, 0.84, 0.22, 1, 0.22, 1, 0.78, 1, 0.78, 1, 1, 0.84, 1, 0.84, 1, 0.18, 1, 0.18, 0.75, 0, 0.75, 0, 0.08, 0],
+  '5': [1, 1, 0.02, 1, 0.02, 1, 0, 0.56, 0, 0.56, 0.75, 0.56, 0.75, 0.56, 1, 0.4, 1, 0.4, 1, 0.16, 1, 0.16, 0.75, 0, 0.75, 0, 0, 0],
+  'Р': [0, 0, 0, 1, 0, 1, 0.75, 1, 0.75, 1, 1, 0.84, 1, 0.84, 1, 0.62, 1, 0.62, 0.75, 0.46, 0.75, 0.46, 0, 0.46],
+  'R': [0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0.5, 1, 0.5, 0, 0.5, 0.4, 0.5, 1, 0],
+};
+
+/**
+ * Russian type-1 plate (ГОСТ Р 50577-2018, 520 × 112 mm): black frame, white field, «К 095 РА» with the
+ * letters a size smaller than the digits on one baseline, a rule, then the region box: «95», «RUS» and the
+ * tricolour. `W` is the plate width in model units (the real proportions are kept). About 140 triangles.
+ */
+function plate(b: Builder, c: V3, face: '+z' | '-z', W = 0.42, series: [string, string, string] = ['К', '095', 'РА'], region = '95') {
+  const H = (W * 112) / 520;
   const dir = face === '+z' ? 1 : -1; // reading direction along x
-  b.box(K.ink, c, [W + 0.018, H + 0.018, 0.012]);
-  const at = (u: number, v = 0): V3 => [c[0] + dir * (-W / 2 + W * u), c[1] + v, c[2]];
-  flat(b, K.plate, c, face, W, H, 0.007);
-  strokeText(b, K.ink, 'КРА', at(0.37), face, H * 0.7, { th: H * 0.12, w: H * 0.5, gap: H * 0.2, lift: 0.009 });
-  flat(b, K.ink, at(0.74), face, 0.008, H, 0.009);
-  strokeText(b, K.ink, '95', at(0.87, H * 0.13), face, H * 0.5, { th: H * 0.1, w: H * 0.3, gap: H * 0.1, lift: 0.009 });
-  [K.flagW, K.flagB, K.flagR].forEach((fc, i) => flat(b, fc, at(0.87, -H * 0.25 - i * H * 0.075), face, W * 0.1, H * 0.075, 0.009));
+  const at = (u: number, v: number): V3 => [c[0] + dir * (u - 0.5) * W, c[1] + (v - 0.5) * H, c[2]];
+  const ink = K.ink, txt = { font: PLATE_FONT, lift: 0.0045 };
+  flat(b, ink, c, face, W, H, 0.001);
+  flat(b, K.plate, c, face, W - H * 0.09, H * 0.87, 0.0025);
+  flat(b, ink, at(0.745, 0.5), face, H * 0.035, H * 0.87, 0.0035);
+  for (const u of [0.04, 0.96]) flat(b, K.chromeD, at(u, 0.5), face, H * 0.06, H * 0.06, 0.0035); // screws
+  const base = 0.19, LH = 0.47, DH = 0.6; // baseline, letter and digit heights (of H)
+  const letters = (s: string, u: number) =>
+    strokeText(b, ink, s, at(u, base + LH / 2), face, LH * H, { ...txt, w: LH * H * 0.8, gap: H * 0.07, th: H * 0.075 });
+  letters(series[0], 0.13);
+  strokeText(b, ink, series[1], at(0.365, base + DH / 2), face, DH * H, { ...txt, w: DH * H * 0.62, gap: H * 0.07, th: H * 0.085 });
+  letters(series[2], 0.615);
+  strokeText(b, ink, region, at(0.86, 0.66), face, 0.42 * H, { ...txt, w: 0.42 * H * 0.66, gap: H * 0.06, th: H * 0.068 });
+  strokeText(b, ink, 'RUS', at(0.815, 0.25), face, 0.16 * H, { ...txt, w: 0.16 * H * 0.7, gap: H * 0.03, th: H * 0.03 });
+  [K.flagW, K.flagB, K.flagR].forEach((fc, i) => flat(b, fc, at(0.915, 0.31 - i * 0.065), face, W * 0.07, H * 0.065, 0.0045));
 }
 
 function gelik(b: Builder, team: Col) {
   const P = K.paint, P2 = K.paint2;
-  // кузов-кирпич: низ, кабина, крыша
-  b.box(P, [0, 0.38, 0], [0.8, 0.36, 1.74]);
-  b.box(P, [0, 0.74, -0.2], [0.76, 0.36, 1.3]);
-  b.box(K.roof, [0, 0.935, -0.2], [0.78, 0.035, 1.33]);
-  // тонировка в ноль
-  b.box(K.glass, [0, 0.755, -0.22], [0.768, 0.2, 1.16]);
-  b.box(K.glass, [0, 0.755, 0.452], [0.66, 0.21, 0.012]);
-  b.box(K.glass, [0, 0.77, -0.852], [0.5, 0.17, 0.012]);
-  for (const z of [0.36, -0.1, -0.56]) b.box(P, [0, 0.755, z], [0.772, 0.21, 0.05]);
-  // капот, «поворотники» на крыльях
-  b.box(P2, [0, 0.572, 0.66], [0.6, 0.024, 0.44]);
-  for (const s of [-1, 1]) {
-    b.box(P, [0.335 * s, 0.585, 0.78], [0.09, 0.05, 0.12]);
-    flat(b, K.amber, [0.335 * s, 0.585, 0.84], '+z', 0.07, 0.03);
+  const BW = 0.4, CW = 0.37;            // half widths: lower body, greenhouse
+  const ZF = 0.87, ZR = -0.84;          // front fascia, rear door
+  const SILL = 0.2, BELT = 0.54, ROOF = 0.9, NOSE = 0.5;
+  const WS0 = 0.355, WS1 = 0.25;        // windscreen base / top (z): the only raked face
+  const AXF = 0.6, AXR = -0.55, WR = 0.2; // axles, wheel radius (22" at chibi scale)
+  const sides = [-1, 1] as const;
+  const sideFace = (s: number): Face => (s > 0 ? '+x' : '-x');
+  // ---- кузов-кирпич: lower tub (bonnet drops a little to the lamps), greenhouse, roof cap with drip rails
+  prismX(b, P, [[ZR, SILL], [ZR, BELT], [WS0, BELT], [ZF, NOSE], [ZF, SILL]], -BW, BW, [true, true], [4]);
+  prismX(b, P, [[ZR + 0.004, BELT - 0.01], [ZR + 0.004, ROOF], [WS1, ROOF], [WS0, BELT - 0.01]], -CW, CW, [true, true], [1, 3]);
+  prismX(b, K.roof, [[ZR - 0.01, ROOF], [ZR - 0.01, ROOF + 0.03], [WS1 + 0.008, ROOF + 0.03], [WS1 + 0.018, ROOF]], -CW - 0.014, CW + 0.014, [true, true], [3]);
+  // drip rails catching the light along the roof edges: they outline the box from the game camera
+  const RL = ROOF + 0.031, rz = (ZR - 0.01 + WS1 + 0.01) / 2, rlen = WS1 - ZR + 0.01;
+  for (const s of sides) flat(b, K.rail, [s * (CW + 0.002), RL, rz], '+y', 0.022, rlen, 0.001);
+  // bonnet panel between the wings
+  prismX(b, P2,[[WS0 + 0.012, BELT - 0.002], [ZF - 0.006, NOSE - 0.002], [ZF - 0.006, NOSE + 0.01], [WS0 + 0.012, BELT + 0.01]], -0.27, 0.27, [true, true], [0]);
+  // ---- glass: raked windscreen, three side windows (B and C pillars in paint), rear window over the spare
+  const ws = (t: number): [number, number] => [WS0 + (WS1 - WS0) * t, BELT + (ROOF - BELT) * t];
+  const wl = Math.hypot(ROOF - BELT, WS0 - WS1), wn: V3 = [0, (WS0 - WS1) / wl, (ROOF - BELT) / wl];
+  const off = (p: V3): V3 => [p[0] + wn[0] * 0.003, p[1] + wn[1] * 0.003, p[2] + wn[2] * 0.003];
+  const [za, ya] = ws(0.07), [zb, yb] = ws(0.93);
+  quad(b, K.glassF, off([-0.33, ya, za]), off([0.33, ya, za]), off([0.33, yb, zb]), off([-0.33, yb, zb]), wn);
+  const y0 = BELT + 0.045, y1 = ROOF - 0.035;
+  const aAt = (y: number) => WS0 + ((WS1 - WS0) * (y - BELT)) / (ROOF - BELT) - 0.035; // window edge along the A-pillar
+  for (const s of sides) {
+    const x = s * (CW + 0.002), o: V3 = [s, 0, 0];
+    quad(b, K.glass, [x, y0, -0.02], [x, y0, aAt(y0)], [x, y1, aAt(y1)], [x, y1, -0.02], o);
+    quad(b, K.glass, [x, y0, -0.43], [x, y0, -0.07], [x, y1, -0.07], [x, y1, -0.43], o);
+    quad(b, K.glass, [x, y0, ZR + 0.05], [x, y0, -0.48], [x, y1, -0.48], [x, y1, ZR + 0.05], o);
   }
-  // расширители арок
-  for (const z of [0.56, -0.56]) b.box(P2, [0, 0.37, z], [0.86, 0.11, 0.48]);
-  // морда: решётка, круглые фары, бампер с номером
-  b.box(P2, [0, 0.42, 0.875], [0.42, 0.2, 0.02]);
-  for (const y of [0.37, 0.42, 0.47]) flat(b, K.chrome, [0, y, 0.885], '+z', 0.4, 0.018);
-  for (const s of [-1, 1]) {
-    b.add(CYL8, K.chrome, [0.29 * s, 0.43, 0.878], [HALF_PI, 0, 0], [0.16, 0.03, 0.16]);
-    b.add(CYL8, K.lamp, [0.29 * s, 0.43, 0.893], [HALF_PI, 0, 0], [0.11, 0.004, 0.11]);
+  flat(b, K.glass, [0, 0.745, ZR], '-z', 0.6, 0.25, 0.002);
+  // ---- wheel arches: G 63 flares in satin black, as an arch band over each wheel
+  for (const zc of [AXF, AXR]) for (const s of sides) {
+    const xa = s > 0 ? BW - 0.01 : -BW - 0.055, xb = s > 0 ? BW + 0.055 : -BW + 0.01;
+    const caps: [boolean, boolean] = s > 0 ? [false, true] : [true, false];
+    const O = [[zc - 0.29, 0.17], [zc - 0.2, 0.465], [zc + 0.2, 0.465], [zc + 0.29, 0.17]] as [number, number][];
+    const I = [[zc - 0.235, 0.17], [zc - 0.165, 0.415], [zc + 0.165, 0.415], [zc + 0.235, 0.17]] as [number, number][];
+    for (let k = 0; k < 3; k++) prismX(b, P2, [O[k], O[k + 1], I[k + 1], I[k]], xa, xb, caps, [1, 2, 3]);
   }
-  b.box(K.ink, [0, 0.245, 0.89], [0.84, 0.16, 0.1]);
-  b.box(K.chromeD, [0, 0.33, 0.9], [0.84, 0.014, 0.08]);
-  plate(b, [0, 0.245, 0.946], '+z');
-  // корма: запаска на двери (чехол в цвет села), фонари, бампер с номером
-  b.add(CYL8, K.tyre, [0, 0.58, -0.93], [HALF_PI, 0, 0], [0.38, 0.12, 0.38]);
-  b.add(CYL8, team, [0, 0.58, -0.992], [HALF_PI, 0, 0], [0.31, 0.012, 0.31]);
-  flat(b, K.chrome, [0, 0.58, -0.998], '-z', 0.08, 0.08, 0.001);
-  for (const s of [-1, 1]) flat(b, K.tail, [0.345 * s, 0.43, -0.87], '-z', 0.08, 0.17);
-  b.box(K.ink, [0, 0.245, -0.89], [0.84, 0.16, 0.1]);
-  plate(b, [0, 0.245, -0.946], '-z');
-  // бока: подножки, ручки, зеркала, полоса в цвет села
-  b.box(team, [0, 0.47, 0.02], [0.806, 0.05, 1.46]);
-  for (const s of [-1, 1]) {
-    b.box(K.chromeD, [0.43 * s, 0.205, 0], [0.07, 0.025, 0.62]);
-    flat(b, K.chrome, [0.4 * s, 0.53, 0.18], s > 0 ? '+x' : '-x', 0.07, 0.018);
-    b.box(P, [0.44 * s, 0.66, 0.37], [0.08, 0.075, 0.09]);
+  // ---- wheels: black tyres, dark rims, a small hub
+  for (const z of [AXF, AXR]) for (const s of sides) {
+    b.add(TYRE, K.tyre, [0.36 * s, WR, z], [0, 0, HALF_PI], [WR * 2, 0.14, WR * 2]);
+    const c: V3 = [0.43 * s, WR, z];
+    disc(b, K.tyre, c, sideFace(s), WR, 8, 0, 0);
+    disc(b, K.rim, c, sideFace(s), WR * 0.68, 8, 0.004, 0);
+    disc(b, K.chromeD, c, sideFace(s), WR * 0.2, 5, 0.007);
   }
-  // крыша: рейлинги, люстра, антенна с флажком в цвет села
-  for (const s of [-1, 1]) b.box(K.chromeD, [0.33 * s, 0.97, -0.25], [0.025, 0.03, 1.1]);
-  b.box(K.ink, [0, 0.98, 0.33], [0.62, 0.05, 0.07]);
-  flat(b, K.lamp, [0, 0.98, 0.365], '+z', 0.56, 0.032);
-  b.box(K.ink, [-0.33, 1.06, -0.78], [0.012, 0.22, 0.012]);
-  b.box(team, [-0.33, 1.13, -0.85], [0.008, 0.08, 0.13]);
-  // колёса
-  for (const z of [0.56, -0.56]) for (const s of [-1, 1]) {
-    b.add(CYL8, K.tyre, [0.37 * s, 0.18, z], [0, 0, HALF_PI], [0.36, 0.14, 0.36]);
-    b.add(CYL6, K.rim, [0.385 * s, 0.18, z], [0, 0, HALF_PI], [0.22, 0.14, 0.22]);
+  // ---- морда: round lamps with LED rings, Panamericana grille (vertical slats, plain round badge),
+  // indicator pods on the ends of the wings, bumper with intakes, skid plate and the plate
+  for (const s of sides) {
+    const L: V3 = [0.29 * s, 0.415, ZF];
+    disc(b, K.chrome, L, '+z', 0.09, 8, 0.002);
+    disc(b, K.lamp, L, '+z', 0.074, 8, 0.004);
+    disc(b, K.lens, L, '+z', 0.04, 6, 0.006);
+    b.box(P, [0.335 * s, 0.522, 0.8], [0.07, 0.04, 0.12]);
+    flat(b, K.amber, [0.335 * s, 0.522, 0.86], '+z', 0.06, 0.03);
   }
+  flat(b, K.grille, [0, 0.425, ZF], '+z', 0.37, 0.16);
+  for (let i = 0; i < 7; i++) flat(b, K.chrome, [-0.15 + i * 0.05, 0.425, ZF], '+z', 0.012, 0.14, 0.004);
+  disc(b, K.chrome, [0, 0.425, ZF], '+z', 0.04, 8, 0.006);
+  prismX(b, K.trim, [[ZF - 0.005, 0.13], [ZF - 0.005, 0.34], [0.95, 0.34], [0.965, 0.31], [0.965, 0.13]], -0.42, 0.42, [true, true], [0, 4]);
+  flat(b, K.chromeD, [0, 0.15, 0.965], '+z', 0.56, 0.03);
+  for (const s of sides) flat(b, K.mesh, [0.31 * s, 0.245, 0.965], '+z', 0.14, 0.1);
+  plate(b, [0, 0.245, 0.965], '+z');
+  // ---- корма: spare on the side-hinged door (cover in the village colour), lamps, bumper with the plate
+  const sp: V3 = [0.05, 0.53, ZR - 0.065];
+  b.add(TYRE, K.tyre, sp, [HALF_PI, 0, 0], [0.4, 0.12, 0.4]);
+  disc(b, K.tyre, [sp[0], sp[1], ZR - 0.125], '-z', 0.2, 8, 0, 0);
+  disc(b, team, [sp[0], sp[1], ZR - 0.125], '-z', 0.17, 8, 0.002, 0);
+  disc(b, lift(team, 0.72), [sp[0], sp[1], ZR - 0.125], '-z', 0.105, 8, 0.004, 0);
+  disc(b, K.chrome, [sp[0], sp[1], ZR - 0.125], '-z', 0.035, 6, 0.006);
+  for (const s of sides) flat(b, K.tail, [0.345 * s, 0.39, ZR], '-z', 0.075, 0.12);
+  flat(b, K.chrome, [-0.2, 0.455, ZR], '-z', 0.07, 0.016);
+  prismX(b, K.trim, [[ZR, 0.13], [ZR, 0.31], [ZR - 0.06, 0.31], [ZR - 0.07, 0.29], [ZR - 0.07, 0.13]], -0.42, 0.42, [true, true], [0, 4]);
+  plate(b, [0, 0.22, ZR - 0.07], '-z');
+  // ---- бока: village-colour line, door shut lines, push-button handles, exposed hinges, running boards,
+  // side exhausts ahead of the rear wheels, mirrors
+  for (const s of sides) {
+    const f = sideFace(s), x = BW * s;
+    flat(b, team, [x, 0.49, -0.01], f, 1.64, 0.034);
+    for (const z of [0.335, -0.035, -0.445]) flat(b, K.seam, [x, (SILL + BELT) / 2, z], f, 0.008, BELT - SILL - 0.01);
+    for (const z of [0.0, -0.41]) flat(b, K.chrome, [x, 0.455, z], f, 0.06, 0.014, 0.003);
+    for (const y of [0.29, 0.44]) flat(b, K.chromeD, [x, y, 0.318], f, 0.022, 0.04, 0.003);
+    const xa = s > 0 ? BW - 0.02 : -BW - 0.07, xb = s > 0 ? BW + 0.07 : -BW + 0.02;
+    prismX(b, K.chromeD, [[-0.25, 0.165], [-0.25, 0.19], [0.3, 0.19], [0.3, 0.165]], xa, xb, s > 0 ? [false, true] : [true, false], [0, 2, 3]);
+    for (const z of [-0.175, -0.12]) {
+      disc(b, K.chrome, [s * (BW + 0.05), 0.125, z], f, 0.024, 6, 0);
+      disc(b, K.ink, [s * (BW + 0.05), 0.125, z], f, 0.014, 4, 0.002);
+    }
+    b.box(P, [0.425 * s, 0.615, 0.29], [0.06, 0.065, 0.1]);
+  }
+  // ---- антенна с флажком в цвет села
+  b.box(K.ink, [-0.3, 1.02, -0.74], [0.01, 0.2, 0.01]);
+  for (const f of ['+x', '-x'] as const) flat(b, team, [-0.3, 1.08, -0.81], f, 0.13, 0.08, 0.001);
 }
 
 // ---- Спортик (unit type 17) ---------------------------------------------------------------------
@@ -452,8 +585,8 @@ function gelikShared(side: 0 | 1) {
 }
 
 /**
- * Parked Гелик for decor: the unit model at ×1.0 (building scale; length 1.95, width 0.96 with mirrors,
- * height 1.17 to the antenna). Multiply by 1.7 to match the unit. The geometry is shared per side: don't dispose it.
+ * Parked Гелик for decor: the unit model at ×1.0 (building scale; length 1.94 with the spare, width 0.94 over the
+ * running boards, height 1.12 to the antenna). Multiply by 1.7 to match the unit. The geometry is shared per side: don't dispose it.
  */
 export function gelikProp(side: 0 | 1 = 1): THREE.Group {
   const g = new THREE.Group();

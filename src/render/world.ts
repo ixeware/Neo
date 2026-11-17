@@ -5,6 +5,7 @@ import { hash2 } from './terrainMesh';
 import type { Tin } from './lowpoly';
 import { treeGeometries, treeSpots } from './trees';
 import { Builder, PAL, houseGeometries, facadeTexture } from './models';
+import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
 import type { Pt } from '../sim/sim';
 
@@ -201,26 +202,186 @@ export function buildBridges(t: Terrain, parent: THREE.Object3D) {
   }
 }
 
-/** Mosque: dome on drum + minarets. */
-export function mosque(big: boolean): THREE.Group {
-  const b = new Builder();
-  const white = new THREE.Color('#f1ede4'), dome = new THREE.Color(big ? '#b9c7d2' : '#4f8a5b'), gold = new THREE.Color('#d6b04c');
-  const s = big ? 1.3 : 0.6;
-  b.box(white, [0, 0.5 * s, 0], [2.6 * s, 1.0 * s, 2.6 * s]);
-  b.add(new THREE.CylinderGeometry(0.9, 0.95, 0.5, 16), white, [0, 1.25 * s, 0], [0, 0, 0], [s, s, s]);
-  b.add(new THREE.SphereGeometry(0.95, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), dome, [0, 1.5 * s, 0], [0, 0, 0], [s, s * 1.15, s]);
-  b.add(new THREE.ConeGeometry(0.06, 0.4, 6), gold, [0, 2.75 * s, 0], [0, 0, 0], [s, s, s]);
-  const minarets = big ? [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]] : [[1.6, 1.4]];
-  for (const [x, z] of minarets) {
-    const h = big ? 4.4 : 3.6;
-    b.add(new THREE.CylinderGeometry(0.16, 0.2, h, 8), white, [x * s, (h / 2) * s, z * s], [0, 0, 0], [s, s, s]);
-    b.add(new THREE.CylinderGeometry(0.26, 0.2, 0.12, 8), white, [x * s, h * 0.78 * s, z * s], [0, 0, 0], [s, s, s]);
-    b.add(new THREE.ConeGeometry(0.18, 0.6, 8), dome, [x * s, (h + 0.3) * s, z * s], [0, 0, 0], [s, s, s]);
+// ---- mosques ---------------------------------------------------------------------------
+// After photos of the Шали mosque «Гордость мусульман» (white marble, pale domes with gold finials,
+// four slender minarets with two balconies each, a tall portal with a pointed-arch niche), the
+// brick village mosques around Атаги (yellow brick, green profiled-metal hip roof, one brick minaret
+// with a green spire) and the Ottoman-style Курчалой central mosque (cream stone, lead-grey domes,
+// pencil minarets with red rings). Front (entrance) is +z; one vertex-coloured mesh each.
+const MC = {
+  marble: new THREE.Color('#f4f1ea'), marble2: new THREE.Color('#e4dfd4'), domeW: new THREE.Color('#cfe2ec'),
+  gold: new THREE.Color('#d9b24a'), win: new THREE.Color('#41556a'), niche: new THREE.Color('#e9dcb8'), door: new THREE.Color('#5a4632'),
+  brick: new THREE.Color('#c88a57'), brick2: new THREE.Color('#b57849'), trim: new THREE.Color('#efe8da'), green: new THREE.Color('#2f7f63'),
+  stone: new THREE.Color('#e8dcc3'), lead: new THREE.Color('#7c8794'), ring: new THREE.Color('#b8342a'), pave: new THREE.Color('#d9d3c6'),
+};
+const cyl = (n: number, open = false) => new THREE.CylinderGeometry(0.5, 0.5, 1, n, 1, open);
+const MG = {
+  c6: cyl(6), c8: cyl(8), c8o: cyl(8, true), c12o: cyl(12, true), c16o: cyl(16, true),
+  cone4: new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1, true).rotateY(Math.PI / 4), cone8: new THREE.ConeGeometry(0.5, 1, 8, 1, true),
+  hemi16: new THREE.SphereGeometry(1, 16, 5, 0, Math.PI * 2, 0, Math.PI / 2), hemi12: new THREE.SphereGeometry(1, 12, 4, 0, Math.PI * 2, 0, Math.PI / 2),
+  hemi8: new THREE.SphereGeometry(1, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2), ico: new THREE.IcosahedronGeometry(0.5, 0),
+};
+type P3 = [number, number, number];
+/** Gold finial: a small ball and a spike, standing on y. */
+function finial(b: Builder, x: number, y: number, z: number, s = 1) {
+  b.add(MG.ico, MC.gold, [x, y + 0.04 * s, z], [0, 0, 0], [0.09 * s, 0.09 * s, 0.09 * s]);
+  b.add(MG.cone8, MC.gold, [x, y + 0.17 * s, z], [0, 0, 0], [0.05 * s, 0.22 * s, 0.05 * s]);
+}
+/** Arched openings around a vertical n-gon tube of radius r (one per face). */
+function ringArches(b: Builder, c: THREE.Color, x: number, y: number, z: number, r: number, n: number, w: number, h: number, every = 1) {
+  const ap = r * Math.cos(Math.PI / n);
+  for (let k = 0; k < n; k += every) {
+    const a = ((k + 0.5) / n) * Math.PI * 2;
+    archAt(b, c, [x + Math.sin(a) * ap, y, z + Math.cos(a) * ap], a, w, h, 0.004);
   }
-  if (big) for (const [x, z] of [[-0.95, 0], [0.95, 0], [0, -0.95], [0, 0.95]]) b.add(new THREE.SphereGeometry(0.42, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), dome, [x * s, 1.0 * s, z * s], [0, 0, 0], [s, s, s]);
-  const m = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
+/** Box without its bottom face (10 tris). */
+function slab(b: Builder, c: THREE.Color, p: P3, s: P3) {
+  const [x, y, z] = p, [hx, hy, hz] = [s[0] / 2, s[1] / 2, s[2] / 2];
+  const x0 = x - hx, x1 = x + hx, y0 = y - hy, y1 = y + hy, z0 = z - hz, z1 = z + hz;
+  quad(b, c, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], [0, 1, 0]);
+  quad(b, c, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1]);
+  quad(b, c, [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], [0, 0, -1]);
+  quad(b, c, [x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], [1, 0, 0]);
+  quad(b, c, [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0]);
+}
+/** Hip roof over a w × d rectangle at y0, ridge along x (6 tris). */
+function hip(b: Builder, c: THREE.Color, x: number, y0: number, z: number, w: number, d: number, h: number, ridge: number) {
+  const A: P3 = [x - w / 2, y0, z + d / 2], B: P3 = [x + w / 2, y0, z + d / 2], C: P3 = [x + w / 2, y0, z - d / 2], D: P3 = [x - w / 2, y0, z - d / 2];
+  const R0: P3 = [x - ridge / 2, y0 + h, z], R1: P3 = [x + ridge / 2, y0 + h, z];
+  quad(b, c, A, B, R1, R0, [0, 1, 1]);
+  quad(b, c, C, D, R0, R1, [0, 1, -1]);
+  tri(b, c, B, C, R1, [1, 1, 0]);
+  tri(b, c, D, A, R0, [-1, 1, 0]);
+}
+/** Dome on a drum: the drum is an open n-gon with arched windows, the dome a faceted hemisphere. */
+function domeOn(b: Builder, x: number, y: number, z: number, r: number, drumH: number, dome: THREE.Color, drum: THREE.Color, big: boolean, rise = 1.1) {
+  if (drumH > 0) {
+    b.add(big ? MG.c16o : MG.c12o, drum, [x, y + drumH / 2, z], [0, 0, 0], [r * 2, drumH, r * 2]);
+    ringArches(b, MC.win, x, y + drumH * 0.5, z, r, big ? 16 : 12, r * 0.22, drumH * 0.62, 2);
+  }
+  b.add(big ? MG.hemi16 : r > 0.3 ? MG.hemi12 : MG.hemi8, dome, [x, y + drumH, z], [0, 0, 0], [r * 1.02, r * rise, r * 1.02]);
+  finial(b, x, y + drumH + r * rise - 0.01, z, Math.max(0.5, r * 1.1));
+}
+
+/** Шали «Гордость мусульман»: footprint about 4.3 × 5.0, minarets 6.4 high. */
+function shaliMosque(b: Builder) {
+  const M = MC.marble;
+  slab(b, MC.pave, [0, 0.06, 0.25], [4.4, 0.12, 5.0]);
+  // prayer hall and the cornice
+  slab(b, M, [0, 0.72, -0.15], [2.9, 1.2, 2.9]);
+  slab(b, MC.marble2, [0, 1.35, -0.15], [3.0, 0.07, 3.0]);
+  // arcades on three sides (pointed arches)
+  for (const s of [-1, 1]) {
+    slab(b, M, [s * 1.73, 0.5, -0.15], [0.56, 0.76, 2.9]);
+    for (let k = 0; k < 5; k++) archAt(b, MC.win, [s * 2.01, 0.47, -1.25 + k * 0.55], s * Math.PI / 2, 0.3, 0.5);
+  }
+  slab(b, M, [0, 0.5, 1.58], [4.02, 0.76, 0.56]);
+  for (const x of [-1.6, -1.05, 1.05, 1.6]) archAt(b, MC.win, [x, 0.47, 1.86], 0, 0.3, 0.5);
+  // the hall's own windows: a clerestory row over the arcades, tall arches on the qibla wall
+  for (const s of [-1, 1]) for (const z of [-1.05, -0.5, 0.05, 0.6]) archAt(b, MC.win, [s * 1.45, 1.1, z - 0.15], s * Math.PI / 2, 0.16, 0.34);
+  for (const x of [-1.0, -0.5, 0, 0.5, 1.0]) archAt(b, MC.win, [x, 0.75, -1.6], Math.PI, 0.2, 0.62);
+  // the portal: a tall block with a pointed-arch niche, gold frame, door
+  slab(b, M, [0, 0.98, 1.75], [1.25, 1.72, 0.5]);
+  slab(b, MC.marble2, [0, 1.87, 1.75], [1.31, 0.06, 0.56]);
+  archAt(b, MC.gold, [0, 0.98, 2.0], 0, 0.94, 1.42, 0.003);
+  archAt(b, MC.niche, [0, 0.95, 2.0], 0, 0.8, 1.3, 0.006);
+  archAt(b, MC.door, [0, 0.42, 2.0], 0, 0.34, 0.56, 0.009);
+  // main dome on a drum, four smaller domes at the corners of the hall roof
+  domeOn(b, 0, 1.38, -0.15, 0.8, 0.42, MC.domeW, M, true, 1.12);
+  for (const [x, z] of [[-0.98, -1.13], [0.98, -1.13], [-0.98, 0.83], [0.98, 0.83]]) domeOn(b, x, 1.38, z, 0.34, 0.14, MC.domeW, M, false, 1.05);
+  // four minarets: square foot, octagonal shaft, two balconies, a lantern with arches, a small dome
+  for (const [x, z] of [[-1.98, -1.95], [1.98, -1.95], [-1.98, 2.45], [1.98, 2.45]]) {
+    slab(b, M, [x, 0.62, z], [0.5, 1.0, 0.5]);
+    b.add(MG.c8o, M, [x, 2.62, z], [0, 0, 0], [0.3, 3.0, 0.3]);
+    b.add(MG.c8o, M, [x, 4.72, z], [0, 0, 0], [0.25, 1.2, 0.25]);
+    for (const [y, r] of [[4.12, 0.5], [5.32, 0.44]]) {
+      b.add(MG.c8, M, [x, y, z], [0, 0, 0], [r, 0.12, r]);
+      b.add(MG.c8o, MC.gold, [x, y + 0.1, z], [0, 0, 0], [r * 0.98, 0.07, r * 0.98]);
+    }
+    b.add(MG.c8o, M, [x, 5.6, z], [0, 0, 0], [0.24, 0.42, 0.24]);
+    ringArches(b, MC.win, x, 5.6, z, 0.12, 8, 0.06, 0.24, 2);
+    domeOn(b, x, 5.81, z, 0.14, 0, MC.domeW, M, false, 1.4);
+  }
+}
+
+/** Village mosque of Атаги: brick hall under a green hip roof, corner turrets, one brick minaret. */
+function brickMosque(b: Builder) {
+  const B = MC.brick;
+  slab(b, MC.pave, [0, 0.05, 0.05], [1.85, 0.1, 1.6]);
+  slab(b, B, [0, 0.48, 0], [1.6, 0.76, 1.3]);
+  slab(b, MC.trim, [0, 0.89, 0], [1.68, 0.06, 1.38]);
+  hip(b, MC.green, 0, 0.92, 0, 1.78, 1.48, 0.36, 0.5);
+  // tall arched windows with a white surround, the door under a green canopy
+  const win = (p: P3, ry: number) => { archAt(b, MC.trim, p, ry, 0.19, 0.42, 0.003); archAt(b, MC.win, p, ry, 0.13, 0.35, 0.006); };
+  for (const x of [-0.45, 0, 0.45]) win([x, 0.5, -0.65], Math.PI);
+  for (const x of [-0.45, 0.45]) win([x, 0.5, 0.65], 0);
+  for (const s of [-1, 1]) for (const z of [-0.3, 0.3]) win([s * 0.8, 0.5, z], s * Math.PI / 2);
+  archAt(b, MC.door, [0, 0.36, 0.65], 0, 0.26, 0.5, 0.006);
+  slab(b, MC.green, [0, 0.66, 0.78], [0.42, 0.04, 0.26]);
+  // corner turrets with green caps
+  for (const [x, z] of [[0.8, 0.65], [0.8, -0.65], [-0.8, -0.65]]) {
+    slab(b, MC.brick2, [x, 0.6, z], [0.16, 1.0, 0.16]);
+    b.add(MG.cone4, MC.green, [x, 1.2, z], [0, 0, 0], [0.18, 0.2, 0.18]);
+    finial(b, x, 1.28, z, 0.45);
+  }
+  // the minaret on the front-left corner: square foot, octagonal brick shaft, balcony, lantern, green spire
+  const mx = -0.86, mz = 0.72;
+  slab(b, MC.brick2, [mx, 0.55, mz], [0.34, 1.1, 0.34]);
+  slab(b, MC.trim, [mx, 1.12, mz], [0.38, 0.05, 0.38]);
+  b.add(MG.c8o, B, [mx, 1.5, mz], [0, 0, 0], [0.26, 0.76, 0.26]);
+  b.add(MG.c8, MC.trim, [mx, 1.9, mz], [0, 0, 0], [0.4, 0.05, 0.4]);
+  b.add(MG.c8o, MC.lead, [mx, 1.96, mz], [0, 0, 0], [0.39, 0.08, 0.39]);
+  b.add(MG.c8o, B, [mx, 2.07, mz], [0, 0, 0], [0.22, 0.3, 0.22]);
+  ringArches(b, MC.win, mx, 2.07, mz, 0.11, 8, 0.05, 0.17, 2);
+  b.add(MG.cone8, MC.green, [mx, 2.42, mz], [0, 0, 0], [0.3, 0.42, 0.3]);
+  finial(b, mx, 2.62, mz, 0.6);
+}
+
+/** Курчалой: Ottoman-style hall with a lead dome on a drum, small corner domes, a domed portico, two pencil minarets. */
+function ottomanMosque(b: Builder) {
+  const S = MC.stone;
+  slab(b, MC.pave, [0, 0.05, 0.1], [2.15, 0.1, 2.25]);
+  slab(b, S, [0, 0.48, -0.2], [1.5, 0.76, 1.5]);
+  slab(b, MC.marble2, [0, 0.88, -0.2], [1.56, 0.05, 1.56]);
+  for (const s of [-1, 1]) for (const z of [-0.6, -0.2, 0.2]) archAt(b, MC.win, [s * 0.75, 0.52, z], s * Math.PI / 2, 0.14, 0.3);
+  for (const x of [-0.4, 0, 0.4]) archAt(b, MC.win, [x, 0.52, -0.95], Math.PI, 0.14, 0.3);
+  domeOn(b, 0, 0.9, -0.2, 0.52, 0.2, MC.lead, S, false, 1.0);
+  for (const [x, z] of [[-0.52, -0.72], [0.52, -0.72], [-0.52, 0.32], [0.52, 0.32]]) domeOn(b, x, 0.9, z, 0.19, 0.07, MC.lead, S, false, 0.95);
+  // portico: three arches, three small domes
+  slab(b, S, [0, 0.36, 0.78], [1.5, 0.52, 0.46]);
+  for (const x of [-0.45, 0, 0.45]) archAt(b, MC.win, [x, 0.33, 1.01], 0, 0.28, 0.4);
+  for (const x of [-0.45, 0, 0.45]) domeOn(b, x, 0.62, 0.78, 0.16, 0, MC.lead, S, false, 0.9);
+  // two pencil minarets at the front corners: stone foot, white shaft, two balconies over red rings, lead cone
+  for (const s of [-1, 1]) {
+    const x = s * 0.98, z = 0.62;
+    slab(b, S, [x, 0.4, z], [0.26, 0.6, 0.26]);
+    b.add(MG.cone4, S, [x, 0.79, z], [0, 0, 0], [0.26, 0.18, 0.26]);
+    b.add(MG.c8o, MC.marble, [x, 1.5, z], [0, 0, 0], [0.15, 1.5, 0.15]);
+    for (const y of [1.45, 1.95]) {
+      b.add(MG.c8o, MC.ring, [x, y - 0.06, z], [0, 0, 0], [0.16, 0.03, 0.16]);
+      b.add(MG.c8, MC.marble, [x, y, z], [0, 0, 0], [0.24, 0.06, 0.24]);
+    }
+    b.add(MG.cone8, MC.lead, [x, 2.43, z], [0, 0, 0], [0.16, 0.42, 0.16]);
+    finial(b, x, 2.62, z, 0.45);
+  }
+}
+
+let mosqueMat: THREE.Material | null = null;
+/**
+ * Mosque model. `big`: the Шали «Гордость мусульман». Otherwise a village mosque: `style` 0 (default) is
+ * the brick-and-green-roof kind of the Атаги villages, 1 the Ottoman-style Курчалой one. Entrance faces +z.
+ * `userData.tris` has the triangle count (Шали ≈ 3.2k, village ones under 1k).
+ */
+export function mosque(big: boolean, style: 0 | 1 = 0): THREE.Group {
+  const b = new Builder();
+  if (big) shaliMosque(b); else if (style === 1) ottomanMosque(b); else brickMosque(b);
+  const geo = b.build();
+  mosqueMat ??= new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const m = new THREE.Mesh(geo, mosqueMat);
   m.castShadow = true; m.receiveShadow = true;
   const g = new THREE.Group(); g.add(m);
+  g.userData.tris = geo.attributes.position.count / 3;
   return g;
 }
 
@@ -241,10 +402,11 @@ export class HqBuilding {
     this.fh = side === 0 ? 1.0 : 0.84;
     this.len = side === 0 ? 4.8 : 7.8;
     this.dep = side === 0 ? 3.0 : 2.2;
-    const tex = facadeTexture(side === 0 ? 'brick' : 'panel', side);
-    tex.repeat.set(side === 0 ? 1.4 : 2.2, 1);
-    const end = facadeTexture(side === 0 ? 'brick' : 'panel', side);
-    end.repeat.set(side === 0 ? 0.9 : 0.6, 1);
+    // front / back: brick — the whole front once, stairwell over the one entrance; panel — one section
+    // per entrance (4), stairwell over each canopy. Ends: three windows / the blind panel wall.
+    const tex = facadeTexture(side === 0 ? 'brick' : 'panel', side, 'long');
+    tex.repeat.set(side === 0 ? 1 : 4, 1);
+    const end = facadeTexture(side === 0 ? 'brick' : 'panel', side, 'end');
     const plain = new THREE.MeshLambertMaterial({ color: side === 0 ? '#9b5236' : '#d9d3c5' });
     this.mats = [new THREE.MeshLambertMaterial({ map: end }), new THREE.MeshLambertMaterial({ map: end }), plain, plain, new THREE.MeshLambertMaterial({ map: tex }), new THREE.MeshLambertMaterial({ map: tex })];
     this.roof = new THREE.Group();

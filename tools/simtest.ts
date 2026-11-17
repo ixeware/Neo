@@ -1055,6 +1055,8 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
   let okB = true, okC = true;
   const tC = performance.now();
   for (let i = 0; i < 3000; i++) {
+    if (i === 250) Cs.flowCap = ORD_FLOWS; // a 1-field cache for the first 250 ticks (evicts all the time), then cold caches now and then
+    if (i === 1500 || i === 2500) (Cs as unknown as { oflows: Map<number, unknown> }).oflows.clear();
     B.step(net.get(B.st.tick)); Cs.step(structuredClone(ref.at.get(Cs.st.tick)));
     if (i % 100 === 99) {
       if (hashState(B.st) !== ref.hashes[(i - 99) / 100]) okB = false;
@@ -1063,7 +1065,7 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
     }
   }
   check(`random ord / ctl streams (${ref.ords} ord, ${ref.ctls} ctl, ${withOrd} units under orders at the end): JSON restores, commands through JSON`, okB);
-  check('… structuredClone restores with a 1-field flow cache (eviction changes nothing)', okC, `${A.flowBuilds} builds with the cache of ${A.flowCap}, ${Cs.flowBuilds} with 1; B+C ${(performance.now() - tC).toFixed(0)} ms`);
+  check('… structuredClone restores, a 1-field then cleared flow cache (eviction changes nothing)', okC, `${A.flowBuilds} builds with the cache of ${A.flowCap}, ${Cs.flowBuilds} with 1 / cleared; B+C ${(performance.now() - tC).toFixed(0)} ms`);
   // D: a Session — every other command arrives 1..25 ticks late and forces a rollback
   const D = new Sim(terrain); D.load(JSON.parse(json0) as State); D.quiet = true;
   const backend: Backend = { kind: 'local', send() { /* nobody else */ }, checkpoint() { /* not stored */ } };

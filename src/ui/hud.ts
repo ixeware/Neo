@@ -188,7 +188,7 @@ export class Hud {
     const mini = h('div', 'mini paper');
     this.miniEl = mini;
     this.miniCanvas = h('canvas') as HTMLCanvasElement;
-    this.miniCanvas.width = 456; this.miniCanvas.height = 312;
+    this.miniCanvas.width = 456; this.miniCanvas.height = 353; // the map is 398 × 308 (z0 = −36): every CSS size below keeps 1.292
     mini.append(this.miniCanvas);
 
     this.vote = h('div', 'vote paper');

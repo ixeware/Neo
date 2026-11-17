@@ -95,7 +95,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
    --mini-w, --mini-h, --vote-h (an open сход), --side-h (the right side slip). The bottom cluster stacks on them:
    the deck at the bottom, the bank and the command bar on top of it (the minimap beside it, or above it on narrow
    screens), the chat and the hint above those — so nothing depends on a guessed offset. */
-#hud { position: absolute; inset: 0; pointer-events: none; --deck-h: 191px; --cards-h: 150px; --bank-h: 72px; --bank-w: 124px; --mini-w: 239px; --mini-h: 167px; --vote-h: 0px; --side-h: 60px; }
+#hud { position: absolute; inset: 0; pointer-events: none; --deck-h: 191px; --cards-h: 150px; --bank-h: 72px; --bank-w: 124px; --mini-w: 239px; --mini-h: 187px; --vote-h: 0px; --side-h: 60px; }
 /* Slips take taps; :where() keeps this at zero specificity, so the click-through layers below (.feed, .hint, .banner,
    .tip, .ach-toast and the containers .top, .deck, .cmdbar, .fp-hud) really are click-through. */
 :where(#hud) > * { pointer-events: auto; }
@@ -222,7 +222,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .evchip .ef { grid-column: 1 / -1; font-family: var(--f-hand); font-weight: 700; font-size: 18px; line-height: 1; }
 
 .mini { position: absolute; right: var(--edge-r); bottom: var(--edge-b); padding: 4px; }
-.mini canvas { display: block; width: 228px; height: 156px; cursor: crosshair; touch-action: none; }
+.mini canvas { display: block; width: 228px; height: 176px; cursor: crosshair; touch-action: none; }
 
 /* сход: under the right side slip, never down into the minimap (it scrolls instead) */
 .vote { position: absolute; right: var(--edge-r); top: calc(var(--edge-t) + 96px); width: 300px; box-sizing: border-box; max-height: calc(100% - var(--edge-t) - 96px - var(--edge-b) - max(var(--mini-h), var(--deck-h)) - 12px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 10px 12px 12px; display: grid; align-content: start; gap: 8px; }
@@ -430,7 +430,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .card.away .st { font-size: 8.5px; padding: 2px 3px; }
   .card.sel { transform: translateY(-6px); }
   .mini { bottom: calc(var(--edge-b) + var(--cards-h) + 4px); }
-  .mini canvas { width: 132px; height: 90px; }
+  .mini canvas { width: 124px; height: 96px; }
   /* сход: full width, right above the bank and the minimap; the options stand in one row, so the sheet stays short */
   .vote, #hud.has-sel .vote { left: var(--edge-l); right: var(--edge-r); width: auto; top: auto; bottom: calc(var(--edge-b) + var(--stack) + 8px); max-height: calc(100% - var(--feed-top) - var(--edge-b) - var(--stack) - 8px); padding: 7px 9px 9px; gap: 5px; z-index: 2; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .vote > :not(.opt) { grid-column: 1 / -1; }
@@ -469,7 +469,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 /* the narrowest phones: slimmer tabs and minimap, so the minimap still clears the tabs */
 @media (max-width: 359px) and (min-height: 501px) {
   .tab { padding: 0 10px; font-size: 12.5px; }
-  .mini canvas { width: 118px; height: 81px; }
+  .mini canvas { width: 106px; height: 82px; }
 }
 /* narrow phones: the side slips and the clock shrink so the top row never overlaps */
 @media (max-width: 380px) {
@@ -515,7 +515,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .bank { bottom: calc(var(--edge-b) + var(--deck-h) + 6px); padding: 4px 9px 5px; }
   .bank .money { font-size: 18px; } .bank .inc { font-size: 15px; }
   .mini { bottom: var(--edge-b); }
-  .mini canvas { width: 150px; height: 102px; }
+  .mini canvas { width: 132px; height: 102px; }
   .feed, #hud.has-sel .feed { top: calc(var(--edge-t) + 102px); bottom: auto; max-height: calc(100% - var(--edge-t) - 102px - var(--edge-b) - var(--deck-h) - 6px - var(--bank-h) - 8px); align-content: start; width: min(360px, 46vw); }
   .feed .hd { display: none; }
   .feed .msg:nth-last-child(n+3) { display: none; }
@@ -544,7 +544,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 @media (min-width: 761px) and (max-width: 1023px) and (min-height: 501px) {
   .deck { left: var(--edge-l); right: var(--edge-r); }
   .mini { bottom: calc(var(--edge-b) + var(--deck-h) + 8px); }
-  .mini canvas { width: 200px; height: 137px; }
+  .mini canvas { width: 200px; height: 155px; }
   .hint { bottom: calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px); max-width: min(640px, 90vw); }
   #hud.has-sel .hint { left: auto; right: var(--edge-r); transform: none; text-align: right; bottom: calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px + var(--cb-h, 48px) + 10px); max-width: calc(100vw - var(--edge-l) - var(--edge-r) - min(330px, 46vw) - 16px); }
   #hud.has-sel .feed { bottom: max(calc(var(--edge-b) + var(--deck-h) + var(--bank-h) + 16px), calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px + var(--cb-h, 48px) + 8px)); }

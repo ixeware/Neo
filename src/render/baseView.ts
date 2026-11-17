@@ -122,7 +122,7 @@ export class BaseView {
   private rings: THREE.Mesh[] = [];
   private ringKey = ['', '', '', '', ''];
   private ghostMesh: THREE.InstancedMesh | null = null; private ghostT = -1; private ghostKey = '';
-  private ghostMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.62, depthWrite: false });
+  private ghostMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.78, depthWrite: false });
   private zaps: Zap[] = []; private zapMesh: THREE.InstancedMesh;
   private melons: Melon[] = [];
   private m4 = new THREE.Matrix4(); private q = new THREE.Quaternion(); private v = new THREE.Vector3(); private s = new THREE.Vector3(); private right = new THREE.Vector3();

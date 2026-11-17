@@ -284,7 +284,7 @@ async function boot() {
     heroSay(t, s, 'idle', 0);
     return true;
   };
-  const donerName = () => (prefs.spicy ? DONER.spicy : DONER.clean);
+  const donerName = () => DONER.clean; // one name, 18+ or not
   // tips: the new ones (heroes, Донер Бей, rides) first, then everything in a shuffled loop
   const shuffle = <T,>(a: T[]) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   let hintQ = [...shuffle(HINTS.slice(7)), ...shuffle(HINTS.slice(0, 7))];

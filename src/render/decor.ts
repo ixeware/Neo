@@ -358,7 +358,7 @@ export function buildDecor(parent: THREE.Object3D, sim: Sim, view?: DecorView): 
     setSpicy(on: boolean) {
       if (spicy === on) return;
       spicy = on;
-      db.setSign((on ? DONER.spicy : DONER.clean).toUpperCase());
+      db.setSign(DONER.clean.toUpperCase()); // one name, 18+ or not
     },
   };
 }

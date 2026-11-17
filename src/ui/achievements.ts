@@ -5,11 +5,11 @@
 // that can be read from state is checked there. fx() sees the events the sim emitted while not
 // quiet; absent, bird55, chicken, and from v3 thief, pack and snus need them.
 //
-// v3 (Гелик, Спортики, places with perks, ersno's «переводы», the admin's pack, «Закинуть снюс»):
+// v3 (Гелик, Спортики, places with perks, Мохьмад's (ersno) «переводы», the admin's pack, «Закинуть снюс»):
 // the sim fields and events may be missing in an older sim, so every read of them is optional
 // and the FxEv 'steal' / 'pack' are matched loosely by their `e` string.
 import { ACHIEVEMENTS, GELIK_T, SPORTIK_T, type Achievement } from '../data/heroes';
-import { HQ, WOU, ADAM, BEKHAN, ERSNO, CHIMAEV, GOLEM, CHICKEN, UNITS, type Side } from '../sim/defs';
+import { HQ, WOU, ADAM, BEKHAN, ERSNO, CHIMAEV, GOLEM, CHICKEN, AMINA, UNITS, type Side } from '../sim/defs';
 import { PT_DONER, UF, type FxEv, type Sim } from '../sim/sim';
 
 const KEY = 'vysotka.ach.v1';
@@ -60,6 +60,8 @@ export class Achievements {
   private owners: number[] = [];
   private donerSince = -1;
   private bossId = -1; private bossX = 0; private bossZ = 0;
+  /** «Танк Атагов»: our Амина came out in the first 3 min of a war watched from its start / has fallen since. */
+  private aminaOn = false; private aminaFell = false;
   // per life
   private wouId = -1; private wouHp = 0; private wouDmg = 0;
   private adamId = -1; private adamCaps = 0;
@@ -86,6 +88,7 @@ export class Achievements {
     this.stolen = 0; this.snusWar = false; this.prevSnus = (st.sides[me] as { snus?: number }).snus ?? 0;
     this.owners = st.pts.map(p => p.owner);
     this.donerSince = -1; this.bossId = -1;
+    this.aminaOn = false; this.aminaFell = false;
     this.wouId = -1; this.adamId = -1; this.bekId = -1; this.lagAt = -1;
   }
 
@@ -116,6 +119,13 @@ export class Achievements {
     }
     this.floors[0] = st.sides[0].floors; this.floors[1] = st.sides[1].floors;
     if (me === 0 && sd.floors >= 4) this.unlock('floor4');
+
+    // Амина: out in the first 3 minutes, never down until the war ends (away «на парах» does not count as down)
+    if (me === 0 && this.full && !this.aminaFell && sd.hero && sd.hero.length > AMINA) {
+      const a = sd.hero[AMINA];
+      if (!this.aminaOn) { if (a >= 0 && now - this.warStart <= 1800) this.aminaOn = true; }
+      else if (a === -1 || sd.heroCd[AMINA] > now) this.aminaFell = true;
+    }
 
     if (st.winner !== -1) {
       if (this.winner === -1) this.victory(st.winner);
@@ -205,6 +215,7 @@ export class Achievements {
   private victory(w: number) {
     const st = this.sim!.st, me = this.me;
     const dur = this.warStart >= 0 ? st.overAt - this.warStart : -1;
+    if (this.aminaOn && !this.aminaFell && st.sides[me].hero[AMINA] !== -1) this.unlock('tank');
     if (w === me) {
       if (dur >= 0 && dur < MIN8) this.unlock('obvious');
       if (this.full && !this.lostFloor) this.unlock('lightest');
@@ -242,7 +253,7 @@ export class Achievements {
     }
   }
 
-  /** ersno's «переводы» and the admin's pack («Курение убивает»). */
+  /** Мохьмад's (ersno) «переводы» and the admin's pack («Курение убивает»). */
   private fxV3(e: V3Ev) {
     const sim = this.sim!, me = this.me;
     if (e.s !== me) return;

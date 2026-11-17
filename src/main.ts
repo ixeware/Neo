@@ -53,12 +53,13 @@ const WHO: Record<string, { name: string; side: number }> = {
   bekhan: { name: 'Бекхан', side: 0 },
   wou: { name: 'Амин', side: -1 },
   admin: { name: 'админ', side: -1 },
-  ersno: { name: 'ersno', side: -1 },
+  ersno: { name: 'Мохьмад', side: -1 }, // ersno и есть Мохьмад
+  amina: { name: 'Амина', side: 0 },
   adam: { name: 'Адам', side: -1 },
   mohmad: { name: 'Мохьмад', side: -1 },
 };
 const WHO_RE: [RegExp, string][] = [
-  [/^Ислам/, 'islam'], [/^(Качок )?Зураб/, 'zurab'], [/^Чимаев/, 'chimaev'], [/^Бекхан/, 'bekhan'], [/^(Амин|WOU)/, 'wou'],
+  [/^Ислам/, 'islam'], [/^(Качок )?Зураб/, 'zurab'], [/^Чимаев/, 'chimaev'], [/^Бекхан/, 'bekhan'], [/^Амина/, 'amina'], [/^(Амин|WOU)/, 'wou'],
   [/^админ/i, 'admin'], [/^ersno/, 'ersno'], [/^Адам/, 'adam'], [/^Мохьмад/, 'mohmad'],
 ];
 const pickOne = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
@@ -371,7 +372,7 @@ async function boot() {
         if (n <= 0) break;
         const v = (1 - s) as Side, card = e.k === 'card';
         if (card) {
-          if (v === side) hud.banner('Списание с карты', `ersno увёл ${n} ₽ из нашей кассы`, s, 2400);
+          if (v === side) hud.banner('Списание с карты', `Мохьмад увёл ${n} ₽ из нашей кассы`, s, 2400);
           sayLine(heroLine('ersno', 'steal', prefs.spicy), pr(v), undefined, 1200);
         } else if (v === side && cool('steal', 30000)) sayLine(heroLine('ersno', 'steal', prefs.spicy), 1);
         if (e.x !== undefined && e.z !== undefined) {
@@ -600,6 +601,7 @@ async function boot() {
           else if (e.key === 'lagman') { if (close) sound.slurp(); heroSay(e.t, e.s, 'ability'); }
           else if (e.key === 'bolt') { if (close) sound.whoosh(); if (cool('bolt' + e.s, 25000)) heroSay(e.t, e.s, 'ability', e.s === side ? 1 : 0); }
           else if (e.key === 'card') { if (cool('card' + e.s, 10000)) heroSay(ERSNO, e.s, 'ability'); }
+          else if (e.key === 'slam') { if (close) sound.quake(); if (cool('slam' + e.s, 9000)) heroSay(e.t, e.s, 'ability', e.s === side ? 2 : 1); } // Амина «Плюхнулась»
           // golem → 'summon', hack → 'hack', n → 'stunN' follow with the details
           break;
         }

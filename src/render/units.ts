@@ -27,7 +27,7 @@ const MARK_MAX = 200;
 export const US = 1.7;
 export const BS = 1.45; // units read better a bit larger than true scale
 
-const isHero = (t: number) => t >= 6 && t <= 12;
+const isHero = (t: number) => !!UNITS[t]?.hero; // 6..12 and Амина (18): ring + chevron, few instances
 /** Instances per side and type: heroes are unique per side, summons and rides are few. */
 const capFor = (t: number) => (isHero(t) ? 4 : t === 13 ? 8 : t === 14 ? 40 : t === 16 ? 6 : CAP);
 /** Cars move without the walk cycle (no lean or roll, a low bob). */

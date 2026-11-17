@@ -225,7 +225,7 @@ export class BaseView {
       v.turn.rotation.y = v.yaw;
       // damage: a lean under two thirds, smoke under a third
       v.body.rotation.z = hpK < 0.66 ? (hpK < 0.33 ? 0.09 : 0.045) : 0;
-      if (hpK < 0.33 && now > v.smoke) { v.smoke = now + 500; this.particles.emit(b.x, v.g.position.y + v.h * 0.8, b.z, { n: 2, color: '#4a4650', size: 0.5, life: 1.3, spread: 0.4, up: 1.4, grav: -0.2, grow: 1 }); }
+      if (hpK < 0.33 && now > v.smoke) { v.smoke = now + 500; this.particles.emit(b.x, v.g.position.y + v.h * 0.8, b.z, { n: 1, color: '#6a6672', size: 0.36, life: 1.2, spread: 0.3, up: 1.3, grav: -0.2, grow: 0.8 }); }
       if (hpK < 1 || b.id === this.selected) this.bar(b.x, v.g.position.y + v.h + 0.4 * zoomK, b.z, 1.6 * zoomK, hpK, hpK < 0.35 ? C.danger : hpK < 0.66 ? C.gold : C.heal);
     }
     for (const [id, v] of this.views) if (v.stamp !== this.frame) { this.drop(v); this.views.delete(id); }

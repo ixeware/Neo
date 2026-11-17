@@ -34,6 +34,8 @@ export class Session {
   catchingUp = false;
   onStep?: () => void;
   onRollback?: () => void;
+  /** A command arrived for tick t, older than every snapshot kept: this world misses it (a shared war resyncs). */
+  onStale?: (t: number) => void;
   private seq = 0;
 
   constructor(public sim: Sim, public backend: Backend, public pid: string) {}
@@ -112,7 +114,7 @@ export class Session {
   private rollback(t: number) {
     let k = this.snaps.length - 1;
     while (k >= 0 && this.snaps[k].tick > t) k--;
-    if (k < 0) return; // too old; the next checkpoint resync will fix it
+    if (k < 0) { this.onStale?.(t); return; } // too old; the next checkpoint resync will fix it
     const target = this.sim.st.tick;
     this.sim.load(structuredClone(this.snaps[k].st));
     this.snaps.length = k + 1;

@@ -5,9 +5,11 @@
 // every client runs the same deterministic sim. Also the online roster («кто есть кто»: onRoster /
 // setPresence, the PresenceSource shape of src/net/presence.ts) and the 'vercel' admin channel.
 import { Session, type Backend } from './session';
-import { hashState, type Cmd, type Sim, type State } from '../sim/sim';
+import { hashState, okPid, type Cmd, type Sim, type State } from '../sim/sim';
+import { validAdmCmd } from '../sim/admin';
 import { admBody, type AdminChannel } from './adminChannel';
-import type { Shared, SharedAdmin, SharedDebug } from './shared';
+import { validCmd, type Shared, type SharedAdmin, type SharedDebug } from './shared';
+import { checkState, explained } from './guard';
 
 /**
  * One line of the roster (the shape of src/net/presence.ts RosterEntry, where the unit-control work
@@ -36,6 +38,8 @@ const ADM_LEAD = 30; // 3 s: admin commands reach everyone before their tick (ad
 const PING_MS = 20_000;
 const PRES_MIN_MS = 500;
 const MAX_CP_BYTES = 256 * 1024;
+/** A checkpoint state unpacks to at most this many characters of JSON. */
+const MAX_TEXT = 1024 * 1024;
 /**
  * Age (ticks) of the snapshot the keeper uploads: commands for earlier ticks have reached it by then
  * (lead 0.6 s + relay ≤ 0.7 s between instances, up to ~7 s while a new instance is being noticed).
@@ -65,7 +69,7 @@ export function cleanNick(s: unknown): string {
 
 /** The backend is there: /api/health answers as this game's API. null on claude.ai, vite dev, file://. */
 export async function connectVercel(pid: string, base = ''): Promise<VercelWar | null> {
-  if (typeof fetch !== 'function' || !/^[A-Za-z0-9_-]{3,32}$/.test(pid)) return null;
+  if (typeof fetch !== 'function' || !/^[A-Za-z0-9_-]{3,32}$/.test(pid) || !okPid(pid)) return null;
   let info: Health;
   try {
     const r = await fetch(base + '/api/health', { cache: 'no-store', signal: timeoutSignal(6000) });
@@ -186,7 +190,11 @@ export class VercelWar implements Shared {
   online = [0, 0];
   roster: RosterEntry[] = [];
   /** Counters for tests and the admin panel. */
-  stats = { cpOk: 0, cpBad: 0, resyncs: 0, naks: 0, states: 0, reconnects: 0, cpSent: 0, votes: 0 };
+  stats = { cpOk: 0, cpBad: 0, resyncs: 0, naks: 0, states: 0, reconnects: 0, cpSent: 0, votes: 0, cpRefused: 0 };
+  /** Why the last server checkpoints were refused (newest last). */
+  refusals: string[] = [];
+  /** Checkpoint ticks this client refused: a mismatch there does not ask for them again. */
+  private refusedCp = new Set<number>();
   /** Checkpoints whose hash differed from mine: 'cpTick@myTick' (last 20). */
   badAt: string[] = [];
   /** Called when the server refused an admin command (it is taken back locally). */
@@ -436,7 +444,8 @@ export class VercelWar implements Shared {
     if (Number.isFinite(st.cpEvery) && st.cpEvery >= 500) this.cpEvery = st.cpEvery;
     if (this.keeper) this.lastCp = Date.now() - this.cpEvery + 3000;
     if (st.full) {
-      if (!(await this.reset(s, st))) { this.requestResync(); return; }
+      // refused: a running world stays as it is; a joiner has nothing to start from yet (the next checkpoint may do)
+      if (!(await this.reset(s, st))) { if (!(st.cp && this.refusedCp.has(st.cp.tick))) this.requestResync(); return; }
     } else for (const c of st.cmds ?? []) this.take(s, c);
     if (typeof st.last === 'string') this.last = st.last;
     if (st.cp) this.cpm = { ...st.cp, z: undefined, s: undefined } as CpMeta;
@@ -450,8 +459,26 @@ export class VercelWar implements Shared {
   private async reset(s: Session, st: StateMsg): Promise<boolean> {
     let state: State;
     if (st.cp) {
-      try { state = await decodeState(st.cp); } catch { return false; }
-      if (state.tick !== st.cp.tick || hashState(state) !== st.cp.hash) return false;
+      const refuse = (why: string) => { // and never asked for again: the server would hand the same one back
+        this.refusedCp.add(st.cp!.tick);
+        this.stats.cpRefused++;
+        this.refusals.push(`${st.cp!.tick}: ${why}`);
+        if (this.refusals.length > 20) this.refusals.shift();
+        return false;
+      };
+      try { state = await decodeState(st.cp); } catch { return refuse('decode'); }
+      // shape, size, hash, and it must load and run in a throwaway Sim before this one takes it
+      const why = state.tick !== st.cp.tick ? 'tick' : checkState(state, (this.sim ?? s.sim).terrain, st.cp.hash);
+      if (why) return refuse(why);
+      // it contradicts a world this client computed itself: only if the difference is explainable
+      // (no admin toggles, money or floors from nowhere); else keep mine and do not ask again
+      const mine = s.snapAt(st.cp.tick);
+      if (mine && hashState(mine) !== st.cp.hash) {
+        const t = st.cp.tick;
+        const adm = s.allCmds().some(c => c.k === 'adm' && c.t >= t - 600 && c.t <= t);
+        const odd = explained(mine, state, 400, adm);
+        if (odd) return refuse(odd);
+      }
     } else {
       const sim = this.sim ?? s.sim;
       sim.init(st.clock.seed);
@@ -464,7 +491,7 @@ export class VercelWar implements Shared {
     }
     const incoming = (st.cmds ?? []).filter(okCmd);
     unsee(s, incoming);
-    s.reset(state, st.clock.tick0, st.clock.wall0 - this.offset);
+    if (!safeReset(s, state, st.clock.tick0, st.clock.wall0 - this.offset)) return false;
     for (const c of incoming) this.take(s, c);
     return true;
   }
@@ -501,7 +528,7 @@ export class VercelWar implements Shared {
     const mine = s.snapAt(meta.tick);
     if (mine) {
       if (hashState(mine) === meta.hash) this.stats.cpOk++;
-      else { this.stats.cpBad++; this.badAt.push(`${meta.tick}@${s.sim.st.tick}`); if (this.badAt.length > 20) this.badAt.shift(); this.requestResync(); }
+      else { this.stats.cpBad++; this.badAt.push(`${meta.tick}@${s.sim.st.tick}`); if (this.badAt.length > 20) this.badAt.shift(); if (!this.refusedCp.has(meta.tick)) this.requestResync(); }
     } else if (meta.tick > s.sim.st.tick + 50) this.requestResync();
   }
 
@@ -651,10 +678,26 @@ export function vercelAdminChannel(t: VercelWar): AdminChannel {
 }
 
 // ---- helpers -------------------------------------------------------------------------------------
+/** A command the server relayed: an integer tick, a player id that is never a prototype key, and the shape of its kind. */
 function okCmd(c: unknown): c is Cmd {
   if (!c || typeof c !== 'object') return false;
   const o = c as Msg;
-  return Number.isInteger(o.t) && o.t >= 0 && typeof o.id === 'string' && typeof o.p === 'string' && typeof o.k === 'string' && o.k !== 'cfg';
+  if (!Number.isInteger(o.t) || o.t < 0 || typeof o.id !== 'string' || !okPid(o.p) || typeof o.k !== 'string' || o.k === 'cfg') return false;
+  return o.k === 'adm' ? validAdmCmd(o) : validCmd(o);
+}
+
+/** Replace the session's world; a state that does not load leaves the old one in place. Never throws. */
+function safeReset(s: Session, st: State, tick0: number, wall0: number): boolean {
+  let prev: State | null = null;
+  try { prev = s.sim.st ? s.sim.snapshot() : null; } catch { prev = null; }
+  try {
+    s.reset(st, tick0, wall0);
+    return true;
+  } catch (err) {
+    console.error('[vercel] reset refused', err);
+    if (prev) { try { s.sim.load(prev); } catch { /* nothing better to do */ } }
+    return false;
+  }
 }
 
 function idCmp(a: string, b: string): number {
@@ -696,9 +739,19 @@ async function decodeState(cp: CpBlob): Promise<State> {
     const bin = atob(cp.z ?? '');
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    text = await new Response(stream).text();
+    // read at most MAX_TEXT characters of output: a small gzip can unpack to gigabytes
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+    const dec = new TextDecoder();
+    text = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += dec.decode(value, { stream: true });
+      if (text.length > MAX_TEXT) { void reader.cancel().catch(() => {}); throw new Error('checkpoint too big'); }
+    }
+    text += dec.decode();
   }
+  if (text.length > MAX_TEXT) throw new Error('checkpoint too big');
   const st = JSON.parse(text) as State;
   if (!st || typeof st !== 'object' || st.v !== 1 || !Array.isArray(st.units)) throw new Error('bad checkpoint');
   return st;

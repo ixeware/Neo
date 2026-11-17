@@ -223,6 +223,18 @@ export type FxEv =
 
 /** Unit types players may order and possess: not the boss, the rides or summons (Голем follows Мохьмад, Курицы are a swarm). */
 export function canControl(t: number): boolean { return t !== BOSS && t !== RIDE && !UNITS[t]?.summon; }
+/** Keys that read or write an object's prototype instead of an own property: never a player id. */
+const PROTO_KEYS = new Set(Object.getOwnPropertyNames(Object.prototype).concat('__proto__', 'prototype'));
+/**
+ * A player id as a command may carry it (Cmd.p, a key of State.players and Vote.ballots): 1..200
+ * characters of the db path alphabet (letters, digits, _ - . ~ : @ +), never '.' / '..' and never a
+ * prototype key ('__proto__', 'constructor', 'toString', …). Anything else is ignored by Sim.apply.
+ */
+export function okPid(p: unknown): p is string {
+  return typeof p === 'string' && /^[A-Za-z0-9_.~:@+-]{1,200}$/.test(p) && p !== '.' && p !== '..' && !PROTO_KEYS.has(p);
+}
+/** An own property (Object.hasOwn without needing a 2022 browser). */
+const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
 const isInt = (v: unknown, lo: number, hi: number): v is number => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 /** A loaded order is well-formed (see Ord); anything else is dropped by Sim.load. */
@@ -419,21 +431,24 @@ export class Sim {
     const st = this.st;
     if (c.k === 'adm') { const a = normAdm(c); if (a) this.admin(a); return; } // bypasses the player/side check only
     if (c.k === 'cfg') { st.diff = c.d; st.humanSide = c.hs; st.mp = c.mp; return; }
+    // player ids index State.players and Vote.ballots: own keys only, never a prototype key
+    if (!okPid(c.p)) return;
     if (c.k === 'join') {
-      const pl = st.players[c.p];
+      if (c.s !== 0 && c.s !== 1) return;
+      const pl = own(st.players, c.p) ? st.players[c.p] : undefined;
       if (pl && pl.s !== c.s) this.release(pl.n, false); // changed sides: let go of the old side's unit
       if (pl) pl.s = c.s; else st.players[c.p] = { s: c.s, cd: 0, joined: st.tick, last: st.tick, n: Object.keys(st.players).length };
       st.sides[c.s].lastHuman = st.tick;
       return;
     }
-    const pl = st.players[c.p];
+    const pl = own(st.players, c.p) ? st.players[c.p] : undefined;
     if (!pl || pl.s !== c.s) return;
     pl.last = st.tick;
     st.sides[c.s].lastHuman = st.tick;
     if (st.winner !== -1) return;
     if (c.k === 'vote') {
       const v = st.votes[c.s];
-      if (v.open && c.o >= 0 && c.o < v.opts.length) v.ballots[c.p] = c.o;
+      if (v.open && Number.isInteger(c.o) && c.o >= 0 && c.o < v.opts.length) v.ballots[c.p] = c.o;
       return;
     }
     if (c.k === 'ord') { this.order(c, pl); return; }
@@ -631,7 +646,7 @@ export class Sim {
   // ---- player orders (Cmd 'ord' / 'ctl') ----------------------------------------------------
   /** Unit id → the unit, when player pn of side s may order it now (alive, own, controllable, not driven by someone else). */
   private orderable(id: unknown, s: Side, pn: number): U | null {
-    if (!Number.isInteger(id)) return null;
+    if (!Number.isInteger(id) || !Number.isInteger(pn)) return null; // pn: a malformed Player.n never drives a unit
     const u = this.byId.get(id as number);
     if (!u || u.hp <= 0 || u.s !== s || !canControl(u.t)) return null;
     if (u.o && u.o.m === OM.POSSESS && u.o.p !== pn) return null;
@@ -703,6 +718,7 @@ export class Sim {
 
   /** Player pn drives u from now on; the unit that player drove before stays where it is. */
   private possess(u: U, pn: number): Ord {
+    if (!Number.isInteger(pn)) return { m: OM.HOLD, x: u.x, z: u.z, c: -1, tg: -1, k: 0 }; // a throwaway, never stored (orderable() refuses such pn first)
     this.release(pn, true, u.id);
     if (u.o && u.o.m === OM.POSSESS) return u.o;
     const o: Ord = { m: OM.POSSESS, x: 0, z: 0, c: -1, tg: -1, k: 0, p: pn, dx: 0, dz: 0, fx: 0, fz: 0, a: 0, at: this.st.tick };

@@ -275,7 +275,7 @@ export class Build {
     const why = a === 'up' ? sim.canUp(side, id, me) : a === 'rep' ? sim.canRep(side, id, me) : a === 'sell' ? sim.canSell(side, id, me) : a === 'fire' ? sim.canFire(side, id, b.x, b.z, me) : 'Нет такой постройки';
     if (why) { d.sound.deny(); d.hud.note(d.deny(why), 2400); return; }
     if (a === 'fire') { d.sound.click(); this.mode = 'aim'; this.show(); d.hud.note(this.touch ? 'Куда кидаем арбуз? Тапни по карте' : 'Куда кидаем арбуз? Кликни по карте. ПКМ — отмена', 4200); return; }
-    if (a === 'sell' && performance.now() > this.sellArm) { this.sellArm = performance.now() + 3000; d.sound.click(); this.selKey = ''; return; } // the second tap sells
+    if (a === 'sell' && performance.now() > this.sellArm) { this.sellArm = performance.now() + 4000; d.sound.click(); this.selKey = ''; return; } // the second tap sells
     s.submit({ k: 'bld', s: side, op: a as 'up' | 'sell' | 'rep', n: id } as CmdBody);
     d.sound.click();
     if (a === 'sell') this.deselect();

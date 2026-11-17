@@ -605,8 +605,9 @@ async function boot() {
           if (e.s === side) {
             sound.gavel();
             hud.banner(`Сход решил: ${v3 ? v3.title : e.title}`, v3 ? v3.desc : card.quote, e.s, 2800);
-            if (card.fx === Fx.Focus) { const v = sim.st.votes[e.s]; if (v.focusPt >= 0) { const p = sim.st.pts[v.focusPt]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); } }
-            if (card.fx === Fx.FocusDoner) { const p = sim.st.pts[PT_DONER]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); }
+            const fly = build.mode === 'off'; // never pull the camera away from a building being placed
+            if (card.fx === Fx.Focus && fly) { const v = sim.st.votes[e.s]; if (v.focusPt >= 0) { const p = sim.st.pts[v.focusPt]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); } }
+            if (card.fx === Fx.FocusDoner && fly) { const p = sim.st.pts[PT_DONER]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); }
           } else {
             say('admin', `${SIDE_NAME[e.s]} решил: ${v3 ? v3.title : cardTitle(card, e.title.replace(/^Все на |!$/g, ''))}`, 1);
           }

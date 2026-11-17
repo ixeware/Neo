@@ -186,8 +186,9 @@ export const UNITS: UnitDef[] = [
   {
     key: 'amina', name: ['Амина', 'Амина'],
     blurb: ['Танк Атагов в синем спортивном костюме. Враги рядом бьют только её. «Плюхнулась» — оглушает и раскидывает', 'Играет только за Атаги'],
-    cost: [320, 320], count: 1, kind: Kind.Melee, avail: [true, false], hero: true, respawn: 800,
-    hp: 2600, dmg: [22, 22], cd: 14, range: 1.4, speed: 0.2, aggro: 7, radius: 0.95, mass: 4,
+    // balance (tools/symtest.ts, 32 seeds): 2600 hp / 320 ₽ / 70 slam made Атаги win ~61%; this is ~49–53%
+    cost: [340, 340], count: 1, kind: Kind.Melee, avail: [true, false], hero: true, respawn: 900,
+    hp: 2400, dmg: [22, 22], cd: 14, range: 1.4, speed: 0.2, aggro: 7, radius: 0.95, mass: 4,
     abCd: 140, abR: 3.5, aura: 6,
   },
 ];
@@ -223,7 +224,7 @@ export const HERO = {
   // Мохьмад (9) brings a Голем: again golemCd ticks after it falls (the old summoner 12 used abCd 400)
   golemCd: 400,
   // Амина «Плюхнулась»: ≥ slamMin enemies within abR → damage, knockback, stun (ticks)
-  slamMin: 2, slamDmg: 70, slamKnock: 1.6, slamStun: 10,
+  slamMin: 2, slamDmg: 50, slamKnock: 1.6, slamStun: 10,
 };
 
 /** Capture places: pts[9..12], kind 3, from CAPTURE_PLACES in src/data/places.ts. */
@@ -248,7 +249,7 @@ export const BUFF = {
 
 /** AI shopping weights per side by unit type (heroes and rides only while allowed; healer only with > 8 units). */
 export const AI_W: [number[], number[]] = [
-  [30, 20, 22, 14, 10, 0, 0, 3, 3, 4, 5, 3, 0, 0, 6, 0, 4, 10, 4],
+  [30, 20, 22, 14, 10, 0, 0, 3, 3, 4, 5, 3, 0, 0, 6, 0, 4, 10, 2],
   [30, 20, 22, 14, 10, 0, 6, 3, 3, 4, 0, 3, 0, 0, 10, 0, 4, 10, 0],
 ];
 

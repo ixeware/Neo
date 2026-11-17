@@ -6,8 +6,16 @@ export interface Flow { dist: Int32Array; dx: Int8Array; dz: Int8Array }
 const NX = [1, -1, 0, 0, 1, 1, -1, -1];
 const NZ = [0, 0, 1, -1, 1, -1, 1, -1];
 
+/**
+ * Flow field towards the disc (gx, gz, gr). v4 map: the grid also covers the band north of the old map
+ * edge (z0 ≤ z < 0, Grozny). A goal south of that edge is reached without entering the band: a cell
+ * with z ≥ 0 never routes through it, so south of z = 0 every field is exactly the pre-v4 one and no
+ * unit wanders into the city unless its goal is there. Cells in the band still lead out to the goal.
+ */
 export function buildFlow(t: Terrain, gx: number, gz: number, gr: number): Flow {
   const { nw, nh, navCost } = t;
+  const nr = -t.z0 / NAV; // first nav row with z >= 0
+  const fence = nr > 0 && gz >= 0;
   const N = nw * nh;
   const dist = new Int32Array(N).fill(0x3fffffff);
   // binary heap of (dist, idx)
@@ -39,9 +47,9 @@ export function buildFlow(t: Terrain, gx: number, gz: number, gr: number): Flow 
     hd[k] = ld; hi[k] = li;
     return [d, i];
   };
-  const r2 = gr * gr;
+  const r2 = gr * gr, z0 = t.z0;
   for (let j = 0; j < nh; j++) for (let i = 0; i < nw; i++) {
-    const cx = (i + 0.5) * NAV - gx, cz = (j + 0.5) * NAV - gz;
+    const cx = (i + 0.5) * NAV - gx, cz = (j + 0.5) * NAV + z0 - gz;
     if (cx * cx + cz * cz <= r2) {
       const idx = j * nw + i;
       dist[idx] = 0; push(0, idx);
@@ -55,6 +63,7 @@ export function buildFlow(t: Terrain, gx: number, gz: number, gr: number): Flow 
     for (let k = 0; k < 8; k++) {
       const ni = i + NX[k], nj = j + NZ[k];
       if (ni < 0 || nj < 0 || ni >= nw || nj >= nh) continue;
+      if (fence && j < nr && nj >= nr) continue; // a southern cell's path stays south
       const n = nj * nw + ni;
       const c1 = navCost[n];
       if (c1 === 0) continue;
@@ -75,6 +84,7 @@ export function buildFlow(t: Terrain, gx: number, gz: number, gr: number): Flow 
     for (let k = 0; k < 8; k++) {
       const ni = i + NX[k], nj = j + NZ[k];
       if (ni < 0 || nj < 0 || ni >= nw || nj >= nh) continue;
+      if (fence && j >= nr && nj < nr) continue;
       const n = nj * nw + ni;
       if (navCost[n] === 0) continue;
       if (k >= 4 && (navCost[j * nw + ni] === 0 || navCost[nj * nw + i] === 0)) continue;
@@ -88,12 +98,13 @@ export function buildFlow(t: Terrain, gx: number, gz: number, gr: number): Flow 
 const D = 0.7071067811865476;
 /** Smoothed flow direction at a world position. Returns false if no direction. */
 export function flowDir(t: Terrain, f: Flow, x: number, z: number, out: { x: number; z: number }): boolean {
+  // world-frame floats as before v4, then a whole-row offset (bit-identical south of z = 0)
   const fx = x / NAV - 0.5, fz = z / NAV - 0.5;
   const i0 = Math.floor(fx), j0 = Math.floor(fz);
-  const tx = fx - i0, tz = fz - j0;
+  const tx = fx - i0, tz = fz - j0, jz = -t.z0 / NAV;
   let vx = 0, vz = 0;
   for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) {
-    const i = i0 + a, j = j0 + b;
+    const i = i0 + a, j = j0 + b + jz;
     if (i < 0 || j < 0 || i >= t.nw || j >= t.nh) continue;
     const idx = j * t.nw + i;
     if (t.navCost[idx] === 0) continue;

@@ -4,12 +4,19 @@
 //   bld · doner · decor · game[&dist=38] (in-game camera) · portraits (same framing as the HUD cards)
 //   v3 (reworked heroes vs the old Чимаев height) · plate (КРА 95 close-up) · crowd (спортики + гелик)
 //   pack (pack face textures) · pack3d · lm[&crowd=4] (all landmarks) · lm1&k=stadium · game2[&dist=38]
-// Extras: &yaw= &pitch= (camera), &spicy (18+ sign), &anim (spin the doner), &noshadow.
+//   v4: v4units (new units, both sides, next to old ones) · v4unit&k=ipit[&side=] (four angles) · v4game[&dist=38]
+//       v4bld (Grozny landmarks) · v4bld1&k=shaiba[&dist=38] · v4bldgame[&dist=38] · city[&dist=38] (6×6 blocks
+//       next to the Атаги HQ) · skyline (Шайба vs the Курчалой пятиэтажка, ГГНТУ, ЧГУ, blocks)
+// Extras: &yaw= &pitch= (camera), &spicy (18+ sign), &anim (spin the doner / drone props), &noshadow.
 import * as THREE from 'three';
-import { unitGeometry, unitScale, islamRig, zurabRig } from '../src/render/models';
+import { unitGeometry, unitScale, islamRig, zurabRig, houseGeometries } from '../src/render/models';
 import { heroGeometry, heroScale, donerBey, fudzi, gym, taxiStand, HERO_TYPES } from '../src/render/heroes';
 import { propUnitGeometry, propUnitScale, gelikProp, sportikiCrowd, cigPackTexture, cigPack, landmark, LANDMARK_KINDS, PROP_TYPES } from '../src/render/props';
 import { mosque, HqBuilding } from '../src/render/world';
+import {
+  v4UnitGeometry, v4UnitScale, v4HoverHeight, isFlying, v4DronePropGeometry, V4_DRONE_ROTORS, V4_UNIT_KEYS, V4_UNIT_NAMES,
+  groznyLandmark, setLandmarkClosed, GROZNY_KEYS, GROZNY_FOOTPRINT, cityBlock, cityBlockFootprint, cityBlockHeight, CITY_FLOORS, type V4UnitKey, type GroznyKey,
+} from '../src/render/grozny';
 
 const US = 1.7; // renderer's unit scale (units.ts)
 const BS = 1.45; // boss scale
@@ -28,6 +35,7 @@ const LM_LABEL: Record<string, string> = {
   stadium: 'Стадион', school: 'Школа', shop: 'Продукты', market: 'Рынок', cafe: 'Кафе', busstop: 'Остановка',
   carwash: 'Автомойка', parking: 'Парковка', fuel: 'АЗС', clinic: 'Поликлиника', park: 'Парк', gym: 'Спортзал',
 };
+const GZ_LABEL: Record<GroznyKey, string> = { ggntu: 'ГГНТУ', chgu: 'ЧГУ', shaiba: 'ЖК «Шайба»', ansar: 'Ансар', pringles: 'Принглс' };
 
 // ---- renderer, lights: same as src/render/scene.ts ----------------------------------------
 const canvas = document.getElementById('c') as HTMLCanvasElement;
@@ -159,6 +167,103 @@ function buildings(z: number, x0: number) {
     x += it.w / 2 + 1.0;
   }
   return x;
+}
+
+// ---- v4: Grozny units, landmarks, city blocks ------------------------------------------------
+const props: THREE.Object3D[] = [];
+let propMat: THREE.Material | null = null;
+/** One v4 unit as the renderer would place it (×1.7 × v4UnitScale, the drone `v4HoverHeight` above the ground). */
+function v4unit(key: V4UnitKey, side: 0 | 1, x: number, z: number, yaw = 0, label = true) {
+  const g = v4UnitGeometry(key, side);
+  const s = US * v4UnitScale(key, side);
+  const root = new THREE.Group();
+  const m = new THREE.Mesh(g, unitMat);
+  m.castShadow = true; m.receiveShadow = true;
+  root.add(m);
+  root.scale.setScalar(s);
+  const lift = isFlying(key) ? v4HoverHeight(key) : 0;
+  root.position.set(x, lift, z);
+  root.rotation.y = yaw;
+  if (key === 'drone') {
+    // spinning two-blade props on the rotor hubs (static blurred discs are already in the merged mesh)
+    propMat ??= new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    const pg = v4DronePropGeometry();
+    V4_DRONE_ROTORS.forEach((p, i) => {
+      const pm = new THREE.Mesh(pg, propMat!);
+      pm.position.set(p[0], p[1] + 0.012, p[2]);
+      pm.rotation.y = i * 0.9;
+      root.add(pm); props.push(pm);
+    });
+  }
+  scene.add(root); placed.push(root);
+  const bb = g.boundingBox!;
+  const top = bb.max.y * s + lift;
+  if (label) {
+    const fp = `${((bb.max.x - bb.min.x) * s).toFixed(2)}×${((bb.max.z - bb.min.z) * s).toFixed(2)}`;
+    labels.push({ text: V4_UNIT_NAMES[key], sub: `${g.attributes.position.count / 3} тр · ×${(s / US).toFixed(2)} · h ${top.toFixed(2)} · ${fp}`, at: new THREE.Vector3(x, top + 0.25, z), side });
+  }
+  return { w: (bb.max.x - bb.min.x) * s, top };
+}
+function v4row(keys: V4UnitKey[], side: 0 | 1, z: number, x0 = 0, gap = 0.9, old: number[] = []) {
+  let x = x0;
+  for (const k of keys) {
+    const g = v4UnitGeometry(k, side); g.computeBoundingBox();
+    const w = (g.boundingBox!.max.x - g.boundingBox!.min.x) * US * v4UnitScale(k, side);
+    g.dispose();
+    x += w / 2; v4unit(k, side, x, z); x += w / 2 + gap;
+  }
+  for (const t of old) {
+    const g = geoFor(t, side); g.computeBoundingBox();
+    const w = (g.boundingBox!.max.x - g.boundingBox!.min.x) * scaleFor(t, side);
+    x += w / 2; unit(t, side, x, z); x += w / 2 + gap;
+  }
+  return x;
+}
+/** A Grozny landmark on the ground with a label: tris, footprint, bbox, height. */
+function gz(key: GroznyKey, x: number, z: number, opts: Parameters<typeof groznyLandmark>[1] = {}, ry = 0, label = true, title?: string) {
+  const o = groznyLandmark(key, opts);
+  addObj(o, x, z, ry);
+  if (label) {
+    const bb = new THREE.Box3().setFromObject(o), sz = bb.getSize(new THREE.Vector3());
+    const [fw, fd] = o.userData.footprint as [number, number], [cx, cz] = o.userData.centre as [number, number];
+    const F = GROZNY_FOOTPRINT[key];
+    const drift = fw > F.w + 0.15 || fd > F.d + 0.15 || sz.y > F.h + 0.15 || Math.abs(F.cz - cz) > 0.3 ? ' · > GROZNY_FOOTPRINT!' : '';
+    labels.push({ text: title ?? GZ_LABEL[key], sub: `${o.userData.tris} тр · ${fw}×${fd} @ (${cx}, ${cz}) · h ${sz.y.toFixed(1)}${drift}`, at: new THREE.Vector3(x, sz.y + 0.4, z), side: -1 });
+  }
+  return o;
+}
+const blockGeo = new Map<string, THREE.BufferGeometry>();
+const blockMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+function block(kind: number, seed: number, x: number, z: number, ry = 0) {
+  const k = `${kind}:${seed}`;
+  let g = blockGeo.get(k);
+  if (!g) { g = cityBlock(kind, seed); blockGeo.set(k, g); }
+  const m = new THREE.Mesh(g, blockMat);
+  m.position.set(x, 0, z); m.rotation.y = ry;
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m); placed.push(m);
+  return m;
+}
+/** Village houses as world.ts instances them (body + hip roof, ~0.3–0.44 wide), for scale. */
+function houses(x0: number, z0: number, n: number) {
+  const { body, roof } = houseGeometries();
+  const wall = new THREE.MeshLambertMaterial({ color: '#d9cbb0' }), rf = new THREE.MeshLambertMaterial({ color: '#8a3f2c', flatShading: true });
+  for (let i = 0; i < n; i++) {
+    const g = new THREE.Group();
+    const two = i % 3 === 0;
+    for (const [geo, mat] of [[body, wall], [roof, rf]] as const) { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; g.add(m); }
+    g.scale.set(0.38, two ? 0.42 : 0.26, 0.36);
+    g.position.set(x0 + (i % 4) * 0.8, 0, z0 + Math.floor(i / 4) * 0.8);
+    scene.add(g); placed.push(g);
+  }
+}
+function hq(side: 0 | 1, floors: number, x: number, z: number, ry = 0) {
+  const h = new HqBuilding(side, Math.max(floors, 4));
+  h.setFloors(floors, false);
+  addObj(h.group, x, z, ry);
+  const top = floors * h.fh;
+  labels.push({ text: side === 0 ? `высотка Атагов (${floors} эт.)` : `пятиэтажка Курчалоя (${floors} эт.)`, sub: `h ${top.toFixed(1)} + крыша`, at: new THREE.Vector3(x, top + 1.9, z), side });
+  return h;
 }
 
 // ---- views ------------------------------------------------------------------------------
@@ -311,6 +416,101 @@ if (view === 'all') {
   for (let k = 0; k < 4; k++) unit(17, (k % 2) as 0 | 1, -2 + k * 1.3, 9.5 - (k % 2) * 0.8, 1.2 * (k % 2 ? -1 : 1), false);
   unit(6, 1, 2.8, 4.2, 0.5, false); unit(7, 0, 4.4, 4.6, -0.3, false); unit(8, 0, -0.8, 4.0, 0.2, false); unit(9, 1, -1.9, 4.6, 0.8, false);
   gameCam = { x: 0, z: 3, dist: Number(q.get('dist') ?? 38) };
+} else if (view === 'v4units') {
+  // the new units in both villages, then old ones for comparison (Пацаны, Амин, админ, Гелик)
+  v4row(V4_UNIT_KEYS, 0, 2.6, 0, 0.75, [0, 7, 8, 16]);
+  v4row(V4_UNIT_KEYS, 1, -2.6, 0, 0.75, [0, 7, 8, 16]);
+  pitch = Number(q.get('pitch') ?? 0.5);
+} else if (view === 'v4unit') {
+  const k = (q.get('k') ?? 'ipit') as V4UnitKey;
+  const yaws = [0, 0.75, Math.PI / 2, Math.PI];
+  const only = q.get('side');
+  for (const side of [0, 1] as const) {
+    if (only !== null && Number(only) !== side) continue;
+    const g = v4UnitGeometry(k, side); g.computeBoundingBox();
+    const s = US * v4UnitScale(k, side), bb = g.boundingBox!;
+    const ext = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * s;
+    g.dispose();
+    yaws.forEach((a, i) => v4unit(k, side, i * (ext + 0.5), side === 0 ? ext / 2 + 0.6 : -ext / 2 - 0.6, a, i === 0));
+  }
+  pitch = Number(q.get('pitch') ?? 0.3);
+} else if (view === 'v4game') {
+  // how they read at the in-game zoom: each new unit in both colours, among old units
+  let x = 0;
+  for (const k of V4_UNIT_KEYS) {
+    for (const side of [0, 1] as const) v4unit(k, side, x, side === 0 ? 1.4 : -1.4, side === 0 ? 1.0 : -1.8, false);
+    x += k === 'bmw' ? 3.4 : 2.4;
+  }
+  for (const t of [0, 7, 8, 16]) {
+    for (const side of [0, 1] as const) unit(t, side, x, side === 0 ? 1.4 : -1.4, side === 0 ? 1.2 : -1.6, false);
+    x += t === 16 ? 3.6 : 2.3;
+  }
+  gameCam = { x: x / 2 - 1, z: 0, dist: Number(q.get('dist') ?? 38) };
+} else if (view === 'v4bld' || view === 'v4bldgame') {
+  // all five, front to the camera, with a few units for scale; Ансар open and closed; Принглс clean and 18+
+  const spicy = q.has('spicy');
+  gz('ggntu', 0, 0);
+  gz('chgu', 14, 1.5);
+  gz('shaiba', 28.5, 0);
+  gz('ansar', 40, 2.2);
+  gz('ansar', 46, 2.2, { closed: true }, 0, true, 'Ансар · закрыт');
+  gz('pringles', 50.4, 4.4, { spicy: false }, 0.3, view === 'v4bld', 'Принглс');
+  gz('pringles', 51.4, 4.4, { spicy: true }, -0.3, view === 'v4bld', 'Принглс 18+');
+  unit(0, 0, 2.6, 6.4, 0.3, false); v4unit('ipit', 0, 3.4, 6.2, -0.2, false); v4unit('bmw', 1, 31.5, 7.0, -0.9, false);
+  v4unit('operator', 1, 13.4, 5.2, 0.4, false); v4unit('snitch', 0, 15.2, 5.4, -0.3, false); v4unit('drone', 0, 42.0, 4.8, 0.6, false);
+  if (spicy) labels.push({ text: '&spicy', sub: 'показаны 18+ варианты', at: new THREE.Vector3(52, 1.4, 4.4), side: -1 });
+  if (view === 'v4bldgame') gameCam = { x: Number(q.get('x') ?? 24), z: 2, dist: Number(q.get('dist') ?? 38) };
+  else { pitch = Number(q.get('pitch') ?? 0.42); tight = 1.0; }
+} else if (view === 'v4bld1') {
+  const k = (q.get('k') ?? 'shaiba') as GroznyKey;
+  if (k === 'ansar') {
+    gz('ansar', -2.8, 0, {}, 0, true, 'Ансар · открыт');
+    const shut = gz('ansar', 2.8, 0, {}, 0, true, 'Ансар · setClosed(true)');
+    setLandmarkClosed(shut, true);
+    v4unit('ipit', 0, -1.6, 2.6, 0.5, false); unit(0, 1, 3.6, 2.4, -0.4, false); unit(1, 1, 2.2, 2.7, 0.2, false);
+  } else if (k === 'pringles') {
+    gz('pringles', -0.45, 0, { spicy: false }, 0.25, true, 'Принглс');
+    gz('pringles', 0.45, 0, { spicy: true }, -0.25, true, 'Принглс · 18+');
+  } else {
+    const o = gz(k, 0, 0, { side: 0, spicy: q.has('spicy') });
+    const b = o.userData.bounds as { z1: number };
+    unit(0, 0, -1.8, b.z1 + 0.8, 0.3, false); v4unit('ipit', 0, -0.6, b.z1 + 1.0, -0.2, false); v4unit('bmw', 1, 2.4, b.z1 + 1.0, -0.8, false);
+  }
+  if (q.has('dist')) gameCam = { x: 0, z: 1, dist: Number(q.get('dist')) };
+  else { pitch = Number(q.get('pitch') ?? (k === 'shaiba' ? 0.2 : k === 'pringles' ? 0.4 : 0.32)); tight = 0.95; }
+} else if (view === 'city') {
+  // 6×6 city blocks (every kind, several seeds) next to the Атаги HQ and a patch of village houses
+  const step = 4.6;
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) {
+    const kind = (i * 7 + j * 3 + (i * j) % 3) % 4;
+    const [fw] = cityBlockFootprint(kind);
+    const ry = (i + j) % 3 === 0 ? Math.PI / 2 : 0;
+    block(kind, i * 6 + j, i * step + (ry ? 0 : (step - fw) * 0.2), -j * step, ry);
+  }
+  hq(0, 3, -8.5, -4);
+  houses(-11.2, 0.4, 12);
+  labels.push({ text: 'сельские дома', sub: 'как в world.ts', at: new THREE.Vector3(-10, 1.0, 1.2), side: -1 });
+  for (const kind of [0, 1, 2, 3]) {
+    const g = cityBlock(kind, 1);
+    const [fw, fd] = cityBlockFootprint(kind);
+    labels.push({ text: `${CITY_FLOORS[kind]} эт.`, sub: `${g.attributes.position.count / 3} тр · ${fw}×${fd} · h ${cityBlockHeight(kind).toFixed(2)}`, at: new THREE.Vector3(-14 + kind * 4.2, cityBlockHeight(kind) + 0.6, 6), side: -1 });
+    g.dispose();
+    block(kind, 1, -14 + kind * 4.2, 6);
+  }
+  if (q.has('dist')) gameCam = { x: 7, z: -8, dist: Number(q.get('dist')) };
+  else pitch = Number(q.get('pitch') ?? 0.55);
+} else if (view === 'skyline') {
+  // Шайба must tower over everything: the Курчалой пятиэтажка, the Атаги HQ, ГГНТУ, ЧГУ and the 16-storey blocks
+  gz('shaiba', 0, 0);
+  hq(1, 5, -12, 2.5, 0);
+  hq(0, 3, 12.5, 3, 0);
+  gz('ggntu', 25, -4, {}, 0, true);
+  gz('chgu', -26, -2, {}, 0, true);
+  block(3, 2, -8.9, -6.5); block(3, 5, 9.0, -6.5); block(2, 3, 18.5, 4.5); block(1, 4, -19, 5.5); block(0, 7, 4.5, 8);
+  labels.push({ text: '16 эт.', sub: `h ${cityBlockHeight(3).toFixed(2)}`, at: new THREE.Vector3(-8.9, cityBlockHeight(3) + 0.6, -6.5), side: -1 });
+  const m = mosque(false); addObj(m, -20, -6);
+  unit(0, 0, 3.6, 6.8, 0.2, false); unit(16, 1, -3.5, 6.6, 0.8, false);
+  pitch = Number(q.get('pitch') ?? 0.14);
 }
 
 // ---- camera ---------------------------------------------------------------------------------
@@ -376,7 +576,9 @@ sun.target.position.copy(target);
 // ---- DOM labels + nav -----------------------------------------------------------------------
 const nav = document.getElementById('bar')!;
 for (const [v, txt] of [['all', 'всё'], ['heroes', 'новые'], ['units', 'сравнение 1'], ['units&half=2', 'сравнение 2'], ['hero&t=6', 'крупно'], ['bld', 'здания'], ['doner', 'донер'], ['decor', 'декор'], ['game', 'как в игре'], ['portraits', 'портреты'],
-  ['v3', 'v3 герои'], ['plate', 'КРА 95'], ['crowd', 'спортики'], ['pack', 'пачка 2D'], ['pack3d', 'пачка 3D'], ['lm', 'места'], ['game2', 'места в игре']]) {
+  ['v3', 'v3 герои'], ['plate', 'КРА 95'], ['crowd', 'спортики'], ['pack', 'пачка 2D'], ['pack3d', 'пачка 3D'], ['lm', 'места'], ['game2', 'места в игре'],
+  ['v4units', 'v4 юниты'], ['v4unit&k=ipit', 'v4 крупно'], ['v4game', 'v4 в игре'], ['v4bld', 'Грозный'], ['v4bld1&k=shaiba', 'Грозный крупно'], ['v4bldgame', 'Грозный в игре'],
+  ['city', 'кварталы'], ['skyline', 'силуэт']]) {
   const a = document.createElement('a');
   a.href = `?view=${v}`; a.textContent = txt;
   const lq = new URLSearchParams(`view=${v}`);
@@ -387,6 +589,18 @@ if (view === 'hero') for (const t of [...HEROES, ...PROP_TYPES]) {
   const a = document.createElement('a');
   a.href = `?view=hero&t=${t}`; a.textContent = NAMES[t][0];
   if (Number(q.get('t') ?? 6) === t) a.className = 'on';
+  nav.append(a);
+}
+if (view === 'v4unit') for (const k of V4_UNIT_KEYS) {
+  const a = document.createElement('a');
+  a.href = `?view=v4unit&k=${k}`; a.textContent = V4_UNIT_NAMES[k];
+  if ((q.get('k') ?? 'ipit') === k) a.className = 'on';
+  nav.append(a);
+}
+if (view === 'v4bld1') for (const k of GROZNY_KEYS) {
+  const a = document.createElement('a');
+  a.href = `?view=v4bld1&k=${k}`; a.textContent = GZ_LABEL[k];
+  if ((q.get('k') ?? 'shaiba') === k) a.className = 'on';
   nav.append(a);
 }
 if (view === 'lm' || view === 'lm1') for (const k of LANDMARK_KINDS) {
@@ -479,8 +693,9 @@ function packFaces() {
 }
 
 // ---- go ---------------------------------------------------------------------------------------
-const w = window as Window & { __lineupReady?: boolean; __spin?: (a: number) => void };
-w.__spin = (a: number) => { for (const s of spinners) s.rotation.y = a; renderer.render(scene, camera); };
+const w = window as Window & { __lineupReady?: boolean; __spin?: (a: number) => void; __info?: string };
+w.__spin = (a: number) => { for (const s of spinners) s.rotation.y = a; for (const p of props) p.rotation.y = a * 9; renderer.render(scene, camera); };
+w.__info = labels.map(l => `${l.text} [${l.sub}]`).join(' | ');
 async function go() {
   if (view === 'portraits') { portraits(); w.__lineupReady = true; return; }
   if (view === 'pack') {
@@ -496,7 +711,7 @@ async function go() {
   drawLabels();
   w.__lineupReady = true;
   if (q.has('anim')) {
-    const loop = (t: number) => { for (const s of spinners) s.rotation.y = t / 600; renderer.render(scene, camera); requestAnimationFrame(loop); };
+    const loop = (t: number) => { for (const s of spinners) s.rotation.y = t / 600; for (const p of props) p.rotation.y = t / 40; renderer.render(scene, camera); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
   }
 }

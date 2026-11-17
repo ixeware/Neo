@@ -313,9 +313,9 @@ export class VercelWar implements Shared {
     this.pres.side = side;
     if (!this.nick) { this.nick = (await askNick()) || 'Пацан'; ls.set(NICK_KEY, this.nick); }
     // presence: the roster for src/net/presence.ts (Backend.presence, from the unit-control work)
+    const presence: RosterSource = { onRoster: cb => this.onRoster(cb), setPresence: p => this.setPresence(p) };
     const backend: Backend & { presence: RosterSource } = {
-      kind: 'shared', send: c => this.sendCmd(c), checkpoint: () => { /* the keeper uploads */ }, close: () => this.leave(),
-      presence: { onRoster: cb => this.onRoster(cb), setPresence: p => this.setPresence(p) },
+      kind: 'shared', send: c => this.sendCmd(c), checkpoint: () => { /* the keeper uploads */ }, close: () => this.leave(), presence,
     };
     const session = new Session(sim, backend, this.pid);
     session.lead = LEAD;

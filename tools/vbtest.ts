@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 import { loadTerrain } from '../src/world/terrain';
-import { Sim, hashState, type Cmd } from '../src/sim/sim';
+import { Sim, hashState, type Cmd, type State } from '../src/sim/sim';
 import { UNITS } from '../src/sim/defs';
 import type { Session } from '../src/net/session';
 import { connectVercel, vercelAdminChannel, type VercelWar, type RosterEntry } from '../src/net/vercel';
@@ -98,6 +98,18 @@ async function raw(url: string, pid: string, dk: string) {
     send: (m: unknown) => ws.send(typeof m === 'string' ? m : JSON.stringify(m)),
     naks: (why: string) => got.filter(m => m.type === 'nak' && m.why === why).length,
   };
+}
+
+/** A raw hello that may be refused: every message the server sends back within `ms`. */
+async function helloOnly(url: string, pid: string, dk: string, ms = 2500) {
+  const ws = new WebSocket(url.replace(/^http/, 'ws') + '/api/ws');
+  const got: Record<string, unknown>[] = [];
+  await new Promise<void>((ok, fail) => { ws.onopen = () => ok(); ws.onerror = () => fail(new Error('ws')); });
+  ws.onmessage = e => { try { got.push(JSON.parse(String(e.data))); } catch { /* binary */ } };
+  ws.send(JSON.stringify({ type: 'hello', pid, dk, name: 'Прото', side: 0 }));
+  await sleep(ms);
+  try { ws.close(); } catch { /* closed by the server */ }
+  return got;
 }
 
 const hexKey = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
@@ -239,6 +251,20 @@ check('unknown field / mode / too many ids / half facing / stick out of range re
   [...shapeNaks].map(x => String(x).split(':').pop()).join(','));
 D.ws.close();
 
+// prototype-key player ids: refused at hello (WebSocket) and at /api/poll, never registered anywhere
+for (const bad of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+  const got = await helloOnly(base, bad, hexKey());
+  check(`hello as '${bad}' refused`, got.some(m => m.type === 'err' && m.why === 'pid') && !got.some(m => m.type === 'state'), JSON.stringify(got.slice(0, 2)));
+}
+for (const bad of ['__proto__', 'constructor', 'valueOf']) {
+  const pr = await fetch(base + '/api/poll', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pid: bad, dk: hexKey(), name: 'Прото', out: [{ type: 'cmd', c: { t: 1, id: bad + ':1', k: 'join', s: 1 } }] }) });
+  const pj = await pr.json().catch(() => null);
+  check(`poll as '${bad}' refused`, pr.status === 400 && pj?.why === 'pid', `${pr.status} ${JSON.stringify(pj)}`);
+}
+const recent = await (await fetch(base + '/api/players')).json();
+check('no player named after a prototype key was registered', !JSON.stringify(recent).includes('Прото'), JSON.stringify(recent.recent?.slice(0, 4)));
+check('every relayed command carries its sender\'s pid (server-stamped)', [A, B, C].every(c => c.session.allCmds().every(x => x.id.startsWith(x.p + ':'))));
+
 // reconnect: drop B's socket under it
 const reB = B.war.stats.reconnects;
 (B.war as unknown as { link: { ws: WebSocket } }).link.ws.close();
@@ -328,6 +354,46 @@ check('wake: the world keeps running', E.sim.st.tick > dbg.cpTick && E.sim.st.ti
 await waitFor('E passes the old tail', () => E.sim.st.tick > lastTick + 5, 15_000);
 check('wake: the tail after the checkpoint replays (deploy kept)', E.sim.st.sides[0].deployed >= 1, `deployed ${E.sim.st.sides[0].deployed} at tick ${E.sim.st.tick}, era ${cpAfterLeave.era}`);
 stop(E);
+await sleep(500);
+await dev.close();
+
+
+// =====================================================================================================
+console.log('\n== phase C: one honest client and a lying keeper (a 1:1 vote commits the lie) ==');
+dev = await startDevServer({ port: PORT, instances: 1, test: true, cpEvery: CP_EVERY, quiet: true });
+const L3 = await raw(dev.url, 'pliar' + Math.random().toString(36).slice(2, 6), hexKey());
+check('the liar holds the lease', !!L3.st?.keeper);
+const H = await client('Хава', dev.url, 0);
+const dH = findDeploy(H, 0);
+if (dH) H.session.submit({ k: 'dep', s: 0, ...dH });
+await sleep(9000);
+// a well-formed forged world (H's own snapshot + god mode, 10 M, a 1-floor high-rise) with a correct hash
+const T3 = Math.floor((H.sim.st.tick - 60) / 10) * 10;
+const snap = H.session.snapAt(T3);
+check('H holds a snapshot to forge from', !!snap);
+const forged = structuredClone(snap!);
+forged.sides[0].money = 10_000_000; forged.adm = { frz: [0, 1], god: [1, 0], ai: [0, 2] }; forged.sides[1].floors = 1;
+const resB = H.war.stats.resyncs, refB = H.war.stats.cpRefused;
+L3.send({ type: 'cp', tick: T3, hash: hashState(forged), gen: L3.st!.clock.gen, era: forged.era, wins: [0, 0], s: JSON.stringify(forged) });
+await waitFor('forged cp committed and seen', () => L3.got.some(m => m.type === 'ack' && m.what === 'cp') && H.war.stats.cpRefused > refB, 10_000);
+check('the 1:1 vote let the liar store its checkpoint (the server cannot tell)', L3.got.some(m => m.type === 'ack' && m.what === 'cp'));
+check('H asked for the full state and refused it (unexplained admin toggles / money)', H.war.stats.resyncs > resB && H.war.stats.cpRefused > refB, `resyncs ${resB}→${H.war.stats.resyncs}, refused ${H.war.refusals.slice(-2).join(' | ')}`);
+check('H keeps its own world: no god mode, no 10 M, high-rise intact', !H.sim.st.adm && H.sim.st.sides[0].money < 1_000_000 && H.sim.st.sides[1].floors >= 5, `money ${Math.round(H.sim.st.sides[0].money)} adm ${JSON.stringify(H.sim.st.adm)} floors ${H.sim.st.sides[1].floors}`);
+// a malformed state with a correct hash: a joiner neither crashes nor takes it
+const T4 = Math.floor((L3.tick() - 30) / 10) * 10;
+const bad = { v: 1, tick: T4, units: [{ id: 1 }], players: {} };
+await sleep(CP_EVERY / 3 + 200);
+L3.send({ type: 'cp', tick: T4, hash: hashState(bad as unknown as State), gen: L3.st!.clock.gen, era: 1, wins: [0, 0], s: JSON.stringify(bad) });
+await waitFor('malformed cp stored', () => L3.got.filter(m => m.type === 'ack' && m.what === 'cp').length >= 2, 6000);
+const J = new Sim(terrain); J.init(1); J.quiet = true;
+const jWar = await connectVercel('pjoin' + Math.random().toString(36).slice(2, 7), dev.url);
+let jSession: Session | null = null, jErr = '';
+try { jSession = await jWar!.join(J, 1); } catch (err) { jErr = String(err); }
+check('a joiner handed a malformed checkpoint does not throw', jErr === '', jErr);
+check('…does not take it (its world is still its own; the checkpoint is refused, not asked for again)', J.st.units.every(u => typeof u.x === 'number') && jWar!.stats.cpRefused >= 1, `${jWar!.refusals.join(' | ')} session ${!!jSession}`);
+jWar!.leave();
+stop(H);
+L3.ws.close();
 await sleep(500);
 await dev.close();
 

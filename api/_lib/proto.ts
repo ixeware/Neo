@@ -16,7 +16,10 @@ export const MAX_ADM = 2048;
 /** Per-connection rate limit: RATE messages/s sustained, BURST at once. */
 export const RATE = 20, BURST = 40;
 
-export const validPid = (p: unknown): p is string => typeof p === 'string' && /^[A-Za-z0-9_-]{3,32}$/.test(p);
+/** Keys that reach an object's prototype ('__proto__', 'constructor', 'toString', …): never a player id. */
+const PROTO_KEYS = new Set(Object.getOwnPropertyNames(Object.prototype).concat('__proto__', 'prototype'));
+/** A player id: 3..32 of [A-Za-z0-9_-], never a prototype key (ids key objects on the server and in every client's sim). */
+export const validPid = (p: unknown): p is string => typeof p === 'string' && /^[A-Za-z0-9_-]{3,32}$/.test(p) && !PROTO_KEYS.has(p);
 export const validKey = (k: unknown): k is string => typeof k === 'string' && /^[a-f0-9]{32,64}$/.test(k);
 
 // eslint-disable-next-line no-control-regex

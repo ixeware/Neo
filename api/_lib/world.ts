@@ -83,16 +83,20 @@ export function parseJson<T>(s: unknown): T | null {
   try { return JSON.parse(s) as T; } catch { return null; }
 }
 
+/** Keys that reach an object's prototype: a hash field named p:__proto__ never becomes a player. */
+const PROTO_KEYS = new Set(Object.getOwnPropertyNames(Object.prototype).concat('__proto__', 'prototype'));
+
 export function parseWorld(flat: unknown): World {
-  const w: World = { clock: null, cpm: null, alive: 0, players: {}, inst: {} };
+  // null-prototype maps: a field name read from Redis can never reach Object.prototype
+  const w: World = { clock: null, cpm: null, alive: 0, players: Object.create(null) as Record<string, PlayerRec>, inst: Object.create(null) as Record<string, InstRec> };
   if (!Array.isArray(flat)) return w;
   for (let i = 0; i + 1 < flat.length; i += 2) {
     const f = String(flat[i]), v = flat[i + 1];
     if (f === 'clock') w.clock = parseJson<Clock>(v);
     else if (f === 'cpm') w.cpm = parseJson<CpMeta>(v);
     else if (f === 'alive') w.alive = Number(v) || 0;
-    else if (f.startsWith('p:')) { const p = parseJson<PlayerRec>(v); if (p) w.players[f.slice(2)] = p; }
-    else if (f.startsWith('i:')) { const r = parseJson<InstRec>(v); if (r && Array.isArray(r.ros)) w.inst[f.slice(2)] = r; }
+    else if (f.startsWith('p:')) { const p = parseJson<PlayerRec>(v); if (p && !PROTO_KEYS.has(f.slice(2))) w.players[f.slice(2)] = p; }
+    else if (f.startsWith('i:')) { const r = parseJson<InstRec>(v); if (r && Array.isArray(r.ros) && !PROTO_KEYS.has(f.slice(2))) w.inst[f.slice(2)] = r; }
   }
   return w;
 }

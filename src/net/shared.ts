@@ -150,6 +150,7 @@ class SharedWar implements Shared {
   private myCmds: Cmd[] = [];
   private writing = false; private dirty = false;
   private cpWriting = false; private slotRefused = false;
+  private cpQueue = new Map<string, { st: State; t: number; h: number }>();
   private unsubs: (() => void)[] = [];
   private side: 0 | 1 = 0;
   private busy = false; private healTried = new Set<string>();
@@ -320,7 +321,12 @@ class SharedWar implements Shared {
         cands.push({ t, v, gen, sup, fresh: sup.some(w => now - w.at < FRESH_MS) });
       }
     }
-    cands.sort((a, b) => Number(b.fresh) - Number(a.fresh) || rank[b.v.why] - rank[a.v.why] || b.t - a.t);
+    // the newest tick fresh writers decided on (editor or majority): an older verdict than one step
+    // before it is a last resort (its checkpoint and the commands after it may be gone by now)
+    let newest = -1;
+    for (const c of cands) if (c.fresh && c.v.why !== 'alone') newest = Math.max(newest, c.t);
+    const recent = (c: { t: number; fresh: boolean }) => c.fresh && c.t >= newest - CP_STEP;
+    cands.sort((a, b) => Number(recent(b)) - Number(recent(a)) || Number(b.fresh) - Number(a.fresh) || rank[b.v.why] - rank[a.v.why] || b.t - a.t);
     for (const c of cands.slice(0, 6)) {
       const got = await this.fetchCp(c.t, c.v.h, c.sup.map(w => w.uid), sim);
       if (!got) continue;
@@ -401,7 +407,10 @@ class SharedWar implements Shared {
     await this.flush();
     if (this.editor) void this.flushAdm();
     if (this.room) this.room.presence({ side, v: 1 }).catch(() => {});
-    session.submit({ k: 'join', s: side });
+    // the sim still has to catch up from the checkpoint: stamp the join at the real current tick, not in
+    // the past (the others would have to roll back that far, and checkpoints they attested meanwhile
+    // would not have it)
+    session.submit({ k: 'join', s: side }, Math.max(0, session.targetTick() - sim.st.tick) + session.lead);
     return session;
   }
 
@@ -428,8 +437,8 @@ class SharedWar implements Shared {
     void this.flushAdm();
   }
 
-  /** Oldest command tick anyone may still need from my docs: two checkpoints back. */
-  private floor() { return (this.myHv[this.myHv.length - 1]?.t ?? this.base) - CP_STEP - 100; }
+  /** Oldest command tick anyone may still need from my docs: from two checkpoints back on. */
+  private floor() { return (this.myHv[this.myHv.length - 1]?.t ?? this.base) - 2 * CP_STEP - 100; }
 
   private async flushAdm() {
     if (this.admWriting) { this.admDirty = true; return; }
@@ -505,17 +514,31 @@ class SharedWar implements Shared {
     this.writing = false;
   }
 
-  /** My full state at tick t, in my own subtree (and w/cp while I hold the lease, or when my subtree refuses it). */
-  private async writeCp(st: State, t: number, h: number) {
-    if (this.cpWriting || !this.clock || !this.uid) return;
+  /**
+   * My full state at tick t, in my own subtree (and w/cp while I hold the lease, or when my subtree
+   * refuses it). Writes go one at a time; a newer state for the same slot replaces a queued one.
+   */
+  private writeCp(st: State, t: number, h: number): Promise<void> {
+    this.cpQueue.set(slotOf(t), { st, t, h });
+    return this.drainCp();
+  }
+
+  private async drainCp() {
+    if (this.cpWriting) return;
     this.cpWriting = true;
     try {
-      const text = JSON.stringify(st);
-      if (text.length > MAX_STATE_CHARS) return;
-      const body: CpDoc = { tick: t, wall: this.clock.wall0 + (t - this.clock.tick0) * 100, gen: this.clock.gen, st: text, hash: h, era: st.era, wins: [st.sides[0].wins, st.sides[1].wins] };
-      this.lastCp = Date.now();
-      try { await this.db.doc(cpPath(this.uid, t)).set(body); this.stats.cpWrites++; } catch { this.slotRefused = true; }
-      if (this.keeper || this.slotRefused) { try { await this.db.doc('w/cp').set(body); } catch { /* next round */ } }
+      for (let e = this.cpQueue.values().next(); !e.done; e = this.cpQueue.values().next()) {
+        const { st, t, h } = e.value;
+        this.cpQueue.delete(slotOf(t));
+        const clock = this.clock, uid = this.uid;
+        if (!clock || !uid) continue;
+        const text = JSON.stringify(st);
+        if (text.length > MAX_STATE_CHARS) continue;
+        const body: CpDoc = { tick: t, wall: clock.wall0 + (t - clock.tick0) * 100, gen: clock.gen, st: text, hash: h, era: st.era, wins: [st.sides[0].wins, st.sides[1].wins] };
+        this.lastCp = Date.now();
+        try { await this.db.doc(cpPath(uid, t)).set(body); this.stats.cpWrites++; } catch { this.slotRefused = true; }
+        if (this.keeper || this.slotRefused) { try { await this.db.doc('w/cp').set(body); } catch { /* next round */ } }
+      }
     } finally {
       this.cpWriting = false;
     }
@@ -539,9 +562,9 @@ class SharedWar implements Shared {
     if (++this.rounds % 3 === 0) {
       for (const a of this.myHv.slice(-2)) {
         const snap = s.snapAt(a.t);
-        if (!snap) continue;
+        if (!snap || a.t <= this.base) continue;
         const h = hashState(snap);
-        if (h !== a.h) { a.h = h; changed = true; }
+        if (h !== a.h) { a.h = h; changed = true; void this.writeCp(snap, a.t, h); } // the stored state follows the attestation
       }
     }
     const last = this.myHv[this.myHv.length - 1];
@@ -557,7 +580,8 @@ class SharedWar implements Shared {
       }
     }
     if (changed) { void this.flush(); if (this.editor) void this.flushAdm(); }
-    void this.heal(s);
+    // compare only once caught up: while replaying, the others' stored states for these ticks may be gone
+    if (!s.catchingUp && s.targetTick() - s.sim.st.tick < 20) void this.heal(s);
   }
 
   /**

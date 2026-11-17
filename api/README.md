@@ -43,7 +43,7 @@ Client → server (`hello` first; ≤ 4 KB each except `cp`; 20 messages/s, burs
 | --- | --- | --- |
 | `hello` | `pid, dk, name, side, pres, since?, gen?` | `dk` (device key, random hex, localStorage) proves the pid: the first hello binds `sha256(dk)` to it. With a valid `since` (last log id) and the same `gen` the reply is only the delta. |
 | `ping` | `at` | → `pong { at, now }` (clock offset). |
-| `cmd` | `c` | an ordinary command: `join`, `dep`, `vote`, `ord`, `ctl`. Never `cfg`, never `adm`. |
+| `cmd` | `c` | an ordinary command: `join {s}`, `dep {s,u,x,z}`, `vote {s,o}`, `ord {s,ids,m,x?,z?,tg?,fi?,fn?}`, `ctl {s,u,dx,dz,atk,fx?,fz?,rel?}` (plus `t, id, p`). Never `cfg`, never `adm`. |
 | `adm` | `c, tok` | an admin command with the login token. |
 | `cp` | `tick, hash, gen, era, wins, z` or `s` | keeper only: checkpoint (`z` = base64 gzip of the state JSON, `s` = raw JSON; ≤ 256 KB). |
 | `hv` | `tick, hash` | my hash at `tick` (answer to `cpq`; −1 = no snapshot). |
@@ -58,9 +58,11 @@ Server → client: `state { full, pid, now, clock, cp, cmds, last, keeper, cpEve
 `pong`, `err { why }` (then close: `noredis`, `owner`, `pid`, `key`, `server`).
 
 **What the server enforces.** The command's `p` is always the sender's pid and its `id` must start with
-`<pid>:` (nobody can speak for, or pre-empt the ids of, someone else). Commands are rebuilt from known
-fields only. Ticks must be within `[now − 300, now + 60]` (the rollback window); others are rejected,
-and the client takes the command back and resyncs. Admin commands need a valid token and must pass the
+`<pid>:` (nobody can speak for, or pre-empt the ids of, someone else). Every field is checked (sides 0/1,
+integer ids and bounds, finite coordinates, `ord` modes of `src/sim/sim.ts` OrdMode, ≤ 64 ids). A command
+with a field its kind does not have is **refused, not stripped**: the sender has already applied its own
+copy, so what the others get must be the very same command. Ticks must be within `[now − 300, now + 60]`
+(the rollback window); others are rejected. On any refusal the client takes the command back and resyncs. Admin commands need a valid token and must pass the
 sim's own `validAdmCmd` (bundled into `_lib/admcheck.js` by `tools/gen-admcheck.mjs`; run
 `npm run gen:api` after changing `src/sim/admin.ts` or `src/sim/defs.ts`) plus op ≤ 24 chars,
 numbers finite within ±1e9, strings ≤ 600 chars, JSON ≤ 2 KB; every accepted one is written to
@@ -83,11 +85,13 @@ last checkpoint when it leaves.
 
 Each function instance runs one hub (`_lib/hub.ts`). Commands accepted by an instance go to all of its
 sockets at once and to the Redis log in batches: every 2 s while it is the only live instance, every
-250 ms while another instance (or an HTTP-fallback client) is live. Every 5 s an instance writes
-`alive` and its roster and reads `vy:w` (2 commands). It reads the log only while another instance is
-live: every 400 ms while that one sent commands in the last 20 s, else every 1.5 s. Every writer of the
-log lists itself in `vy:w` first, so a lone instance never misses anything. A new instance is noticed
-within ~5 s; until then its commands reach the others late and roll back (well inside the 30 s window).
+400 ms while another instance (or an HTTP-fallback client) is live. Every 5 s an instance writes
+`alive` and its roster and reads `vy:w` (one pipeline, 2 commands). It reads the log only while another
+instance is live: every 700 ms while that one sent commands in the last 10 s, else every 3 s. Every
+writer of the log lists itself in `vy:w` first, so a lone instance never misses anything. A new
+instance is noticed within ~5 s; until then its commands reach the others late and roll back (well
+inside the 30 s window). The roster goes to the sockets at most twice a second; another instance's
+players appear within one heartbeat (≤ 5 s).
 
 ## Redis keys
 

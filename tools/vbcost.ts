@@ -26,7 +26,7 @@ for (let i = 0; i < 6; i++) {
   clients.push({ war, sim, session, side, timer });
 }
 await sleep(20_000);
-const stats = async () => (await (await fetch(dev.url + '/__test/stats')).json()) as { redis: { count: number; byCmd: Record<string, number> }; hubs: Record<string, number>[] };
+const stats = async () => (await (await fetch(dev.url + '/__test/stats')).json()) as { redis: { count: number; byCmd: Record<string, number>; bytes: number }; hubs: Record<string, number>[] };
 const s0 = await stats();
 const t0 = Date.now();
 let sent = 0;
@@ -49,6 +49,9 @@ for (const k of Object.keys(s1.redis.byCmd)) { const d = s1.redis.byCmd[k] - (s0
 console.log(`instances ${INST}, 6 clients, ${(sent / min).toFixed(0)} commands/min sent, checkpoint every 15 s`);
 console.log(`Redis commands/min: ${per.toFixed(1)}  ${JSON.stringify(by)}`);
 console.log(`→ per 2 h session ${(per * 120).toFixed(0)}, per month (30 × 2 h) ${(per * 120 * 30 / 1000).toFixed(0)}k`);
+const bpm = (s1.redis.bytes - s0.redis.bytes) / min;
+const cp = (dev.mem?.dump().str.get('vy:cp') ?? '') as string;
+console.log(`Redis traffic ${(bpm / 1024).toFixed(0)} KB/min → per month (30 × 2 h) ${(bpm * 120 * 30 / 2 ** 30).toFixed(2)} GB; checkpoint blob ${(cp.length / 1024).toFixed(1)} KB, world tick ${clients[0].sim.st.tick}, units ${clients[0].sim.st.units.length}`);
 console.log('hubs', JSON.stringify(s1.hubs.map(h => ({ size: h.size, flushes: h.flushes, beats: h.beats, polls: h.polls }))));
 console.log('checkpoints ok', clients.map(c => `${c.war.stats.cpOk}/${c.war.stats.cpBad}`).join(' '));
 for (const c of clients) { clearInterval(c.timer); c.war.leave(); }

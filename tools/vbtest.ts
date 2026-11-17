@@ -147,6 +147,15 @@ check('vote propagates', B.sim.st.votes[0].ballots[A.war.pid] === 1);
 A.war.setPresence({ sel: 12, ctl: 7 });
 await waitFor('roster', () => B.roster.some(e => e.pid === A.war.pid && e.sel === 12 && e.ctl === 7) && B.roster.length === 2, 12_000);
 check('roster: both players, presence crosses instances', B.roster.length === 2 && B.roster.some(e => e.name === 'Аслан' && e.sel === 12 && e.ctl === 7), JSON.stringify(B.roster));
+const pres = (A.session.backend as unknown as { presence?: { onRoster(cb: (l: RosterEntry[]) => void): () => void; setPresence(p: Partial<RosterEntry>): void } }).presence;
+let viaBackend: RosterEntry[] = [];
+const unsub = pres?.onRoster(l => { viaBackend = l; });
+await sleep(50);
+check('session.backend.presence gives the roster (me marked)', !!pres && viaBackend.length === 2 && viaBackend.some(e => e.pid === A.war.pid && e.me) && !viaBackend.some(e => e.pid === B.war.pid && e.me), JSON.stringify(viaBackend));
+pres?.setPresence({ ctl: undefined, sel: 3 });
+await waitFor('presence cleared', () => B.roster.some(e => e.pid === A.war.pid && e.sel === 3 && e.ctl === undefined), 12_000);
+check('setPresence clears ctl and changes sel everywhere', B.roster.some(e => e.pid === A.war.pid && e.sel === 3 && e.ctl === undefined), JSON.stringify(B.roster.find(e => e.pid === A.war.pid)));
+unsub?.();
 const players = await (await fetch(base + '/api/players')).json();
 check('GET /api/players lists the roster', players.roster?.length === 2 && players.online?.[0] === 1 && players.online?.[1] === 1, JSON.stringify(players.online));
 
@@ -206,6 +215,28 @@ check('nobody got a forged cfg / adm / pid', leaked.length === 0 && leakedDep.le
 check('forged money never applied', [A, B, C].every(c => c.sim.st.sides[0].money < 900000));
 const protoCmd = A.session.allCmds().find(x => x.id === myId('proto')) as Record<string, unknown> | undefined;
 check('accepted command is rebuilt from known fields', !protoCmd || Object.keys(protoCmd).sort().join() === 'id,k,p,s,t,u,x,z', protoCmd ? Object.keys(protoCmd).join() : 'not relayed');
+
+// unit control (src/sim/sim.ts 'ord' / 'ctl'): relayed field for field; an unknown field is refused, not stripped
+const t2 = D.tick() + 8;
+const ord = { t: t2, id: myId('ord'), k: 'ord', s: 0, ids: [3, 5, 8], m: 'attackMove', x: 120.5, z: 88.25, fi: 3, fn: 9 };
+const ctl = { t: t2, id: myId('ctl'), k: 'ctl', s: 0, u: 5, dx: -3, dz: 8, atk: 1, fx: 2, fz: -1 };
+const ctlRel = { t: t2, id: myId('ctlrel'), k: 'ctl', s: 0, u: 5, dx: 0, dz: 0, atk: 0, rel: 1 };
+D.send({ type: 'cmd', c: ord }); D.send({ type: 'cmd', c: ctl }); D.send({ type: 'cmd', c: ctlRel });
+D.send({ type: 'cmd', c: { ...ord, id: myId('ordx'), extra: 1 } });
+D.send({ type: 'cmd', c: { ...ord, id: myId('ordm'), m: 'teleport' } });
+D.send({ type: 'cmd', c: { ...ord, id: myId('ordn'), ids: Array.from({ length: 65 }, (_, i) => i + 1) } });
+D.send({ type: 'cmd', c: { ...ctl, id: myId('ctlf'), fz: undefined } }); // fx without fz
+D.send({ type: 'cmd', c: { ...ctl, id: myId('ctld'), dx: 9 } });
+await waitFor('ord/ctl relayed', () => [A, B, C].every(c => c.session.allCmds().some(x => x.id === myId('ctlrel'))), 6000);
+const relayed = (c: Client, id: string) => c.session.allCmds().find(x => x.id === id) as Record<string, unknown> | undefined;
+const canon = (o: Record<string, unknown>) => JSON.stringify(Object.keys(o).filter(k => o[k] !== undefined).sort().map(k => [k, o[k]]));
+const same = (got: Record<string, unknown> | undefined, want: Record<string, unknown>) => !!got && canon(got) === canon({ ...want, p: (D.st as unknown as { pid: string }).pid });
+check('ord relayed to everyone with every field (fi, fn)', [A, B, C].every(c => same(relayed(c, ord.id), ord)), JSON.stringify(relayed(B, ord.id)));
+check('ctl relayed to everyone with every field (fx, fz, rel)', [A, B, C].every(c => same(relayed(c, ctl.id), ctl) && same(relayed(c, ctlRel.id), ctlRel)), JSON.stringify(relayed(B, ctl.id)));
+const shapeNaks = new Set(D.got.filter(m => m.type === 'nak' && m.why === 'shape').map(m => m.id));
+check('unknown field / mode / too many ids / half facing / stick out of range refused',
+  ['ordx', 'ordm', 'ordn', 'ctlf', 'ctld'].every(s => shapeNaks.has(myId(s))) && ![A, B, C].some(c => ['ordx', 'ordm', 'ordn', 'ctlf', 'ctld'].some(s => relayed(c, myId(s)))),
+  [...shapeNaks].map(x => String(x).split(':').pop()).join(','));
 D.ws.close();
 
 // reconnect: drop B's socket under it

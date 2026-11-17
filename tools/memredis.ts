@@ -20,6 +20,8 @@ export class MemRedis implements Redis {
   /** Commands executed (each pipelined command counts, as Upstash bills them). */
   count = 0;
   byCmd: Record<string, number> = {};
+  /** Request and reply bytes as the REST API would carry them (JSON), for the bandwidth estimate. */
+  bytes = 0;
   /** Simulated round trip per request (ms). */
   latency = 0;
   /** When true every request fails (Redis down). */
@@ -28,13 +30,19 @@ export class MemRedis implements Redis {
   async cmd(...args: Arg[]): Promise<unknown> {
     if (this.latency) await sleep(this.latency);
     if (this.down) throw new Error('redis http 503: down');
-    return this.exec(args.map(String));
+    const a = args.map(String);
+    const r = this.exec(a);
+    this.bytes += JSON.stringify(a).length + JSON.stringify({ result: r }).length;
+    return r;
   }
 
   async pipe(cmds: Arg[][]): Promise<unknown[]> {
     if (this.latency) await sleep(this.latency);
     if (this.down) throw new Error('redis http 503: down');
-    return cmds.map(c => this.exec(c.map(String)));
+    const a = cmds.map(c => c.map(String));
+    const r = a.map(c => this.exec(c));
+    this.bytes += JSON.stringify(a).length + JSON.stringify(r.map(result => ({ result }))).length;
+    return r;
   }
 
   private alive(k: string) {

@@ -90,7 +90,7 @@ export async function startDevServer(opts = {}) {
     res.setHeader('Content-Type', 'application/json');
     if (url.pathname === '/__test/time') { if (typeof body.off === 'number') time.off = body.off; res.end(JSON.stringify({ off: time.off, now: time.now() })); return; }
     if (url.pathname === '/__test/redis') { if (mem && typeof body.down === 'boolean') mem.down = body.down; if (mem && typeof body.latency === 'number') mem.latency = body.latency; res.end(JSON.stringify({ down: mem?.down ?? null })); return; }
-    if (url.pathname === '/__test/stats') { res.end(JSON.stringify({ redis: mem ? { count: mem.count, byCmd: mem.byCmd } : null, hubs: hubs.map(h => ({ inst: h.inst, size: h.size, ...h.stats })) })); return; }
+    if (url.pathname === '/__test/stats') { res.end(JSON.stringify({ redis: mem ? { count: mem.count, byCmd: mem.byCmd, bytes: mem.bytes } : null, hubs: hubs.map(h => ({ inst: h.inst, size: h.size, ...h.stats })) })); return; }
     res.statusCode = 404; res.end('{}');
   }
 

@@ -13,7 +13,7 @@ import type { Pt } from '../sim/sim';
 const WALLS = ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
 const ROOFS = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
 
-interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color; c2?: THREE.Color }
+interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color; c2?: THREE.Color; v?: number }
 
 function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true) {
   const buckets = new Map<number, Item[]>();
@@ -235,10 +235,12 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     for (let k = 0; k < 4; k++) { const lx = CORNERS[k][0] * hx, lz = CORNERS[k][1] * hz; lo = Math.min(lo, heightY(t, x + lx * c + lz * s, z - lx * s + lz * c)); }
     return true;
   };
-  const place = (x: number, z: number, ry: number, w: number, d: number, sy: number, h: number) => {
+  // street = local +z faces a street: most such houses get the fence + gate kit
+  const place = (x: number, z: number, ry: number, w: number, d: number, sy: number, h: number, street = false) => {
     lots.add(x, z, Math.cos(ry), Math.sin(ry), w / 2, d / 2);
+    const g = hash2(Math.floor(h * 6151), 17);
     items.push({
-      x, z, y: lo - 0.02, ry, sx: w, sy, sz: d,
+      x, z, y: lo - 0.02, ry, sx: w, sy, sz: d, v: street && g < 0.7 ? (g < 0.35 ? 1 : 2) : 0,
       c: WALLS[Math.floor(hash2(Math.floor(h * 9973), 9) * WALLS.length)], c2: ROOFS[Math.floor(hash2(Math.floor(h * 7919), 3) * ROOFS.length)],
     });
   };
@@ -251,7 +253,9 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     const hs = net.houses[i];
     if (builtAt(hs.x, hs.z) < 40 || hash2(i, 71) > dens) continue;
     let w = Math.max(0.26, Math.min(0.44, hs.w * 1.5)), d = Math.max(0.22, Math.min(0.38, hs.d * 1.5)), ry = hs.ry;
+    let street = false;
     if (roadClearance(hs.x, hs.z, STREETS, 9, probe) < 9 && probe.seg >= 0) {
+      street = true;
       const sg = probe.seg, ex = net.sx1[sg] - net.sx0[sg], ez = net.sz1[sg] - net.sz0[sg], el = ex * ex + ez * ez;
       const f = el > 0 ? Math.max(0, Math.min(1, ((hs.x - net.sx0[sg]) * ex + (hs.z - net.sz0[sg]) * ez) / el)) : 0;
       const tx = net.sx0[sg] + ex * f - hs.x, tz = net.sz0[sg] + ez * f - hs.z;
@@ -262,7 +266,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     }
     if (!site(hs.x, hs.z, ry, w / 2, d / 2)) continue;
     const h = hash2(i, 5);
-    place(hs.x, hs.z, ry, w, d, h > 0.8 ? 0.42 : 0.24 + h * 0.07, h);
+    place(hs.x, hs.z, ry, w, d, h > 0.8 ? 0.42 : 0.24 + h * 0.07, h, street);
   }
 
   // 2. plots along the real streets (main roads first: the bake sorts lines by class)
@@ -292,7 +296,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
         const ry = Math.atan2(-nx, -nz); // local +z looks at the street
         if (!site(x, z, ry, w / 2, d / 2)) continue;
         const h4 = hash2(li * 5 + k, side + 505);
-        place(x, z, ry, w, d, h4 > 0.82 ? 0.42 : 0.24 + h4 * 0.07, h4);
+        place(x, z, ry, w, d, h4 > 0.82 ? 0.42 : 0.24 + h4 * 0.07, h4, true);
       }
     }
   }
@@ -311,9 +315,12 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     const two = hash2(i + 5, j + 13) > 0.78;
     place(x, z, blockRot, w, d, two ? 0.42 : 0.24 + hash2(i + 2, j) * 0.06, hash2(i + 9, j + 9));
   }
-  const { body, roof } = houseGeometries();
+  const { variants } = houseGeometries();
   const mat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
-  chunked(items, [body, roof], [mat, mat], [false, true], parent, 50, hq);
+  variants.forEach((kit, vi) => {
+    const list = items.filter(it => (it.v ?? 0) === vi);
+    if (list.length) chunked(list, [kit.body, kit.roof], [mat, mat], [false, true], parent, 50, hq);
+  });
   return items.length;
 }
 

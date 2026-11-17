@@ -418,7 +418,7 @@ export function bldApply(sim: Sim, c: Extract<Cmd, { k: 'bld' }>, pl: Player): v
         if (why) { first ??= why; continue; }
         const price = bcost(sim, s, t, 1);
         sd.money -= price; total += price; built++;
-        add(sim, s, t, cell, pl.n, price, 1, false);
+        add(sim, s, t, cell, Number.isInteger(pl.n) ? pl.n : -1, price, 1, false);
       }
       if (!built) { if (first) deny(first); return; }
       spent(total);
@@ -485,7 +485,7 @@ function upgrade(sim: Sim, b: B): number {
 function fire(h: Host, b: B, x: number, z: number) {
   const st = h.st, d = BUILDINGS[T_ARB], T = h.terrain;
   x = Math.max(0, Math.min(T.W, x)); z = Math.max(T.z0, Math.min(T.H, z));
-  st.aoe.push({ s: b.s, x, z, r: d.sp!, dmg: d.dmg![b.lv - 1], hq: BASE.arbHq, at: st.tick + BASE.arbDelay, n: 1, every: 0, k: 'arbuz' });
+  st.aoe.push({ s: b.s, x, z, r: d.sp!, dmg: d.dmg![Math.max(1, elv(b, st.tick)) - 1], hq: BASE.arbHq, at: st.tick + BASE.arbDelay, n: 1, every: 0, k: 'arbuz' });
   b.v = st.tick;
   h.emit({ e: 'shot', x: b.x, z: b.z, tx: x, tz: z, k: BASE.shotK + T_ARB, at: st.tick + BASE.arbDelay, s: b.s });
   ev(h, 'fire', b, 0);

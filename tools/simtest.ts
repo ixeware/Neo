@@ -841,6 +841,7 @@ const doAdm = (s: Sim, body: Record<string, unknown>) => { s.fx.length = 0; s.st
   {
     const sim = runTo(SEED, 400), backend: Backend = { kind: 'local', send() { /* none */ }, checkpoint() { /* none */ } };
     const sess = new Session(sim, backend, 'x');
+    sim.st.sides[0].aiNext = 1e9; // the AI (units, and since v5 its base) must not spend the gift before we look
     const t = sim.st.tick + 3, m0 = sim.st.sides[0].money;
     sess.receive({ t, id: 'same', p: 'evil', k: 'dep', s: 0, u: 0, x: 1, z: 1 } as Cmd);
     sess.receive({ t, id: 'same', p: 'admin', k: 'adm', op: 'money', s: 0, v: 5000 } as unknown as Cmd);

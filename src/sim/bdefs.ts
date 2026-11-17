@@ -54,10 +54,15 @@ export interface BDef {
   inc?: L3;
 }
 
+/** Families in menu order. */
+export const BFAMS: BFam[] = ['def', 'wall', 'trap', 'eco', 'sup', 'super'];
+
 /** Building flags (B.f). SEEN: the enemy has seen this hidden thing; ADM: removed by the admin (no bounty). */
 export const BF = { SEEN: 1, ADM: 2 } as const;
 
 export const BASE = {
+  /** Every building stands on one nav cell: cell × cell world units. */
+  cell: 2,
   /** Build zone radius around the own high-rise, plus zoneStep per base level. */
   zone: 15, zoneStep: 2,
   /** Keep-out around the own high-rise: HQ.radius + keep. */
@@ -94,7 +99,7 @@ export const BASE = {
   /** «Курятник» looks this far for enemies. */
   henR: 14,
   /** AI: one build action every aiEvery + rint(aiJit) ticks, only with bank ≥ price + aiReserve. */
-  aiEvery: 150, aiJit: 100, aiReserve: 150,
+  aiEvery: 200, aiJit: 100, aiReserve: 150,
   /** Projectile looks: FxEv 'shot'.k = shotK + building type. */
   shotK: 20,
 };

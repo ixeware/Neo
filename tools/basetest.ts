@@ -772,6 +772,52 @@ export function baseChecks(ctx: BaseCtx): void {
     check('discount (SideState.bdisc): ×0.75, and the refund follows what was really paid', disc === 150 && pb.paid === 150 && refund(pb) === 75 && s.bcost(0, K.prorab, 1) === 200);
   }
   {
+    // the remaining reasons: cooldown, money and «war over» on upgrade / sell / repair / fire; «repair all»
+    const s = box(), sd = s.st.sides[0], pa = () => s.st.players.pa;
+    const [p1, p2, p3] = spots(s, 0, 'larek', 3);
+    bld(s, 'pa', 0, { op: 'put', b: K.larek, x: p1.x, z: p1.z });
+    const b = s.bldAt(p1.x, p1.z)!;
+    runN(s, D[K.larek].bt[0] + 1);
+    const whole = why(bld(s, 'pa', 0, { op: 'rep', n: 0 }));
+    pa().bc = s.st.tick + 50;
+    const busy = [s.canUp(0, b.id, pa()), s.canSell(0, b.id, pa()), s.canRep(0, b.id, pa()), s.canBuildType(0, K.larek, pa()), s.canFire(0, b.id, 5, 5, pa())];
+    pa().bc = 0;
+    give(s, 0, 'prorab', p2.x, p2.z, 3);
+    b.hp = b.mhp / 2;
+    sd.money = 1;
+    const poor = [s.canUp(0, b.id), s.canRep(0, b.id), s.canBuildType(0, K.larek)];
+    sd.money = 100000;
+    s.st.winner = 1;
+    const over = [s.canUp(0, b.id), s.canSell(0, b.id), s.canRep(0, b.id), s.canFire(0, b.id, 5, 5), s.canBuildType(0, K.larek)];
+    s.st.winner = -1;
+    check('upgrade / sell / repair / fire: «Не так быстро» on the player\'s cooldown («Это не стреляет» comes first for a Ларёк), «Голда не на балике», «Жди следующую войну»; «repair all» with nothing damaged: «И так целое»',
+      whole === 'И так целое' && busy.slice(0, 4).every(w => w === 'Не так быстро') && busy[4] === 'Это не стреляет' && poor.every(w => w === 'Голда не на балике') && over.every(w => w === 'Жди следующую войну'),
+      JSON.stringify([whole, busy, poor, over]));
+    const b2 = give(s, 0, 'rogatka', p3.x, p3.z); b2.paid = 80; b2.hp = 100;
+    const b3 = give(s, 0, 'grabli', p3.x + 2, p3.z); b3.paid = 30; b3.hp = 10; b3.hit = s.st.tick; // just hit: skipped
+    const m0 = sd.money, cost = repairCost(b) + repairCost(b2);
+    const fx = bld(s, 'pb', 0, { op: 'rep', n: 0 });
+    check('«repair all» (rep n 0): every damaged building that is not under fire is repaired for the sum of their prices', bev(fx, 'rep').length === 2 && b.hp === b.mhp && b2.hp === b2.mhp && b3.hp === 10 && sd.money === m0 - cost && cost > 0, `${cost} ₽`);
+    check('canBuildType is the spot-free half of canBuild (the build menu): the same reason, or none where only the spot is wrong',
+      D.every((_, t) => { const a = s.canBuildType(0, t), c = s.canBuild(0, t, 1e5, 1e5); return a === null ? c === 'Тут не построишь' : a === c; })
+      && s.canBuildType(0, K.prorab) === 'Больше таких нельзя' && s.canBuildType(0, K.bukva_n) === null && s.canBuildType(0, 99) === 'Нет такой постройки');
+  }
+  {
+    // a player drives a unit: the attack button hits the building in front of it, not the one behind
+    const s = box(), a = s.st.pts[0];
+    freeze(s, 0);
+    const q = snapCell(T, a.x - 12, a.z + 6);
+    const t = give(s, 0, 'larek', q.x, q.z);
+    const u = s.spawn(1, 1, q.x - 2.2, q.z, -1);
+    stepC(s, C(s, 'pk', { k: 'ctl', s: 1, u: u.id, dx: 0, dz: 0, atk: 1, fx: 8, fz: 0 }));
+    runN(s, 30);
+    const front = t.mhp - t.hp;
+    stepC(s, C(s, 'pk', { k: 'ctl', s: 1, u: u.id, dx: 0, dz: 0, atk: 1, fx: -8, fz: 0 }));
+    const hp1 = t.hp;
+    runN(s, 30);
+    check('possessed unit: the attack button hits the enemy building in front; facing away it does not', front > 0 && front % UNITS[1].dmg[1] === 0 && t.hp === hp1 && u.o?.m === OM.POSSESS, `−${front}`);
+  }
+  {
     // property: over random build / upgrade / repair / sell commands and random damage, bank + what a sale of
     // everything would give never grows — so no sequence makes money, and the bank never passes its start
     const s = box(11), sd = s.st.sides[0];
@@ -910,6 +956,13 @@ export function baseChecks(ctx: BaseCtx): void {
     check('AI vs AI, 6 minutes: both sides have a Прорабская and more, all placed by the AI (own −2) inside their zones',
       by.every((l, sd) => l.some(b => b.t === K.prorab) && l.length >= 2 && l.every(b => b.own === -2 && dist(b, ai.st.pts[sd].x, ai.st.pts[sd].z) <= 21.01))
       && ai.st.units.length > 20, `${by[0].length} / ${by[1].length} buildings, ${ai.count(0)} / ${ai.count(1)} units`);
+    // ranked spots: towers stand towards the enemy (lower goal-field distance), the economy behind the high-rise
+    const sideOk = by.map((l, sd) => {
+      const f = ai.flows[1 - sd].dist, avg = (q: B[]) => q.reduce((n, b) => n + f[navIndex(T, b.x, b.z)], 0) / q.length;
+      const front = l.filter(b => D[b.t].fam === 'def'), back = l.filter(b => D[b.t].fam === 'eco' || b.t === K.prorab);
+      return front.length && back.length ? avg(front) < avg(back) : true;
+    });
+    check('…towers on the enemy\'s side of the high-rise, economy and the Прорабская behind it (spots ranked by the goal field)', sideOk.every(Boolean) && by.some(l => l.some(b => D[b.t].fam === 'def')));
     // the reserve: with less than price + reserve it buys units only
     const t = sandbox(9), sd = t.st.sides[0];
     sd.aiNext = 0; sd.aiB = 0; sd.money = D[K.prorab].cost[0] + BASE.aiReserve - 1;

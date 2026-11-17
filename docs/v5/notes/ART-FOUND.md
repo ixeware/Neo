@@ -26,7 +26,28 @@ Branch base: `4b8c2dc`. Scratch (scripts, screenshots, measurements): `…/scrat
 - **HUD skin**: `src/render/toon/hud.css`, scoped to `html.gfx-toon` (variables, corners, shadows; no layout
   properties).
 - **Other renderers**: `src/ui/portraits.ts` (style + ink hull), `tools/lineup.ts` (`?gfx=`, outline pass).
-- **Docs**: `docs/v5/ART.md` v2 with measured budgets, the outline decision and the classic proof.
+- **First person**: sky gradient and cartoon clouds behind the land; what `fpcam.ts` dithers away next to
+  the camera writes «no ink» into the mask (`NEAR_FADE` branch in `toon/shading.ts`), so the dither does
+  not turn into dark speckle.
+- **Docs**: `docs/v5/ART.md` final: the look, palette, shapes, richness recipe, base buildings, budgets,
+  characters, the style API, file ownership and task lists for ART-GROUND / ART-ARCH / ART-CHARS (§9), the
+  measured outline decision (§10) and the classic proof (§11).
+
+## State: finished
+Nothing is in progress. Final run (dev server, the code of the final commit):
+- Classic vs base commit `4b8c2dc`: 30 canvas dumps (10 desktop views, 10 phone views, 10 lineup views)
+  pixel-identical, 28 portraits byte-identical.
+- Switch test on both tiers: toon → «Старая» → «Новая», the war resumes after each reload (tick keeps
+  counting, units alive), `?gfx=` overrides the saved choice.
+- Draw calls / triangles per view (96 units on the field; atagi, atagi38, fight, kurchaloy, kurchaloy38,
+  grozny, grozny38, shali, river, whole):
+  - desktop classic: 347/460k, 314/383k, 223/357k, 371/571k, 332/495k, 230/613k, 198/559k, 244/486k,
+    281/506k, 557/444k; desktop toon (`ol=full`): the same **+1 call, +1 triangle**;
+  - phone tier classic: 152/236k, 135/234k, 91/230k, 157/263k, 132/245k, 105/324k, 88/285k, 99/237k,
+    90/230k, 186/221k; phone toon (`ol=lite`): the same **+1 call, +1 triangle**.
+- Outline pass frame time inside one page (software GL, ratios only): desktop lite 1.057×, full 1.077× of
+  `off`; phone tier lite 1.084×, full 1.095×.
+- `dist/index.html`: 1.90 MB at the base, 1,918,511 bytes (1.92 MB) with the foundation.
 
 ## Decisions
 - Restyle through `ShaderChunk`, not per material: about 48 lit material sites in 17 files stay untouched.
@@ -44,6 +65,10 @@ Branch base: `4b8c2dc`. Scratch (scripts, screenshots, measurements): `…/scrat
 - Model work is for the three art tracks (ART.md §9). Houses, trees and units still use old geometry and
   old colours through the remap.
 - Sky clouds are only visible in first person; the RTS camera never sees the sky.
+- In first person a dithered (near-faded) object in front of another *object* still shows a little ink
+  through the dither holes (in front of the ground it is clean).
+- `tools/lineup.html` keeps its old khaki floor in toon (a tool page; classic lineup must not change).
+- The minimap uses the toon land palette through `paintTin`, but its pen colours are the old ones.
 - The governor's 40 ms threshold is a guess to be tuned on real phones.
 - `STYLE.tier` is fixed at load (resizing a desktop window under 600 px does not change it).
 
@@ -53,6 +78,8 @@ Branch base: `4b8c2dc`. Scratch (scripts, screenshots, measurements): `…/scrat
 - Classic unchanged: `node cap.cjs classic desktop "gfx=classic"`, the same for `phone`,
   `node lineup.cjs classic "gfx=classic"`, then `node cmp.cjs base classic` → every image IDENTICAL
   (`base/` was captured on `4b8c2dc` with the same scripts).
-- Switch and resume: `node switch.cjs desktop shots`.
+- Switch and resume: `node switch.cjs desktop shots` (and `phone`).
+- Everything at once: `bash final.sh` (toon captures on both tiers, toon lineup, the classic proof with
+  portraits, HUD and menu screenshots).
 - Numbers: `node cap.cjs <out> desktop|phone "gfx=toon&ol=full"` prints draw calls and triangles per view;
   `node timing.cjs desktop|phone` compares the outline modes inside one page.

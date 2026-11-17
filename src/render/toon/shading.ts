@@ -84,6 +84,10 @@ export function patchShaders() {
 	#else
 	gl_FragColor.a = mix( gl_FragColor.a, 0.0, toonA.w );
 	#endif
+	#ifdef NEAR_FADE
+	// first person: what fpcam.ts dithers away next to the camera gets no ink, or the dither turns to soot
+	gl_FragColor.a = mix( gl_FragColor.a, 1.0, toonA.w * step( distance( vNfW, uNfPos ), uNfR ) );
+	#endif
 #endif
 `;
   // what you author is what you see: no filmic curve, only a soft shoulder for the brightest values

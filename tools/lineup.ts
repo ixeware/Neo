@@ -13,6 +13,7 @@ import { unitGeometry, unitScale, islamRig, zurabRig, houseGeometries } from '..
 import { heroGeometry, heroScale, donerBey, fudzi, gym, taxiStand, HERO_TYPES } from '../src/render/heroes';
 import { propUnitGeometry, propUnitScale, gelikProp, sportikiCrowd, cigPackTexture, cigPack, landmark, LANDMARK_KINDS, PROP_TYPES } from '../src/render/props';
 import { mosque, HqBuilding } from '../src/render/world';
+import { styleStage, ground } from '../src/render/style'; // `?gfx=classic|toon` picks the look, as in the game
 import {
   v4UnitGeometry, v4UnitScale, v4HoverHeight, isFlying, v4DronePropGeometry, V4_DRONE_ROTORS, V4_UNIT_KEYS, V4_UNIT_NAMES,
   groznyLandmark, setLandmarkClosed, GROZNY_KEYS, GROZNY_FOOTPRINT, cityBlock, cityBlockFootprint, cityBlockHeight, CITY_FLOORS, type V4UnitKey, type GroznyKey,
@@ -49,16 +50,20 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#d9c9a8');
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 1400);
-scene.add(new THREE.HemisphereLight('#fff4e0', '#6d6a4c', 1.6));
+const hemi = new THREE.HemisphereLight('#fff4e0', '#6d6a4c', 1.6);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight('#ffe2b0', 1.9);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.04;
 scene.add(sun, sun.target);
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshLambertMaterial({ color: '#b3ad7c' }));
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), ground(new THREE.MeshLambertMaterial({ color: '#b3ad7c' })));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+/** Toon: the same outline pass as the game (no cloud shadows, mode pinned); classic: null. */
+const toon = styleStage(renderer, scene, hemi, sun, false, true, { clouds: false, pin: true });
+const draw = () => { if (toon) toon.render(scene, camera); else renderer.render(scene, camera); };
 
 const unitMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 const placed: THREE.Object3D[] = [];
@@ -818,7 +823,7 @@ function packFaces() {
 
 // ---- go ---------------------------------------------------------------------------------------
 const w = window as Window & { __lineupReady?: boolean; __spin?: (a: number) => void; __info?: string };
-w.__spin = (a: number) => { for (const s of spinners) s.rotation.y = a; for (const p of props) p.rotation.y = a * 9; renderer.render(scene, camera); };
+w.__spin = (a: number) => { for (const s of spinners) s.rotation.y = a; for (const p of props) p.rotation.y = a * 9; draw(); };
 w.__info = labels.map(l => `${l.text} [${l.sub}]`).join(' | ');
 async function go() {
   if (view === 'portraits') { portraits(); w.__lineupReady = true; return; }
@@ -831,13 +836,13 @@ async function go() {
   }
   try { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 3000))]); } catch { /* no fonts api */ }
   await new Promise(r => setTimeout(r, 300));
-  renderer.render(scene, camera);
+  draw();
   drawLabels();
   w.__lineupReady = true;
   if (q.has('anim')) {
-    const loop = (t: number) => { for (const s of spinners) s.rotation.y = t / 600; for (const p of props) p.rotation.y = t / 40; renderer.render(scene, camera); requestAnimationFrame(loop); };
+    const loop = (t: number) => { for (const s of spinners) s.rotation.y = t / 600; for (const p of props) p.rotation.y = t / 40; draw(); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
   }
 }
-addEventListener('resize', () => { resize(); renderer.render(scene, camera); drawLabels(); });
+addEventListener('resize', () => { resize(); draw(); drawLabels(); });
 void go();

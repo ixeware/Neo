@@ -1,4 +1,5 @@
 import './ui/style.css';
+import './render/toon/hud.css';
 import * as THREE from 'three';
 import { loadTerrain, heightY, setRenderSurface } from './world/terrain';
 import { Sim, cardTitle, PT_DONER, type FxEv } from './sim/sim';
@@ -39,15 +40,16 @@ import { Roster } from './ui/roster';
 import { LocalPresence, cleanNick, type PresenceSource } from './net/presence';
 import { NearFade } from './render/fpcam';
 import { unitLabel } from './ui/hud';
+import { GFX, setGfx, type Gfx } from './render/style';
 
 const $ = (id: string) => document.getElementById(id)!;
 const bootMsg = (s: string) => { $('boot-msg').textContent = s; };
 
-interface Prefs { pid: string; diff: number; spicy: boolean; muted: boolean; music: boolean; nick?: string }
+interface Prefs { pid: string; diff: number; spicy: boolean; muted: boolean; music: boolean; nick?: string; gfx: Gfx }
 function loadPrefs(): Prefs {
   let p: Partial<Prefs> = {};
   try { p = JSON.parse(localStorage.getItem('vysotka.prefs') || '{}'); } catch { /* blocked storage */ }
-  return { pid: p.pid || 'p' + Math.random().toString(36).slice(2, 10), diff: p.diff ?? 1, spicy: p.spicy ?? true, muted: p.muted ?? false, music: p.music ?? true, nick: cleanNick(p.nick) };
+  return { pid: p.pid || 'p' + Math.random().toString(36).slice(2, 10), diff: p.diff ?? 1, spicy: p.spicy ?? true, muted: p.muted ?? false, music: p.music ?? true, nick: cleanNick(p.nick), gfx: p.gfx === 'classic' ? 'classic' : 'toon' };
 }
 function savePrefs(p: Prefs) { try { localStorage.setItem('vysotka.prefs', JSON.stringify(p)); } catch { /* blocked storage */ } }
 
@@ -156,7 +158,10 @@ async function boot() {
   let nextChatter = performance.now() + 9000;
   let nextHint = performance.now() + 20000;
   let overEra = 0;
-  const menuState: MenuState = { canContinue: null, diff: prefs.diff, spicy: prefs.spicy, shared: null, tab: 'play' };
+  const menuState: MenuState = { canContinue: null, diff: prefs.diff, spicy: prefs.spicy, shared: null, tab: 'play', gfx: GFX };
+  /** «Графика: Новая / Старая» reloads the page; the war in progress is picked up again right after (RESUME). */
+  const RESUME = 'vysotka.resume';
+  let resumeShared = -1;
 
   /** Card tap or key: select, or say why it can't be used now. */
   const pickCard = (t: number) => {
@@ -348,6 +353,12 @@ async function boot() {
       shared: s => { sound.unlock(); void startShared(s); },
       setDiff: d => { prefs.diff = d; savePrefs(prefs); },
       setSpicy: on => { prefs.spicy = on; savePrefs(prefs); applySpicy(); if (!on) feedQ.length = 0; },
+      setGfx: g => setGfx(g, () => {
+        prefs.gfx = g; savePrefs(prefs);
+        if (!session) return;
+        if (session.backend.kind === 'local') session.backend.checkpoint(sim.snapshot(), Date.now());
+        try { sessionStorage.setItem(RESUME, session.backend.kind === 'local' ? 'local' : 'shared' + side); } catch { /* blocked storage: the menu's «Продолжить» still works */ }
+      }),
     });
   }
 
@@ -736,6 +747,7 @@ async function boot() {
     return (vercel = v);
   })).then(s => {
     shared = s;
+    if (resumeShared >= 0 && s && !playing) { void startShared(resumeShared as Side); resumeShared = -1; return; }
     if (!playing && !$('menu').hidden) openMenu();
   }).catch(() => { shared = null; });
 
@@ -805,11 +817,17 @@ async function boot() {
     });
     if (playing) { labels.update(dt); minimap.draw(now); hud.update(sim, prefs.pid, now); }
     else labels.update(dt);
-    stage.renderer.render(scene, stage.camera);
+    stage.render();
     requestAnimationFrame(frame);
   };
   $('boot').classList.add('done');
   openMenu();
+  try { // back from a graphics switch: straight into the war that was running
+    const r = sessionStorage.getItem(RESUME);
+    sessionStorage.removeItem(RESUME);
+    if (r === 'local' && loadLocal()) resumeLocal();
+    else if (r === 'shared0' || r === 'shared1') resumeShared = r === 'shared1' ? 1 : 0;
+  } catch { /* blocked storage */ }
   requestAnimationFrame(frame);
   // debug handle for automated checks
   (window as unknown as { __game: unknown }).__game = { sim, stage, get session() { return session; }, hud, start: startLocal, units, decor, defs: { CARDS, UNITS }, get side() { return side; },

@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { ROADS_META, ROADS_B64, HOUSES_B64 } from '../data/roads';
 import { LC, BRIDGES, heightY, lcAt, type Terrain } from '../world/terrain';
 import { tinClass, type Tin } from './lowpoly';
+import { ground } from './style';
 
 /** Road classes, in the order tools/bake_roads.py writes them. */
 export const RC = { MAIN: 0, ROAD: 1, STREET: 2, TRACK: 3, RAIL: 4, RIVER: 5, STREAM: 6 } as const;
@@ -413,7 +414,7 @@ function stripeTexture(kind: 'main' | 'rail'): THREE.CanvasTexture {
 
 /** Vertex-coloured, flat-shaded like the TIN; a bigger polygon offset wins where classes overlap. */
 function material(map: THREE.Texture | null, offset: number) {
-  const m = new THREE.MeshLambertMaterial({ color: '#ffffff', vertexColors: true, map, flatShading: true });
+  const m = ground(new THREE.MeshLambertMaterial({ color: '#ffffff', vertexColors: true, map, flatShading: true }));
   m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -offset;
   return m;
 }

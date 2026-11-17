@@ -3,6 +3,8 @@
 // face gets one clean colour (no texture). Render-only: the sim never sees any of this.
 import Delaunator from 'delaunator';
 import { LC, EXAG, heightM, type Terrain } from '../world/terrain';
+import { TOON } from './style';
+import { toonLand, TOON_JITTER } from './toon/land';
 
 export function hash2(x: number, y: number): number {
   let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263);
@@ -54,6 +56,7 @@ const PAL = {
   rock: hx('#998b78'),
   meadow: hx('#b9b974'),
 };
+if (TOON) Object.assign(PAL, toonLand()); // the new graphics style: src/render/toon/land.ts
 const CROP_CUM = (() => { const s = PAL.cropW.reduce((a, b) => a + b, 0); let c = 0; return PAL.cropW.map(w => (c += w / s)); })();
 
 /** Deterministic xorshift for shuffles (render-only, same map on every client). */
@@ -459,7 +462,7 @@ export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
     const bi = Math.min(t.gw - 1, Math.floor(gx)), bj = Math.min(t.gh - 1, Math.floor(gz)), bu = gx - bi, bv = gz - bj;
     const hAvg = (hb[bj * gw1 + bi] * (1 - bu) + hb[bj * gw1 + bi + 1] * bu) * (1 - bv) + (hb[(bj + 1) * gw1 + bi] * (1 - bu) + hb[(bj + 1) * gw1 + bi + 1] * bu) * bv;
     const conv = cls[f] === LC.WATER ? 0 : Math.max(-0.13, Math.min(0.07, (hM - hAvg) * 0.0055));
-    const j = (1 + conv) * (1 + (hash2(f * 7 + 3, Math.floor(gx * 13)) - 0.5) * 0.075);
+    const j = (1 + conv) * (1 + (hash2(f * 7 + 3, Math.floor(gx * 13)) - 0.5) * (TOON ? TOON_JITTER : 0.075));
     rgb[f * 3] = Math.min(1, col[0] * j); rgb[f * 3 + 1] = Math.min(1, col[1] * j); rgb[f * 3 + 2] = Math.min(1, col[2] * j);
   }
 

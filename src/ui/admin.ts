@@ -1104,8 +1104,11 @@ export function initAdmin(h: AdminHooks): Admin {
   setInterval(() => { if (!open) paintChip(); }, 500);
 
   // ---- what everyone sees ---------------------------------------------------------------------------
-  let sayT = 0;
+  let sayT = 0, sayLater = '';
+  // a phone with the сход sheet open: the announcement waits for the vote to close (the feed has it already)
+  setInterval(() => { if (sayLater && !h.hud.voteBlocks) { const t = sayLater; sayLater = ''; showSay(t); } }, 500);
   function showSay(txt: string) {
+    if (h.hud.voteBlocks) { sayLater = txt; return; }
     sayBox.textContent = '';
     sayBox.append(el('span', 'adm-say-who', 'Админ'), el('p', 'adm-say-t', txt));
     sayBox.hidden = false;

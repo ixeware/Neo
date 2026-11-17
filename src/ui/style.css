@@ -92,8 +92,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 
 /* ---------- HUD ---------- */
 /* Layout variables (px), measured by Hud.layout(): --deck-h, --cards-h (the visible card row), --bank-h, --bank-w,
-   --mini-w, --mini-h. The bottom cluster stacks on them: deck at the bottom, bank / minimap / command bar above it,
-   the chat and the hint above those — so nothing depends on a guessed offset. */
+   --mini-w, --mini-h, --vote-h (an open сход), --side-h (the right side slip). The bottom cluster stacks on them:
+   the deck at the bottom, the bank and the command bar on top of it (the minimap beside it, or above it on narrow
+   screens), the chat and the hint above those — so nothing depends on a guessed offset. */
 #hud { position: absolute; inset: 0; pointer-events: none; --deck-h: 191px; --cards-h: 150px; --bank-h: 72px; --bank-w: 124px; --mini-w: 239px; --mini-h: 167px; --vote-h: 0px; --side-h: 60px; }
 /* Slips take taps; :where() keeps this at zero specificity, so the click-through layers below (.feed, .hint, .banner,
    .tip, .ach-toast and the containers .top, .deck, .cmdbar, .fp-hud) really are click-through. */

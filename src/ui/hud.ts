@@ -219,9 +219,9 @@ export class Hud {
 
   /**
    * Measures the deck, the visible card row, the bank and the minimap and hands them to CSS
-   * (--deck-h, --cards-h, --bank-h, --bank-w, --mini-w, --mini-h, --vote-h of an open сход, --side-h of the right side
-   * slip): the bank, the minimap on phones, the command
-   * bar, the chat, the hint and the сход sheet stack on them, so nothing hides under the deck when its cards grow.
+   * (--deck-h, --cards-h, --bank-h, --bank-w, --mini-w, --mini-h, --vote-h of an open сход, --side-h of the right
+   * side slip): the bank, the minimap on phones, the command bar, the chat, the hint and the сход sheet stack on
+   * them, so nothing hides under the deck when its cards grow.
    */
   layout() {
     if (this.root.hidden) return;
@@ -455,7 +455,7 @@ export class Hud {
     this.paintVote(sim, pid);
     this.paintBuffs(sim);
     // banners held back by an open сход: one by one once it closes
-    if (this.bannerQ.length && !this.voteBlocks && !this.bannerEl?.isConnected) {
+    if (this.bannerQ.length && !this.voteBlocks && !this.bannerEl?.isConnected && !this.toastUp) {
       const [big, small, side, ms] = this.bannerQ.shift()!;
       this.banner(big, small, side, Math.min(ms, 2200));
     }
@@ -613,8 +613,12 @@ export class Hud {
   get voteBlocks(): boolean {
     return !this.vote.hidden && !this.vote.classList.contains('done') && (innerWidth <= 760 || innerHeight <= 500);
   }
+  /** A banner is on screen (achievement toasts wait for it; main.ts). */
+  get bannerUp(): boolean { return !!this.bannerEl?.isConnected; }
+  /** An achievement toast is on screen (a banner waits for it, so the two never stack). */
+  private get toastUp(): boolean { return !!this.root.querySelector('.ach-toast:not(.out)'); }
   banner(big: string, small: string, side: number, ms = 2600) {
-    if (this.voteBlocks) {
+    if (this.voteBlocks || this.toastUp) {
       this.bannerQ.push([big, small, side, ms]);
       if (this.bannerQ.length > 3) this.bannerQ.shift(); // only the latest few are still news
       return;

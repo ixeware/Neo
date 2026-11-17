@@ -771,7 +771,7 @@ async function boot() {
       }
       if (playing && now > nextHint) { nextHint = now + 45000 + Math.random() * 20000; if (!hud.rotateTip(clean18(nextTip(), prefs.spicy))) nextHint = now + 8000; }
       if (playing) pumpFeed(now);
-      toasts.update(now, !playing || session.catchingUp || hud.voteBlocks); // a phone's open сход: toasts wait
+      toasts.update(now, !playing || session.catchingUp || hud.voteBlocks || hud.bannerUp); // a phone's open сход or a banner: toasts wait
       sound.intensity = Math.min(1, sim.st.units.length / 140);
       // reconcile with state (events are muted while a tab catches up)
       if (sim.st.winner === -1 && hud.overOpen) hud.hideOver();

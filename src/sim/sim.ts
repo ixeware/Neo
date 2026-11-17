@@ -226,12 +226,12 @@ export function canControl(t: number): boolean { return t !== BOSS && t !== RIDE
 /** Keys that read or write an object's prototype instead of an own property: never a player id. */
 const PROTO_KEYS = new Set(Object.getOwnPropertyNames(Object.prototype).concat('__proto__', 'prototype'));
 /**
- * A player id as a command may carry it (Cmd.p, a key of State.players and Vote.ballots): 1..128
+ * A player id as a command may carry it (Cmd.p, a key of State.players and Vote.ballots): 1..200
  * characters of the db path alphabet (letters, digits, _ - . ~ : @ +), never '.' / '..' and never a
  * prototype key ('__proto__', 'constructor', 'toString', …). Anything else is ignored by Sim.apply.
  */
 export function okPid(p: unknown): p is string {
-  return typeof p === 'string' && /^[A-Za-z0-9_.~:@+-]{1,128}$/.test(p) && p !== '.' && p !== '..' && !PROTO_KEYS.has(p);
+  return typeof p === 'string' && /^[A-Za-z0-9_.~:@+-]{1,200}$/.test(p) && p !== '.' && p !== '..' && !PROTO_KEYS.has(p);
 }
 /** An own property (Object.hasOwn without needing a 2022 browser). */
 const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);

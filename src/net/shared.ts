@@ -154,6 +154,8 @@ class SharedWar implements Shared {
   private agreedAt = -1;
   /** Tick of the newest command that came too late to roll back (this world misses it), -1 none. */
   private missedAt = -1;
+  /** My world came from someone else's checkpoint (not a world I created) and has not agreed with anyone since. */
+  private adopted = false;
   private lastLease = 0; private lastCp = 0; private lastPresence = 0; private lastRound = 0; private lastTickCall = 0; private rounds = 0;
   private myCmds: Cmd[] = [];
   private writing = false; private dirty = false;
@@ -406,7 +408,7 @@ class SharedWar implements Shared {
     let base = await this.pickBase(sim);
     if (!base && this.writers().some(w => w.hv.length)) { await sleep(2000); await this.refreshWriters(); base = await this.pickBase(sim); }
     const now = Date.now();
-    let st: State, clock: ClockDoc, made = false;
+    let st: State, clock: ClockDoc, made = false, created = false;
     const maxGen = Math.max(0, base?.gen ?? 0, ...this.writers().map(w => w.ck?.gen ?? 0));
     if (!base) {
       if (!(await this.lease())) {
@@ -418,7 +420,7 @@ class SharedWar implements Shared {
       sim.st.mp = 1; sim.st.humanSide = -1;
       st = sim.snapshot();
       clock = { tick0: 0, wall0: now, gen: maxGen + 1 };
-      made = true;
+      made = true; created = true;
     } else {
       st = base.st;
       if (base.clock) clock = base.clock;
@@ -443,6 +445,7 @@ class SharedWar implements Shared {
     this.session = session;
     this.base = st.tick;
     this.agreedAt = st.tick;
+    this.adopted = !created;
     this.healTried.clear();
     this.replayAfter(session, st.tick);
     this.myCmds = (this.ev.get(this.uid) ?? []).filter(c => c.t >= st.tick);
@@ -456,13 +459,13 @@ class SharedWar implements Shared {
       try { await this.db.doc('w/clock').set(clock); } catch { /* a note only */ }
       if (this.myHv.length) await this.writeCp(st, st.tick, h0);
     }
+    // the sim still has to catch up from the checkpoint: stamp the join at the real current tick, not in
+    // the past (the others would have to roll back that far, and checkpoints they attested meanwhile
+    // would not have it); submitted before the first write, so whoever sees me in the db sees my join
+    session.submit({ k: 'join', s: side }, Math.max(0, session.targetTick() - sim.st.tick) + session.lead);
     await this.flush();
     if (this.editor) void this.flushAdm();
     if (this.room) this.room.presence({ side, v: 1 }).catch(() => {});
-    // the sim still has to catch up from the checkpoint: stamp the join at the real current tick, not in
-    // the past (the others would have to roll back that far, and checkpoints they attested meanwhile
-    // would not have it)
-    session.submit({ k: 'join', s: side }, Math.max(0, session.targetTick() - sim.st.tick) + session.lead);
     return session;
   }
 
@@ -653,11 +656,11 @@ class SharedWar implements Shared {
       // since it joined (its replay is the likelier to miss a command), or one that got a command too
       // late to roll back since it last agreed. It takes the other's world if the difference is
       // explainable (below).
-      const young = this.agreedAt <= this.base && a.t - this.base <= 4 * CP_STEP;
+      const young = this.adopted && a.t - this.base <= 4 * CP_STEP; // never the one who created the world
       const missed = this.missedAt >= 0 && this.missedAt <= a.t && this.missedAt >= this.agreedAt - CP_STEP;
       if (!v && claims.length === 1 && !claims[0].editor && !this.editor && (young || missed)) v = { h: claims[0].h, why: 'majority', n: 1, of: 2 };
       if (!v) return;
-      if (v.h === a.h) { this.agreedAt = Math.max(this.agreedAt, a.t); return; }
+      if (v.h === a.h) { if (a.t > this.base) this.adopted = false; this.agreedAt = Math.max(this.agreedAt, a.t); return; }
       if (v.why !== 'editor' && v.why !== 'majority') return;
       const key = a.t + ':' + v.h;
       if (this.healTried.has(key)) return;
@@ -715,7 +718,7 @@ class SharedWar implements Shared {
       if (!base || !base.clock || !base.fresh || sameClock(base.clock, this.clock) || s !== this.session) return;
       if (!this.resetTo(s, base.st, base.clock)) return;
       this.clock = base.clock;
-      this.base = base.tick; this.agreedAt = base.tick;
+      this.base = base.tick; this.agreedAt = base.tick; this.adopted = true; this.missedAt = -1;
       this.myHv = base.tick % CP_STEP === 0 ? [{ t: base.tick, h: base.hash }] : [];
       this.healTried.clear();
       this.stats.rejoins++;

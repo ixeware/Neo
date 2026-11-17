@@ -18,7 +18,7 @@ export function toonLand() {
     cropBase: hx(T.cropBase),
     built: T.yard.map(hx),
     bare: T.earth.map(hx),
-    water: T.water.map(hx),
+    water: [hx(T.water[0]), hx(T.water[0]), hx(T.water[0])], // one flat tone: the glints (water.ts) do the rest
     wet: T.wet.map(hx),
     rock: hx(T.rock),
     meadow: hx(T.meadow),

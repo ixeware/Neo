@@ -9,11 +9,11 @@ export const TOON_HEX = {
   // ---- outline, sky, light -------------------------------------------------------------------------
   ink: '#2a2233',
   skyZenith: '#2f9be0', skyHorizon: '#9ad8f5', haze: '#bfe3f2', cloud: '#ffffff', cloudShade: '#d6e6f5',
-  sun: '#fff1cf', ambientSky: '#cfe0ff', ambientGround: '#c9b28e',
+  sun: '#fff4d5', ambientSky: '#e8f0ff', ambientGround: '#dad9e2',
   // ---- land ----------------------------------------------------------------------------------------
   grass: ['#6cc84a', '#5fbd42', '#7bd257'], meadow: '#9ad05a',
   forest: ['#3f9a3c', '#4aa644', '#368c36'], forestHigh: ['#2f7f4a', '#38885a', '#2a7444'],
-  crop: ['#f2cf5a', '#f5e08c', '#e8b24a', '#b9824f', '#b9d94e', '#cbd066', '#8fd45c'], cropBase: '#e9d67a',
+  crop: ['#f4d75e', '#f7e59a', '#eec25a', '#cfa06c', '#a8dc5a', '#c6d868', '#8fd45c'], cropBase: '#e4dc7c',
   yard: ['#f0dca6', '#ead29a', '#f5e4b6'], earth: ['#d9b98a', '#cfae7c'], rock: '#a39aa0',
   water: ['#35b8ea', '#49c4f2', '#2aa9e0'], foam: '#ffffff', wet: ['#5fc0a0', '#52b594'],
   asphalt: '#6d6878', street: '#8b8594', track: '#e4c98f', roadLine: '#fff6d8', skirt: '#5a3f33',

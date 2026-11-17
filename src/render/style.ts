@@ -182,11 +182,11 @@ export function styleLights(hemi: THREE.HemisphereLight, sun: THREE.DirectionalL
 
 let toonStage: ToonStage | null = null;
 /** The toon frame of the game's main renderer (scene.ts); null in classic. */
-export function styleStage(renderer: THREE.WebGLRenderer, scene: THREE.Scene, hemi: THREE.HemisphereLight, sun: THREE.DirectionalLight, low: boolean, msaa: boolean): ToonStage | null {
+export function styleStage(renderer: THREE.WebGLRenderer, scene: THREE.Scene, hemi: THREE.HemisphereLight, sun: THREE.DirectionalLight, low: boolean, msaa: boolean, opts: { clouds?: boolean; pin?: boolean } = {}): ToonStage | null {
   if (!TOON) return null;
   styleRenderer(renderer);
   styleLights(hemi, sun);
-  return (toonStage = new ToonStage(renderer, scene, low, msaa));
+  return (toonStage = new ToonStage(renderer, scene, low, msaa, opts));
 }
 
 export { ToonStage };

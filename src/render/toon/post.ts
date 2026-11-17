@@ -4,14 +4,16 @@
 // Outlines come from the depth buffer alone: the Laplacian of the raw (non-linear) depth is zero on any
 // flat surface at any angle and non-zero at silhouettes and at creases between faces — so one colour
 // target and its depth texture are enough (no normal pass, no second draw of the scene). The alpha channel
-// of the colour target is the «no ink» mask: opaque materials marked ground() write 0 (terrain, roads,
-// water), everything else 1.
+// of the colour target is the «no ink» mask (shading.ts): opaque materials write 0, the ones marked
+// ground() write 1 (terrain, roads, water), and transparent effects blend it up, so smoke, rings and
+// sprites hide the ink of what is behind them.
 //
 // Modes: 'full' (4 depth + 4 mask neighbours), 'lite' (4 depth neighbours, mask from the centre: thinner
 // line, 6 fetches) and 'off' (straight to the canvas: no extra pass at all). A slow device steps down by
 // itself; `?ol=full|lite|off` pins a mode.
 import * as THREE from 'three';
 import { TOON_HEX } from './palette';
+import { TOON_U } from './shading';
 
 export type OutlineMode = 'full' | 'lite' | 'off';
 
@@ -25,7 +27,7 @@ uniform sampler2D tColor;
 uniform sampler2D tDepth;
 uniform vec4 uPx;      // x, y: outline sample offset in uv; z: pixel angle (radians per pixel); w: time
 uniform vec4 uCam;     // near, far, strength, unused
-uniform vec4 uFade;    // z where the ink starts to fade, z where it is weakest, weakest factor, threshold scale
+uniform vec4 uFade;    // view depth of full ink, falloff exponent, weakest factor, threshold scale
 uniform vec3 uInk;
 uniform vec3 uZenith; uniform vec3 uHorizon; uniform vec3 uCloud; uniform vec3 uCloudShade;
 uniform mat4 uInvProj; uniform mat4 uCamWorld;
@@ -68,12 +70,14 @@ void main() {
 	// depth step (or change of slope) in units of one pixel's footprint at that distance
 	float k = lap * z * ( far - near ) / ( near * far * uPx.z );
 	float edge = smoothstep( 0.55 * uFade.w, 1.25 * uFade.w, k );
+	// alpha: 0 on outlined objects, 1 on the ground and under opaque effects; MSAA leaves fractions at edges
 #ifdef LITE
-	float mask = step( 0.5, c.a );
+	float mask = clamp( 2.2 * ( 1.0 - c.a ), 0.0, 1.0 );
 #else
-	float mask = step( 0.5, max( c.a, max( max( texture2D( tColor, vUv - ox ).a, texture2D( tColor, vUv + ox ).a ), max( texture2D( tColor, vUv - oy ).a, texture2D( tColor, vUv + oy ).a ) ) ) );
+	float mask = clamp( 2.2 * ( 1.0 - min( c.a, min( min( texture2D( tColor, vUv - ox ).a, texture2D( tColor, vUv + ox ).a ), min( texture2D( tColor, vUv - oy ).a, texture2D( tColor, vUv + oy ).a ) ) ) ), 0.0, 1.0 );
 #endif
-	float fade = mix( 1.0, uFade.z, smoothstep( uFade.x, uFade.y, z ) );
+	// a line cannot get thinner than a pixel, so far away it gets lighter instead (villages must not turn to soot)
+	float fade = clamp( pow( uFade.x / z, uFade.y ), uFade.z, 1.0 );
 	gl_FragColor = vec4( mix( c.rgb, uInk, edge * mask * fade * uCam.z ), 1.0 );
 }
 `;
@@ -96,17 +100,18 @@ export class ToonPipeline {
   // frame-time governor
   private last = 0; private acc = 0; private n = 0; private warm = 0;
 
-  constructor(private renderer: THREE.WebGLRenderer, private samples: number, lowPower: boolean) {
+  constructor(private renderer: THREE.WebGLRenderer, private samples: number, lowPower: boolean, pin = false) {
     let q: string | null = null;
     try { q = new URLSearchParams(location.search).get('ol'); } catch { /* no location */ }
-    this.pinned = q === 'full' || q === 'lite' || q === 'off';
-    this.mode = this.pinned ? (q as OutlineMode) : lowPower ? 'lite' : 'full';
+    const asked = q === 'full' || q === 'lite' || q === 'off';
+    this.pinned = asked || pin;
+    this.mode = asked ? (q as OutlineMode) : lowPower ? 'lite' : 'full';
     if (!this.pinned) try { const s = sessionStorage.getItem('vysotka.ol'); if (s === 'lite' && this.mode === 'full') this.mode = 'lite'; else if (s === 'off') this.mode = 'off'; } catch { /* blocked storage */ }
     this.mat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG, depthTest: false, depthWrite: false,
       uniforms: {
         tColor: { value: null }, tDepth: { value: null },
-        uPx: { value: new THREE.Vector4() }, uCam: { value: new THREE.Vector4() }, uFade: { value: new THREE.Vector4(55, 230, 0.34, 1) },
+        uPx: { value: new THREE.Vector4() }, uCam: { value: new THREE.Vector4() }, uFade: { value: new THREE.Vector4(44, 1.15, 0.12, 1) },
         uInk: { value: srgb(TOON_HEX.ink) }, uZenith: { value: srgb(TOON_HEX.skyZenith) }, uHorizon: { value: srgb(TOON_HEX.skyHorizon) },
         uCloud: { value: srgb(TOON_HEX.cloud) }, uCloudShade: { value: srgb(TOON_HEX.cloudShade) },
         uInvProj: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() },
@@ -127,7 +132,9 @@ export class ToonPipeline {
     this.mat.needsUpdate = true;
   }
 
-  setMode(m: OutlineMode) {
+  /** `pin` stops the frame-time governor from changing the mode afterwards. */
+  setMode(m: OutlineMode, pin = false) {
+    if (pin) this.pinned = true;
     if (m === this.mode) return;
     this.mode = m;
     this.setDefines();
@@ -184,8 +191,10 @@ export class ToonPipeline {
     scene.background = null;
     const rt = this.target();
     r.setRenderTarget(rt);
-    r.setClearColor(0x000000, 0);
+    r.setClearColor(0x000000, 1);
+    TOON_U.a[3] = 1; // opaque materials write the outline mask into alpha
     r.render(scene, camera);
+    TOON_U.a[3] = 0;
     r.setRenderTarget(null);
     const u = this.mat.uniforms;
     u.tColor.value = rt.texture; u.tDepth.value = rt.depthTexture;

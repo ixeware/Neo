@@ -82,6 +82,8 @@ export const BASE = {
   genR: 9, vyR: 8,
   /** Units that hit a building keep it while it is within reach + stick. */
   stick: 1.5,
+  /** «Buildings only» units (UnitDef.bldg) and structure-busting pulses multiply damage against buildings by min(their factor, this); the high-rise takes the full factor. */
+  bldgVs: 3,
   /** «Бараний загон»: +zagonStep ₽/s every zagonEvery ticks without a hit, from zagonBase. */
   zagonBase: 0.5, zagonStep: 0.5, zagonEvery: 300,
   /** Superweapons: charge time in ticks; the wave's trigger; the strike's flight time and its factor against buildings and the high-rise. */
@@ -95,7 +97,7 @@ export const BASE = {
   aiEvery: 150, aiJit: 100, aiReserve: 150,
   /** Projectile looks: FxEv 'shot'.k = shotK + building type. */
   shotK: 20,
-} as const;
+};
 
 export const BUILDINGS: BDef[] = [
   // ---- defence --------------------------------------------------------------------------------

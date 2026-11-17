@@ -18,6 +18,7 @@ import { Session, type Backend } from '../src/net/session';
 import { validCmd, validAdmCmd } from '../src/net/shared';
 import { okPid, bound, checkState, explained, decide, verdicts, stateShape, moneyBound } from '../src/net/guard';
 import { admBody, localChannel } from '../src/net/adminChannel';
+import { baseChecks, fillBases } from './basetest';
 
 const MIN = Number(process.argv[2] || 30);
 const SEED = Number(process.argv[3] || 42);
@@ -559,10 +560,12 @@ if (!(same && ok)) process.exitCode = 1;
   for (const sd of [0, 1] as Side[]) {
     for (let n = s.count(sd); n < 150; n++) s.spawn(sd, n % 3 ? 2 : SPORTIK, p.x + (sd ? 8 : -8) + (n % 10) * 0.4, p.z - 4 + Math.floor(n / 10) * 0.4, -1);
   }
+  const nb = fillBases(s); // v5: both bases full too (30 buildings + 40 wall segments a side, towers firing)
   let peak = 0, at = 0;
   for (let i = 0; i < 60; i++) { s.step(undefined); const b = JSON.stringify(s.st).length; if (b > peak) { peak = b; at = s.st.proj.length; } }
   const kb = peak / 1024;
-  console.log(`worst case (both sides at the 150 cap, all heroes, гелики): ${kb.toFixed(1)} KB with ${at} projectiles in flight`);
+  console.log(`worst case (both sides at the 150 cap, all heroes, гелики, ${nb} base buildings): ${kb.toFixed(1)} KB with ${at} projectiles in flight`);
+  check('worst case holds both bases full (140 buildings)', nb >= 136 && s.st.bld.length >= 130, `${nb} placed, ${s.st.bld.length} standing`);
   if (kb > 200) { console.log('STATE TOO BIG'); process.exitCode = 1; }
 }
 
@@ -1369,6 +1372,12 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
 }
 const ctlFails = fails.slice(ctlFails0);
 console.log(ctlFails.length ? `unit control checks FAILED: ${ctlFails.join('; ')}` : 'unit control checks OK');
+
+// ---- v5: base buildings (tools/basetest.ts) ---------------------------------------------------------------
+const baseFails0 = fails.length;
+baseChecks({ terrain, check, sandbox, runTo, cfg, seed: SEED });
+const baseFails = fails.slice(baseFails0);
+console.log(baseFails.length ? `base building checks FAILED: ${baseFails.join('; ')}` : 'base building checks OK');
 
 // ---- shared war input checks (src/net/guard.ts, Sim.apply): forged ids, states and checkpoints ------------
 console.log('\n== shared war input checks: player ids, bound commands, checkpoint states, who vouches ==');

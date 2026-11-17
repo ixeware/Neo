@@ -10,7 +10,7 @@
 //     attestation (adm/{uid}, a path only editors can write), else a strict majority of distinct
 //     players; one lone voice is enough only for a client that has no world of its own yet.
 import { Sim, hashState, okPid, type State } from '../sim/sim';
-import { UNITS } from '../sim/defs';
+import { UNITS, BUILDINGS } from '../sim/defs';
 import type { Terrain } from '../world/terrain';
 
 export { okPid };
@@ -41,8 +41,12 @@ const U_OPT = ['cd', 'tg', 'g', 'rt', 'slow', 'stun', 'own', 'mv', 'ab', 'hit', 
 const SIDE_NUM = [
   'money', 'floors', 'hq', 'focus', 'focusUntil', 'spd', 'dmgB', 'inc', 'regen', 'cars', 'n', 'black', 'wins', 'boss', 'bossCd',
   'lastHuman', 'aiNext', 'turretCd', 'found4', 'kills', 'deployed', 'income', 'hack', 'poor', 'weak', 'sauce', 'sauceM', 'dodge',
-  'immune', 'skip', 'aiWant', 'aiWantUntil', 'snus', 'loop', 'pack', 'golem',
+  'immune', 'skip', 'aiWant', 'aiWantUntil', 'snus', 'loop', 'pack', 'golem', 'bdisc', 'blost', 'aiB',
 ] as const;
+/** Building fields (src/sim/bld.ts B) besides id, s, t, lv, hp, mhp: all finite numbers. */
+const B_NUM = ['x', 'z', 'cd', 'tg', 'own', 'at', 'up', 'paid', 'f', 'v', 'hit'] as const;
+/** More buildings than both sides can ever hold (2 × (30 + 40)) is a forgery. */
+export const MAX_BLD = 400;
 /** JSON text of a checkpoint state above this is refused (the db keeps documents ≤ 256 KiB). */
 export const MAX_STATE_CHARS = 250_000;
 
@@ -78,7 +82,16 @@ export function stateShape(raw: unknown): string | null {
   if (keys.length > 4096) return 'players';
   for (const k of keys) {
     const p = st.players[k];
-    if (!okPid(k) || !obj(p) || (p.s !== 0 && p.s !== 1) || !int(p.n, 0, 1e6) || !fin(p.cd) || !fin(p.joined) || !fin(p.last)) return 'player';
+    if (!okPid(k) || !obj(p) || (p.s !== 0 && p.s !== 1) || !int(p.n, 0, 1e6) || !fin(p.cd) || !fin(p.joined) || !fin(p.last) || (p.bc !== undefined && !fin(p.bc))) return 'player';
+  }
+  // base buildings: absent in saves from before v5 (migrate adds the list); ids are unique among buildings and units
+  if (st.bld !== undefined) {
+    if (!Array.isArray(st.bld) || st.bld.length > MAX_BLD) return 'bld';
+    for (const b of st.bld) {
+      if (!obj(b) || !int(b.id, 1, 2 ** 31) || ids.has(b.id as number) || (b.s !== 0 && b.s !== 1) || !int(b.t, 0, BUILDINGS.length - 1) || !int(b.lv, 1, 3)) return 'bld';
+      if (!fin(b.hp) || !fin(b.mhp) || (b.mhp as number) <= 0 || !B_NUM.every(k => fin(b[k])) || (b.paid as number) < 0) return 'bld';
+      ids.add(b.id as number);
+    }
   }
   if (!objArr(st.aoe, 4000, a => ['x', 'z', 'r', 'dmg', 'at', 'n', 'every'].every(k => fin(a[k])))) return 'aoe';
   if (!objArr(st.away, 400, a => int(a.t, 0, UNITS.length - 1) && ['hp', 'mhp', 'back'].every(k => fin(a[k])))) return 'away';

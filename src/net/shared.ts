@@ -35,6 +35,7 @@
 import { Session, type Backend } from './session';
 import { hashState, ORD_MAX, okPid, type Cmd, type Sim, type State } from '../sim/sim';
 import { validAdmCmd } from '../sim/admin';
+import { BASE } from '../sim/bdefs';
 import { roomPresence } from './presence';
 import { bound, checkState, cleanHv, decide, explained, parseState, verdicts, MAX_STATE_CHARS, type Claim, type Verdict, type Writer } from './guard';
 
@@ -786,6 +787,11 @@ export function validCmd(c: Any): boolean {
     // unit control: the shape only; the sim checks the rest (ownership, bounds, modes) and ignores what does not fit
     case 'ord': return (c.s === 0 || c.s === 1) && Array.isArray(c.ids) && c.ids.length >= 1 && c.ids.length <= ORD_MAX && c.ids.every(Number.isInteger) && typeof c.m === 'string';
     case 'ctl': return (c.s === 0 || c.s === 1) && Number.isInteger(c.u) && [c.dx, c.dz].every(v => Number.isInteger(v) && v >= -8 && v <= 8) && (c.atk === 0 || c.atk === 1);
+    // base buildings: the shape only (src/sim/bld.ts checks the world: zone, caps, money, ownership)
+    case 'bld': return (c.s === 0 || c.s === 1) && typeof c.op === 'string' && c.op.length <= 8
+      && (c.b === undefined || Number.isInteger(c.b)) && (c.n === undefined || Number.isInteger(c.n))
+      && (c.x === undefined || Number.isFinite(c.x)) && (c.z === undefined || Number.isFinite(c.z))
+      && (c.cells === undefined || (Array.isArray(c.cells) && c.cells.length >= 1 && c.cells.length <= BASE.line && c.cells.every(Number.isInteger)));
     case 'adm': return false; // admin commands only from the editor-only channels (validAdmCmd)
     default: return false; // cfg is local-only
   }

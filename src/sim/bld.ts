@@ -29,6 +29,8 @@ export interface BIdx {
   sol: [number, number];
   /** per side, in State.bld order */
   side: [B[], B[]];
+  /** per side: the box around its buildings [x0, z0, x1, z1] (a quick «is any building near» test) */
+  box: [number[], number[]];
   /** per side, per type */
   ty: [B[][], B[][]];
   /** AI: the zone cells of each side ranked towards the enemy (from the terrain and the goal fields only) */
@@ -63,20 +65,22 @@ const RING = [[1, 0], [0.7071, 0.7071], [0, 1], [-0.7071, 0.7071], [-1, 0], [-0.
 // ---- index ------------------------------------------------------------------------------------
 export function newBIdx(t: Terrain): BIdx {
   const lists = () => { const a: B[][] = []; for (let i = 0; i < NB; i++) a.push([]); return a; };
-  return { by: new Map(), at: new Map(), cell: new Int16Array(t.nw * t.nh), sol: [0, 0], side: [[], []], ty: [lists(), lists()], spots: [null, null] };
+  return { by: new Map(), at: new Map(), cell: new Int16Array(t.nw * t.nh), sol: [0, 0], side: [[], []], box: [[0, 0, 0, 0], [0, 0, 0, 0]], ty: [lists(), lists()], spots: [null, null] };
 }
 
 /** Rebuilds Sim.bi from State.bld (every load, every placement and removal). Cheap: a few dozen buildings. */
 export function bldReindex(sim: Sim): void {
   const h = H(sim), bi = h.bi, T = h.terrain, bld = h.st.bld;
   bi.by.clear(); bi.at.clear(); bi.cell.fill(0); bi.sol[0] = bi.sol[1] = 0;
-  for (const s of [0, 1] as const) { bi.side[s].length = 0; for (const l of bi.ty[s]) l.length = 0; }
+  for (const s of [0, 1] as const) { bi.side[s].length = 0; for (const l of bi.ty[s]) l.length = 0; bi.box[s] = [Infinity, Infinity, -Infinity, -Infinity]; }
   for (let i = 0; i < bld.length; i++) {
     const b = bld[i], d = BUILDINGS[b.t];
     if (!d || (b.s !== 0 && b.s !== 1)) continue; // a forged entry: guard.stateShape refuses such a state before it gets here
     const c = navIndex(T, b.x, b.z);
     bi.by.set(b.id, b); bi.at.set(c, b);
     bi.side[b.s].push(b); bi.ty[b.s][b.t].push(b);
+    const bx = bi.box[b.s];
+    if (b.x < bx[0]) bx[0] = b.x; if (b.z < bx[1]) bx[1] = b.z; if (b.x > bx[2]) bx[2] = b.x; if (b.z > bx[3]) bx[3] = b.z;
     if (d.solid) { bi.cell[c] = i + 1; bi.sol[b.s]++; }
   }
 }
@@ -492,8 +496,9 @@ export function ordBld(sim: Sim, id: unknown, s: Side): B | undefined {
 export function bldPick(sim: Sim, u: U, aggro: number, range: number, hq: number): number {
   const h = H(sim), es = (1 - u.s) as Side, list = h.bi.side[es];
   if (!list.length) return hq;
-  const e = h.st.pts[es], ex = e.x - u.x, ez = e.z - u.z, far = BASE.zone + BASE.zoneStep * 3 + aggro + 3;
-  if (ex * ex + ez * ez > far * far) return hq; // every building stands inside the widest zone
+  const bx = h.bi.box[es], m = aggro + 2;
+  if (u.x < bx[0] - m || u.x > bx[2] + m || u.z < bx[1] - m || u.z > bx[3] + m) return hq; // nowhere near any of them
+  const e = h.st.pts[es], ex = e.x - u.x, ez = e.z - u.z;
   const d = UNITS[u.t];
   if (u.tg <= -10) {
     const b = h.bi.by.get(-u.tg - 10);
@@ -534,7 +539,7 @@ export function attackBld(sim: Sim, u: U, b: B, dmg: number, cd: number): void {
   const h = H(sim), st = h.st, d = UNITS[u.t];
   u.cd = cd;
   if (d.noFight) return;
-  if (d.bldg) dmg *= d.bldg;
+  if (d.bldg) dmg *= Math.min(d.bldg, BASE.bldgVs);
   if (d.proj && !(u.t === BOSS && u.s === 1)) {
     const dx = b.x - u.x, dz = b.z - u.z, l = Math.sqrt(dx * dx + dz * dz);
     const at = st.tick + Math.max(1, Math.ceil(l / d.proj));
@@ -560,7 +565,7 @@ export function bldProj(sim: Sim, p: P): void {
 export function bldAoe(sim: Sim, a: Aoe): void {
   const h = H(sim), list = h.bi.side[1 - a.s];
   if (!list.length) return;
-  const m = a.hq > 0 ? a.hq : 1;
+  const m = a.hq > 0 ? Math.min(a.hq, BASE.bldgVs) : 1;
   for (const b of list) {
     if (b.hp <= 0) continue;
     const dx = b.x - a.x, dz = b.z - a.z, r = a.r + BUILDINGS[b.t].r;

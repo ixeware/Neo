@@ -2,7 +2,8 @@
    Same notebook paper as the rest of the HUD; our ink for what is ours, red pen for attacks. */
 
 /* ---------- command bar (only while something is selected) ---------- */
-.cmdbar { position: absolute; left: 50%; bottom: calc(var(--edge-b) + var(--deck-h) + 8px); transform: translateX(-50%); display: flex; align-items: stretch; gap: 6px; z-index: 1; pointer-events: none; }
+/* on top of the deck, centred in the room right of the bank (a rich bank never ends up under it) */
+.cmdbar { position: absolute; left: calc(var(--edge-l) + var(--bank-w) + 8px); right: var(--edge-r); bottom: calc(var(--edge-b) + var(--deck-h) + 8px); display: flex; justify-content: center; align-items: stretch; gap: 6px; z-index: 1; pointer-events: none; }
 .cmdbar > * { pointer-events: auto; }
 .cb-n { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: 44px; font-weight: 600; font-size: 13px; white-space: nowrap; transform: rotate(-1deg); }
 .cb-n .num { font-size: 20px; font-weight: 900; color: var(--pen-a); }
@@ -63,7 +64,8 @@
 .fp-cross::before { left: 12px; top: 2px; width: 2px; height: 22px; }
 .fp-cross::after { top: 12px; left: 2px; height: 2px; width: 22px; }
 .fp-hud.tps .fp-cross { top: 44%; }
-.fp-top { position: absolute; left: 50%; top: calc(var(--edge-t) + 70px); transform: translateX(-50%) rotate(-.6deg); display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; }
+/* the ridden unit's card: bottom centre on big screens (clear of the clock and the event sticker); phones put it on top */
+.fp-top { position: absolute; left: 50%; bottom: calc(var(--edge-b) + 50px); transform: translateX(-50%) rotate(-.6deg); display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; }
 .fp-who { display: grid; gap: 4px; min-width: 120px; }
 .fp-name { font-family: var(--f-display); font-weight: 800; font-size: 14px; line-height: 1.1; white-space: nowrap; }
 .fp-hud.s0 .fp-name { color: var(--pen-a); } .fp-hud.s1 .fp-name { color: var(--pen-k); }
@@ -89,7 +91,7 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
 
 /* ---------- tablets upright: the bar goes above the bank and the minimap ---------- */
 @media (min-width: 761px) and (max-width: 1023px) and (min-height: 501px) {
-  .cmdbar { bottom: calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px); }
+  .cmdbar { left: var(--edge-l); bottom: calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px); }
 }
 /* ---------- phones upright: the bar is a 3×3 block at the right edge, under the side slip ---------- */
 @media (max-width: 760px) and (min-height: 501px) {
@@ -114,7 +116,7 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
   #hud:has(> .vote:not([hidden])) .roster { max-height: calc(100% - var(--edge-t) - 116px - var(--edge-b) - max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) - 8px - var(--vote-h) - 8px); }
   /* the roster card is open: the bar waits behind it (it comes back when the card closes) */
   #hud:has(> .roster:not([hidden])) .cmdbar { visibility: hidden; }
-  .fp-top { top: calc(var(--edge-t) + 64px); }
+  .fp-top { top: calc(var(--edge-t) + 64px); bottom: auto; }
   #hud.fp .feed { top: calc(var(--edge-t) + 134px); }
   .fp-name { font-size: 12.5px; }
   .lbl-drive { font-size: 16px; }
@@ -122,7 +124,8 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
 /* ---------- phones sideways: one row on top of the cards, between the bank and the minimap ---------- */
 @media (max-height: 500px) and (min-width: 600px) {
   /* right-aligned against the minimap, so the bank (whose width follows its text) keeps the left */
-  .cmdbar { left: calc(var(--edge-l) + var(--bank-w) + 8px); right: calc(var(--edge-r) + var(--mini-w) + 8px); bottom: calc(var(--edge-b) + var(--deck-h) + 6px); transform: none; gap: 3px; justify-content: flex-end; }
+  /* a rich bank leaves less room: the count chip then wraps above the buttons instead of covering the bank */
+  .cmdbar { left: calc(var(--edge-l) + var(--bank-w) + 8px); right: calc(var(--edge-r) + var(--mini-w) + 8px); bottom: calc(var(--edge-b) + var(--deck-h) + 6px); transform: none; gap: 3px; justify-content: flex-end; flex-wrap: wrap-reverse; }
   .cmdbar > *, .cb { flex-shrink: 0; }
   /* a сход card open while something is selected stops above the bar (it scrolls) */
   #hud.has-sel .vote { max-height: calc(100% - var(--edge-t) - var(--side-h) - 6px - var(--edge-b) - var(--deck-h) - 6px - 44px - 8px); }
@@ -137,7 +140,7 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
   /* the roster card: under the toolbar on the left, down to the bank row */
   .roster { top: calc(var(--edge-t) + 102px); left: var(--edge-l); width: min(300px, 44vw); max-height: calc(100% - var(--edge-t) - 102px - var(--edge-b) - var(--deck-h) - 6px - max(var(--bank-h), 44px) - 8px); }
   .ro-list { max-height: none; }
-  .fp-top { top: calc(var(--edge-t) + 54px); }
+  .fp-top { top: calc(var(--edge-t) + 54px); bottom: auto; }
   /* riding sideways: the chat keeps to the left of the name card, last message only (the joystick is below) */
   #hud.fp .feed { width: min(230px, 30vw); }
   #hud.fp .feed .msg:nth-last-child(n+2) { display: none; }

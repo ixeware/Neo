@@ -444,8 +444,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .toolbar { top: calc(var(--edge-t) + 64px); }
   .hint { bottom: calc(var(--edge-b) + var(--stack) + 10px); font-size: 16px; max-width: 78vw; }
   #hud.has-sel .hint { left: var(--edge-l); transform: none; text-align: left; bottom: calc(var(--edge-b) + var(--stack) + 10px); max-width: calc(100vw - var(--edge-l) - var(--edge-r) - 176px); }
-  /* a сход is open: the hint goes above the sheet */
+  /* a сход is open: the hint goes above the sheet; the roster card open over it: the hint waits */
   #hud:has(> .vote:not([hidden])) .hint { bottom: calc(var(--edge-b) + var(--stack) + 8px + var(--vote-h) + 8px); }
+  #hud:has(> .roster:not([hidden])) .hint { visibility: hidden; }
   .hint.rot { font-size: 15px; }
   /* phones upright: the toolbar sits under the clock, so our buffs go to the right edge under the side
      slip, and the world-event sticker moves down past them */
@@ -508,7 +509,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .toolbar { top: calc(var(--edge-t) + 54px); }
   .tb { width: 34px; height: 34px; }
   .bank { bottom: calc(var(--edge-b) + var(--deck-h) + 6px); padding: 4px 9px 5px; }
-  .bank .money { font-size: 20px; } .bank .inc { font-size: 16px; }
+  .bank .money { font-size: 18px; } .bank .inc { font-size: 15px; }
   .mini { bottom: var(--edge-b); }
   .mini canvas { width: 150px; height: 102px; }
   .feed, #hud.has-sel .feed { top: calc(var(--edge-t) + 102px); bottom: auto; max-height: calc(100% - var(--edge-t) - 102px - var(--edge-b) - var(--deck-h) - 6px - var(--bank-h) - 8px); align-content: start; width: min(360px, 46vw); }

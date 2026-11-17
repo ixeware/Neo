@@ -168,7 +168,8 @@ select.adm-in { appearance: none; background-image: linear-gradient(45deg, trans
 .adm-bar-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
 .adm-range { width: 100%; min-height: 44px; accent-color: var(--pen-k); }
 
-.adm-chip { position: absolute; right: var(--edge-r); top: calc(var(--edge-t) + 64px); padding: 4px 10px 5px; background: var(--marker); border: 1.5px solid var(--graphite); box-shadow: 2px 2px 0 rgba(0, 0, 0, .3); font-family: var(--f-display); font-weight: 800; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; pointer-events: none !important; transform: rotate(1.5deg); }
+/* speed chip: right of the toolbar (clear of the side slips and the сход sheet); phones keep it under the right slip */
+.adm-chip { position: absolute; left: calc(var(--edge-l) + 258px); top: calc(var(--edge-t) + 102px); padding: 4px 10px 5px; background: var(--marker); border: 1.5px solid var(--graphite); box-shadow: 2px 2px 0 rgba(0, 0, 0, .3); font-family: var(--f-display); font-weight: 800; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; pointer-events: none !important; transform: rotate(1.5deg); }
 .adm-chip[hidden] { display: none !important; }
 
 /* the announcement everyone sees */
@@ -188,7 +189,7 @@ select.adm-in { appearance: none; background-image: linear-gradient(45deg, trans
   .adm-big { font-size: 27px; }
   .adm-say { top: calc(var(--edge-t) + 74px); }
   .adm-say-t { font-size: 24px; }
-  .adm-chip { top: calc(var(--edge-t) + 56px); }
+  .adm-chip { left: auto; right: var(--edge-r); top: calc(var(--edge-t) + 56px); }
 }
 @keyframes admUp { from { transform: translateY(32px); opacity: 0; } }
 /* phones held sideways: a narrower panel on the right */
@@ -198,6 +199,7 @@ select.adm-in { appearance: none; background-image: linear-gradient(45deg, trans
   .adm-sub { padding-top: 3px; }
   .adm-siderow { padding-bottom: 5px; }
   .adm-say { top: calc(var(--edge-t) + 54px); }
+  .adm-chip { left: calc(var(--edge-l) + 258px); top: calc(var(--edge-t) + 62px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .adm-sheet, .adm-confirm, .adm-say.in, .adm-err.hit .adm-stamp { animation: none !important; }

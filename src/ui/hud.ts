@@ -1,5 +1,5 @@
 // HUD: notebook slips around the map. DOM is refreshed ~10×/s, not every frame.
-import { UNITS, HQ, CARDS, VOTERS, SIDE_FULL, SHOP, EVENTS, EVENT_EVERY, canBuy, type Side } from '../sim/defs';
+import { UNITS, HQ, CARDS, VOTERS, SIDE_FULL, SHOP, EVENTS, EVENT_EVERY, BUFF, ADMIN, canBuy, type Side } from '../sim/defs';
 import { cardTitle, type Sim } from '../sim/sim';
 import { SIDE_TAG, uiName } from '../data/lore';
 import { HEROES, UNIT_TEXT, heroForUnit, cardLore } from '../data/heroes';
@@ -96,6 +96,10 @@ export class Hud {
   private stats: HTMLElement[] = [];
   private scoreEl: HTMLElement; private warEl: HTMLElement; private clockEl: HTMLElement;
   private moneyEl: HTMLElement; private incEl: HTMLElement;
+  private bankEl: HTMLElement;
+  /** card buffs (снюс / LOOP / «отходняк»): ours under the clock, the neighbours' under their side slip */
+  private buffEls: HTMLElement[] = [];
+  private buffKey = ['', ''];
   private cards = new Map<number, HTMLButtonElement>();
   private deck: HTMLElement;
   private tabBtns: HTMLButtonElement[] = [];
@@ -129,8 +133,10 @@ export class Hud {
       who.innerHTML = `<span class="vname">${SIDE_TAG[s].short}</span><span class="hqn">${SIDE_TAG[s].hq}</span>`;
       const st = h('span', 'stat');
       who.append(st);
+      const bf = h('div', 'buffs');
+      who.append(bf);
       el.append(tower, who);
-      this.sides.push(el); this.towers.push(tower); this.stats.push(st);
+      this.sides.push(el); this.towers.push(tower); this.stats.push(st); this.buffEls.push(bf);
     }
     const center = h('div', 'center');
     const score = h('div', 'score paper');
@@ -140,10 +146,13 @@ export class Hud {
     this.clockEl = h('div', 'clock');
     this.evEl = h('div', 'evchip');
     this.evEl.hidden = true;
-    center.append(score, this.clockEl, this.evEl);
+    // our card buffs (снюс / LOOP / «отходняк») with their countdown, under the clock
+    this.myBuffs = h('div', 'buffs mine');
+    center.append(score, this.clockEl, this.evEl, this.myBuffs);
     top.append(this.sides[0], center, this.sides[1]);
 
     const bank = h('div', 'bank paper');
+    this.bankEl = bank;
     this.moneyEl = h('span', 'money num');
     this.incEl = h('span', 'inc');
     bank.append(this.moneyEl, this.incEl);
@@ -193,8 +202,11 @@ export class Hud {
     root.append(top, bank, this.deck, mini, this.vote, this.feed, tools, this.hintEl, this.info);
   }
 
+  private myBuffs: HTMLElement;
+
   setSide(s: Side) {
     this.side = s;
+    this.buffKey = ['', ''];
     this.sides[0].classList.toggle('me', s === 0);
     this.sides[1].classList.toggle('me', s === 1);
     const all = SHOP.filter(t => canBuy(s, t));
@@ -349,9 +361,13 @@ export class Hud {
       const w = d.hero ? sim.heroWait(me, t) : 0;
       const state = w === -1 ? 'field' : w === -2 ? 'away' : w > 0 ? 'cool' : '';
       const poor = sd.money < cost;
+      // the admin on the field: when his pack («Курение убивает») is ready again
+      // (a ready pack with no crowd in range is re-tried every 10 ticks: that still reads «готова»)
+      let packIn = t === ADMIN && state === 'field' ? Math.max(0, ((sd as { pack?: number }).pack ?? 0) - now) : -1;
+      if (packIn > 0 && packIn <= 10) packIn = 0;
       this.blocked.set(t, w === -1 ? `${unitLabel(t, me)} уже на поле` : w === -2 ? 'На парах. Завтра учимся' : w > 0 ? 'Ещё не вернулся' : '');
       if (d.hero && !state && !poor) ready++;
-      const key = `${state}|${poor ? 1 : 0}|${cost}|${w > 0 ? w : 0}`;
+      const key = `${state}|${poor ? 1 : 0}|${cost}|${w > 0 ? w : 0}|${packIn < 0 ? '' : Math.ceil(packIn / 10)}`;
       if (b.dataset.k !== key) {
         b.dataset.k = key;
         b.classList.toggle('poor', poor && !state);
@@ -360,7 +376,9 @@ export class Hud {
         b.classList.toggle('cool', state === 'cool');
         b.classList.toggle('sale', cost < d.cost[me]);
         (b.querySelector('.cc') as HTMLElement).innerHTML = cost < d.cost[me] ? `<s>${d.cost[me]}</s> ${cost} ₽` : `${cost} ₽`;
-        (b.querySelector('.st') as HTMLElement).textContent = state === 'field' ? 'на поле' : state === 'away' ? 'на парах' : state === 'cool' ? mmss(w * 10) : '';
+        const stEl = b.querySelector('.st') as HTMLElement;
+        if (packIn >= 0) stEl.innerHTML = `на поле<small class="pk${packIn ? '' : ' rdy'}">${packIn ? `пачка ${mmss(packIn)}` : 'пачка готова'}</small>`;
+        else stEl.textContent = state === 'field' ? 'на поле' : state === 'away' ? 'на парах' : state === 'cool' ? mmss(w * 10) : '';
         b.setAttribute('aria-disabled', String(!!state));
       }
       (b.querySelector('.cdbar') as HTMLElement).style.width = `${(cdLeft / 6) * 100}%`;
@@ -371,6 +389,45 @@ export class Hud {
     if (n.textContent !== nt) n.textContent = nt;
     this.paintEvent(sim);
     this.paintVote(sim, pid);
+    this.paintBuffs(sim);
+  }
+
+  /**
+   * Card buffs with a countdown: «Энергетик» / «Закинули снюс», «Двойной эспрессо» / «Бамб LOOP»
+   * (by the 18+ toggle), then «сдулись» / «отходняк» for BUFF.offFor ticks after the снюс.
+   */
+  private paintBuffs(sim: Sim) {
+    const st = sim.st, now = st.tick;
+    for (const s of [0, 1] as Side[]) {
+      const sd = st.sides[s] as { snus?: number; loop?: number };
+      const sn = sd.snus ?? 0, lp = sd.loop ?? 0;
+      // [kind, name, short name for phones, ticks left]
+      const list: [string, string, string, number][] = [];
+      if (sn > now) list.push(['snus', this.spicy ? 'Закинули снюс' : 'Энергетик', this.spicy ? 'Снюс' : 'Энергетик', sn - now]);
+      else if (sn > 0 && now < sn + BUFF.offFor) list.push(['down', this.spicy ? 'Отходняк' : 'Сдулись', this.spicy ? 'Отходняк' : 'Сдулись', sn + BUFF.offFor - now]);
+      if (lp > now) list.push(['loop', this.spicy ? 'Бамб LOOP' : 'Двойной эспрессо', this.spicy ? 'LOOP' : 'Эспрессо', lp - now]);
+      if (st.winner !== -1) list.length = 0;
+      const el = s === this.side ? this.myBuffs : this.buffEls[s];
+      const key = list.map(b => `${b[0]}:${b[1]}`).join('|');
+      if (this.buffKey[s] !== key || (s !== this.side) !== el.classList.contains('them')) {
+        this.buffKey[s] = key;
+        el.classList.toggle('them', s !== this.side);
+        if (s === this.side) this.myBuffs.parentElement!.dataset.nb = String(list.length);
+        el.innerHTML = list.map(b => `<span class="buff b-${b[0]}"><b class="fl">${esc(b[1])}</b><b class="sh">${esc(b[2])}</b><i class="num"></i></span>`).join('');
+      }
+      el.querySelectorAll('i').forEach((t, k) => { const txt = mmss(list[k][3]); if (t.textContent !== txt) t.textContent = txt; });
+    }
+    // our side's buffs live under the clock: the side slip shows only the neighbours'
+    if (this.buffEls[this.side].childElementCount) this.buffEls[this.side].innerHTML = '';
+  }
+
+  /** «−N ₽» in red pen sliding off the bank (ersno robbed us). */
+  bankFlash(text: string) {
+    const f = h('span', 'bank-flash');
+    f.textContent = text;
+    this.bankEl.append(f);
+    this.bankEl.classList.remove('hit'); void this.bankEl.offsetWidth; this.bankEl.classList.add('hit');
+    setTimeout(() => f.remove(), 1500);
   }
 
   /** The world event that is on right now: a sticker with title and countdown. */

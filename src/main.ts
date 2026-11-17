@@ -2,7 +2,7 @@ import './ui/style.css';
 import * as THREE from 'three';
 import { loadTerrain, heightY, setRenderSurface } from './world/terrain';
 import { Sim, cardTitle, PT_DONER, type FxEv } from './sim/sim';
-import { TICK_MS, HQ, CARDS, UNITS, SIDE_NAME, Fx, HEROES as HERO_TYPES, RIDE, GOLEM, CHICKEN, WOU, ADMIN, ERSNO, type Side } from './sim/defs';
+import { TICK_MS, HQ, CARDS, UNITS, SIDE_NAME, Fx, HEROES as HERO_TYPES, RIDE, GOLEM, CHICKEN, WOU, ADMIN, ERSNO, GELIK, SPORTIK, type Side } from './sim/defs';
 import { Stage, bindInput } from './render/scene';
 import { terrainMesh, waterMesh } from './render/terrainMesh';
 import { buildTin, tinHeight, paintTin } from './render/lowpoly';
@@ -10,6 +10,9 @@ import { buildVillages, buildTrees, buildBridges, mosque, HqBuilding, VillageMar
 import { Particles, Shots } from './render/fx';
 import { UnitView } from './render/units';
 import { buildDecor } from './render/decor';
+import { PlaceMarker } from './render/placeMarks';
+import { PackView } from './render/packFx';
+import { CoinFx } from './render/coinFx';
 import { AbilityFx } from './render/abilityFx';
 import { PAL } from './render/models';
 import { makePortraits } from './ui/portraits';
@@ -107,6 +110,9 @@ async function boot() {
   });
   const markers = sim.st.pts.filter(p => p.kind === 1).map(p => new VillageMarker(terrain, p));
   markers.forEach(m => world.add(m.group));
+  // v3 capture places (pts kind 3): ring, perk flag and a deploy-zone ring while a card is selected
+  const placeMarkers = sim.st.pts.filter(p => p.kind === 3).map(p => new PlaceMarker(terrain, p, () => sim.st.pts));
+  placeMarkers.forEach(m => world.add(m.group));
   const zoneMat = [0, 1].map(s => new THREE.MeshBasicMaterial({ color: PAL.side[s], transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide }));
   const hqZones = [0, 1].map(s => { const p = sim.st.pts[s]; const m = new THREE.Mesh(drapedRing(terrain, p.x, p.z, HQ.zone, 0.45, 128), zoneMat[s]); m.visible = false; m.renderOrder = 3; world.add(m); return m; });
 
@@ -117,12 +123,15 @@ async function boot() {
   const units = new UnitView(terrain, sim, particles);
   units.hqPos = hqs.map(b => ({ x: b.group.position.x, z: b.group.position.z, rot: b.group.rotation.y }));
   scene.add(units.group);
-  const decor = buildDecor(scene, sim);
+  const decor = buildDecor(scene, sim, stage);
   const afx = new AbilityFx(scene, particles, stage);
 
   bootMsg('Лепим Зураба и Ислама…');
   await new Promise(r => setTimeout(r, 16));
   const portraits = makePortraits();
+  // the admin's pack carries his face (his portrait in the village colours)
+  const packs = new PackView(scene, terrain, stage, particles, [0, 1].map(s => portraits.admin?.[s] ?? portraits.units[s]?.[ADMIN]), prefs.spicy);
+  const coins = new CoinFx(scene, terrain, stage, particles, sim.st.pts.slice(0, 2).map(p => ({ x: p.x, z: p.z })));
   const sound = new Sound();
   sound.muted = prefs.muted; sound.musicOn = prefs.music;
 
@@ -170,6 +179,7 @@ async function boot() {
     hud.spicy = prefs.spicy;
     labels.setSpicy(prefs.spicy);
     decor.setSpicy(prefs.spicy);
+    packs.setSpicy(prefs.spicy);
   };
   applySpicy();
 
@@ -244,7 +254,7 @@ async function boot() {
     hud.setSide(s);
     hud.hideOver();
     units.resetVis();
-    afx.clear();
+    afx.clear(); packs.clear(); coins.clear(); stealAcc.clear(); bankLoss = 0;
     labels.side = s; labels.reset();
     feedQ.length = 0; nextHint = performance.now() + 20000;
     hqs.forEach((b, i) => b.setFloors(sim.st.sides[i].floors, false));
@@ -355,18 +365,31 @@ async function boot() {
     switch (e.e) {
       case 'steal': {
         if (n <= 0) break;
-        const v = (1 - s) as Side;
-        if (e.k === 'card') {
+        const v = (1 - s) as Side, card = e.k === 'card';
+        if (card) {
           if (v === side) hud.banner('Списание с карты', `ersno увёл ${n} ₽ из нашей кассы`, s, 2400);
           sayLine(heroLine('ersno', 'steal', prefs.spicy), pr(v), undefined, 1200);
         } else if (v === side && cool('steal', 30000)) sayLine(heroLine('ersno', 'steal', prefs.spicy), 1);
-        if (e.x !== undefined && e.z !== undefined && near(e.x, e.z, 60) && (e.k === 'card' || s === side || v === side)) {
-          stage.project(e.x, heightY(terrain, e.x, e.z) + 2.4, e.z, projTmp);
-          if (projTmp.vis) hud.tip(projTmp.x, projTmp.y, `${s === side ? '+' : '−'}${n} ₽`);
+        if (e.x !== undefined && e.z !== undefined) {
+          coins.steal({ s, v, x: e.x, z: e.z, n, k: card ? 'card' : 'hit' });
+          const close = near(e.x, e.z, 60);
+          if (card) { if (close || v === side || s === side) sound.cardSteal(); }
+          else if (close) sound.steal();
+          // «+N ₽» in green pen over the thief: a card at once, hits summed up for a moment
+          if (close) {
+            const id = (e as { id?: number }).id ?? -1, a = stealAcc.get(id);
+            if (card) { stage.project(e.x, heightY(terrain, e.x, e.z) + 2.8, e.z, projTmp); if (projTmp.vis) hud.tip(projTmp.x, projTmp.y, `+${n} ₽`, 'tip-plus tip-big'); }
+            else if (a) { a.n += n; a.x = e.x; a.z = e.z; }
+            else stealAcc.set(id, { n, x: e.x, z: e.z, at: performance.now() });
+          }
         }
+        // our bank flashes «−N ₽» when it is us being robbed
+        if (v === side) { if (!bankLoss) bankAt = performance.now(); bankLoss += n; if (card) flushSteals(Infinity); }
         break;
       }
       case 'pack': {
+        packs.onPack({ s, id: (e as { id?: number }).id ?? -1, x: e.x ?? 0, z: e.z ?? 0 });
+        if (e.x !== undefined && e.z !== undefined && (s === side || near(e.x, e.z, 70))) { sound.packDrop(); if (n > 0) sound.panic(n); }
         if (cool('pack' + s, 8000)) heroSay(ADMIN, s, 'ult', s === side || n >= 6 ? 2 : 1);
         if (n >= 4 && Math.random() < 0.6 && cool('packr', 20000)) sayLine(pickLine(PACK_REACT, prefs.spicy), 1, undefined, 1800);
         if (n >= 8 && s === side) hud.banner('Курение убивает', `${n} разбежались`, s, 2200);
@@ -377,9 +400,21 @@ async function boot() {
         break;
       }
       case 'comedown':
-        if (s === side) sayLine(pickLine(CARD_TEXT[30]?.after ?? [], prefs.spicy), 2);
+        if (s === side) { sound.comedown(); sayLine(pickLine(CARD_TEXT[30]?.after ?? [], prefs.spicy), 2); }
         break;
     }
+  }
+  /** ersno's hits come every second or so: their «+N ₽» and our «−N ₽» are summed for a moment. */
+  const stealAcc = new Map<number, { n: number; x: number; z: number; at: number }>();
+  let bankLoss = 0, bankAt = 0;
+  function flushSteals(now: number) {
+    for (const [id, a] of stealAcc) {
+      if (now - a.at < 700) continue;
+      stealAcc.delete(id);
+      stage.project(a.x, heightY(terrain, a.x, a.z) + 2.4, a.z, projTmp);
+      if (projTmp.vis) hud.tip(projTmp.x, projTmp.y, `+${a.n} ₽`, 'tip-plus');
+    }
+    if (bankLoss > 0 && now - bankAt >= 700) { hud.bankFlash(`−${bankLoss} ₽`); bankLoss = 0; }
   }
 
   function handleFx(list: FxEv[]) {
@@ -398,7 +433,11 @@ async function boot() {
             if (e.s === side || near(e.x, e.z)) sound.heroIn(e.s);
             heroSay(e.t, e.s, 'spawn');
           } else if (e.t === RIDE && (e.s === side || near(e.x, e.z, 60))) sound.horn(e.s);
-          else if (UNIT_LINES[e.t] && cool('u' + e.t + e.s, 20000)) sayLine(unitLine(e.t, 'spawn', prefs.spicy), pr(e.s), e.s);
+          else {
+            if (e.t === GELIK && (e.s === side || near(e.x, e.z, 60))) sound.gelik();
+            else if (e.t === SPORTIK && (e.s === side || near(e.x, e.z, 60))) sound.whistle();
+            if (UNIT_LINES[e.t] && cool('u' + e.t + e.s, 20000)) sayLine(unitLine(e.t, 'spawn', prefs.spicy), pr(e.s), e.s);
+          }
           break;
         }
         case 'hit': {
@@ -465,8 +504,12 @@ async function boot() {
           const p = sim.st.pts[e.p], doner = e.p === PT_DONER, name = doner ? donerName() : p.name;
           const perk = (p as { perk?: string }).perk, was = placeOwner.get(e.p) ?? -1;
           placeOwner.set(e.p, e.s);
-          if (e.s < 0) { say('admin', `${name} теперь ничьё`, 1); if (perk && was >= 0) sayLine(placeLine(perk, 'lost', prefs.spicy), was === side ? 2 : 1, was, 1400); break; }
-          sound.capture(e.s === side);
+          if (e.s < 0) {
+            say('admin', `${name} теперь ничьё`, 1);
+            if (perk && was >= 0) { if (was === side) sound.placeLost(); sayLine(placeLine(perk, 'lost', prefs.spicy), was === side ? 2 : 1, was, 1400); }
+            break;
+          }
+          if (perk) sound.placeTaken(e.s === side, perk); else sound.capture(e.s === side);
           const y = heightY(terrain, p.x, p.z) + 1;
           particles.emit(p.x, y, p.z, { n: 30, color: PAL.side[e.s], size: 0.3, life: 1.2, spread: 4, up: 3, grav: 5, jitter: 2 });
           if (doner) {
@@ -571,7 +614,11 @@ async function boot() {
           const close = e.s === side || near(e.x, e.z);
           if (e.t === GOLEM) { if (close) sound.golem(); sayLine(pickLine(SUMMON_LINES.golem.spawn, prefs.spicy), pr(e.s), e.s); }
           else if (e.t === CHICKEN) { if (close) sound.cluck(5); sayLine(pickLine(SUMMON_LINES.chicken.spawn, prefs.spicy), pr(e.s), e.s); }
-          else if (UNIT_LINES[e.t] && cool('u' + e.t + e.s, 20000)) sayLine(unitLine(e.t, 'spawn', prefs.spicy), pr(e.s), e.s);
+          else {
+            if (e.t === GELIK && close) sound.gelik();
+            else if (e.t === SPORTIK && close) sound.whistle();
+            if (UNIT_LINES[e.t] && cool('u' + e.t + e.s, 20000)) sayLine(unitLine(e.t, 'spawn', prefs.spicy), pr(e.s), e.s);
+          }
           break;
         }
         case 'heroDown': {
@@ -666,11 +713,16 @@ async function boot() {
     }
     const sel = playing && hud.selected >= 0;
     hqZones.forEach((m, s) => { m.visible = sel && s === side && sim.st.pts[s].owner === side; });
+    // an owned home place is a deploy zone too
+    placeMarkers.forEach(m => m.setZone(sel && m.p.owner === side && m.p.side === side));
     stage.update(dt);
     const tnow = now / 1000;
     hqs.forEach((b, s) => { b.update(dt, tnow); if (b.floors.length !== sim.st.sides[s].floors && !b.falling.length) b.setFloors(sim.st.sides[s].floors, true); });
     markers.forEach(m => m.update(tnow));
+    placeMarkers.forEach(m => m.update(tnow));
     decor.update(dt); afx.update(dt);
+    packs.update(dt, sim.st); coins.update(dt);
+    if (playing) flushSteals(now);
     units.zoomK = Math.max(1, Math.min(2.4, stage.dist / 50));
     units.update(session ? session.alpha() : 1, now, dt, stage.camera);
     particles.setScale(stage.renderer.domElement.height / (2 * Math.tan((stage.camera.fov * Math.PI) / 360)));
@@ -688,7 +740,8 @@ async function boot() {
   openMenu();
   requestAnimationFrame(frame);
   // debug handle for automated checks
-  (window as unknown as { __game: unknown }).__game = { sim, stage, get session() { return session; }, hud, start: startLocal, units };
+  (window as unknown as { __game: unknown }).__game = { sim, stage, get session() { return session; }, hud, start: startLocal, units, decor, defs: { CARDS, UNITS }, get side() { return side; },
+    setSpicy(on: boolean) { prefs.spicy = on; savePrefs(prefs); applySpicy(); }, packs, labels };
 }
 
 boot().catch(err => {

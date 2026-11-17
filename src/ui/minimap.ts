@@ -3,6 +3,7 @@ import type { Sim } from '../sim/sim';
 import { UNITS } from '../sim/defs';
 import type { Stage } from '../render/scene';
 import type { Terrain } from '../world/terrain';
+import { drawPerkGlyph } from '../render/placeMarks';
 
 const PEN = ['#2a52d1', '#d8361f'];
 const IS_HERO = UNITS.map(d => !!d.hero);
@@ -40,6 +41,7 @@ export class Minimap {
     const st = this.sim.st;
     for (const p of st.pts) {
       if (p.kind === 2) { this.kiosk(p.x * sx, p.z * sz, p.owner); continue; }
+      if (p.kind === 3) { this.place(p.x * sx, p.z * sz, p.owner, p.perk ?? ''); continue; } // v3 capture places
       const r = p.kind === 0 ? 11 : 8;
       g.lineWidth = 3;
       g.strokeStyle = p.owner >= 0 ? PEN[p.owner] : '#f4f6f8';
@@ -77,6 +79,15 @@ export class Minimap {
       const tg = this.stage.target, s = this.stage.dist * 0.6;
       g.strokeRect((tg.x - s) * sx, (tg.z - s * 0.6) * sz, s * 2 * sx, s * 1.2 * sz);
     }
+  }
+
+  /** v3 capture place: a small square in the owner's ink with the perk drawn in it. */
+  private place(x: number, y: number, owner: number, perk: string) {
+    const g = this.g, r = 9;
+    g.lineWidth = 2.5; g.strokeStyle = '#23262b';
+    g.fillStyle = owner >= 0 ? PEN[owner] : '#f4f6f8';
+    g.beginPath(); g.rect(x - r, y - r, r * 2, r * 2); g.fill(); g.stroke();
+    drawPerkGlyph(g, perk, x, y + 0.5, r * 1.7, owner >= 0 ? '#f4f6f8' : '#23262b');
   }
 
   /** Донер Бей: a little doner spit (meat cone on a skewer) in the owner's ink. */

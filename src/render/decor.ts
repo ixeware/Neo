@@ -1,15 +1,23 @@
 // Street food and village decor: Донер Бей at pts[8] (with its capture ring and flag), Фудзи and
-// the gym in Курчалой, the taxi stand in Старые Атаги. Placement comes from world.ts decorSpots(),
+// the gym in Курчалой, the taxi stand in Старые Атаги, and a model for every real 2GIS place
+// (landmarks.ts plans the spots). Placement comes from world.ts decorSpots() and landmarkSpots(),
 // which buildVillages also uses to keep houses off these spots. Render-only: reads the sim, never writes.
 import * as THREE from 'three';
 import { donerBey, fudzi, gym, taxiStand } from './heroes';
-import { decorSpots, followPoints, VillageMarker } from './world';
+import { decorSpots, followPoints, mosque, VillageMarker } from './world';
+import { landmark, gelikProp } from './props';
+import { landmarkPlan, type LmSpot } from './landmarks';
 import { isLowPower } from './scene';
 import { heightY, type Terrain } from '../world/terrain';
 import { PT_DONER, type Sim, type Pt } from '../sim/sim';
 import { DONER } from '../data/heroes';
+import { DONER_REAL } from '../data/places';
 
-export interface Decor { update(dt: number): void; setSpicy(on: boolean): void }
+export { landmarkSpots, landmarkPlan, fudziSpot } from './landmarks';
+
+export interface Decor { update(dt: number): void; setSpicy(on: boolean): void; landmarks: Landmarks }
+/** What the decor needs to know about the camera (Stage has it) for its level of detail. */
+export interface DecorView { target: { x: number; z: number }; dist: number }
 
 /** Pavilion front faces south-south-east: towards the plain and the opening camera. */
 const DONER_RY = 0.3;
@@ -42,7 +50,224 @@ function puffTexture(): THREE.CanvasTexture {
 
 interface Puff { s: THREE.Sprite; age: number; life: number; drift: number }
 
-export function buildDecor(parent: THREE.Object3D, sim: Sim): Decor {
+// ---- real 2GIS places --------------------------------------------------------------------------
+/** Short sign text for a place (the model's sign is small): «Торговый центр «Атаги»» → «ТЦ «АТАГИ»». */
+const SIGN_SHORT: [RegExp, string][] = [
+  [/^Торговый центр/, 'ТЦ'], [/^Автомойка самообслуживания/, 'АВТОМОЙКА'], [/^Автомойка и СТО/, 'МОЙКА · СТО'],
+  [/^Футбольное поле.*/, 'ФУТБОЛ'], [/^Спортшкола дзюдо/, 'ДЗЮДО'], [/^Районная больница/, 'БОЛЬНИЦА'],
+  [/^Центральный парк.*/, 'ПАРК'], [/^Школьный стадион.*/, 'СТАДИОН'], [/^Стадион.*/, 'СТАДИОН'],
+  [/^Супермаркет у трассы/, 'СУПЕРМАРКЕТ'], [/^Ресторан у трассы/, 'РЕСТОРАН'], [/^Заправка.*/, 'АЗС'],
+  [/^Шаурма на углу/, 'ШАУРМА'], [/^Спорткомплекс/, 'СПОРТКОМПЛЕКС'],
+  [/ (Новых Атагов|Шали|Автуров|Чечен-Аула|Цоцин-Юрта|Курчалоя)$/, ''], [/^Школа (Цоцин-Юрта|Новых Атагов)$/, 'ШКОЛА'],
+];
+export function signName(name: string): string {
+  let s = name;
+  for (const [re, to] of SIGN_SHORT) s = s.replace(re, to);
+  return s.toUpperCase();
+}
+
+/** Copies vertex-coloured meshes into one geometry per bucket (world space): a few draw calls for all the places. */
+class Merger {
+  private parts = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[]; small: boolean; cx: number; cz: number }>();
+  add(m: THREE.Mesh, key: string, small: boolean, cx: number, cz: number) {
+    const g = m.geometry, a = g.attributes;
+    if (!a.position || !a.normal || !a.color) return false;
+    let b = this.parts.get(key);
+    if (!b) this.parts.set(key, (b = { mat: m.material as THREE.Material, geos: [], small, cx, cz }));
+    const c = (g.index ? g.toNonIndexed() : g.clone()).applyMatrix4(m.matrixWorld);
+    for (const k of Object.keys(c.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') c.deleteAttribute(k);
+    b.geos.push(c);
+    return true;
+  }
+  build(parent: THREE.Object3D, shadows: boolean): { mesh: THREE.Mesh; small: boolean; cx: number; cz: number }[] {
+    const out: { mesh: THREE.Mesh; small: boolean; cx: number; cz: number }[] = [];
+    for (const b of this.parts.values()) {
+      let n = 0;
+      for (const g of b.geos) n += g.attributes.position.count;
+      const P = new Float32Array(n * 3), N = new Float32Array(n * 3), C = new Float32Array(n * 3);
+      let o = 0;
+      for (const g of b.geos) {
+        P.set(g.attributes.position.array as Float32Array, o); N.set(g.attributes.normal.array as Float32Array, o);
+        C.set(g.attributes.color.array as Float32Array, o);
+        o += g.attributes.position.count * 3;
+        g.dispose();
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(P, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(C, 3));
+      geo.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geo, b.mat);
+      mesh.castShadow = shadows; mesh.receiveShadow = true;
+      parent.add(mesh);
+      out.push({ mesh, small: b.small, cx: b.cx, cz: b.cz });
+    }
+    return out;
+  }
+}
+
+interface LmView { l: LmSpot; signs: THREE.Object3D[]; top: number }
+export interface Landmarks { list: LmView[]; update(view: DecorView | undefined): void; tris: number }
+
+/**
+ * Builds every planned landmark: props.landmark models (scaled to the map, facing their village),
+ * small mosques, parked Гелики at the car washes, спортики at the stadium places. The solid parts
+ * are merged per 60-unit chunk (small places in their own chunks so low-power devices can drop
+ * them away from the camera); the canvas signs stay separate and only show up close.
+ */
+function buildLandmarks(root: THREE.Object3D, t: Terrain, low: boolean): Landmarks {
+  const merge = new Merger();
+  const list: LmView[] = [];
+  const holder = new THREE.Group();
+  holder.name = 'landmarks';
+  root.add(holder);
+  let tris = 0;
+  for (const l of landmarkPlan(t)) {
+    const outer = new THREE.Group();
+    const c = Math.cos(l.ry), sn = Math.sin(l.ry);
+    /** world (x, z) of a point given in outer's local frame */
+    const wx = (lx: number, lz: number) => l.x + lx * c + lz * sn, wz = (lx: number, lz: number) => l.z - lx * sn + lz * c;
+    let top = 2, y0: number;
+    /** things that stand outside the levelled pad (the crowd, the parked Гелик): each on its own ground */
+    const loose: { o: THREE.Object3D; lx: number; lz: number; k: number }[] = [];
+    if (l.kind === 'mosque') {
+      const m = mosque(false);
+      outer.add(m);
+      top = 2.4;
+      const hr = l.r * 0.75;
+      y0 = groundY(t, l.x, l.z, l.ry, hr, -hr, hr);
+    } else {
+      const g = landmark(l.kind, { name: signName(l.name), side: l.side, crowd: l.crowd });
+      const bd = g.userData.bounds as { x0: number; x1: number; z0: number; z1: number; h: number };
+      const ox = -((bd.x0 + bd.x1) / 2) * l.s, oz = -((bd.z0 + bd.z1) / 2) * l.s;
+      g.scale.setScalar(l.s);
+      g.position.set(ox, 0, oz);
+      outer.add(g);
+      top = bd.h * l.s;
+      // the flat ones (a pitch is 6 cm tall here) vanish into a slope: stand on the footprint's highest
+      // point and put a levelled earth pad under it down to the lowest one
+      const hx = ((bd.x1 - bd.x0) / 2) * l.s, hz = ((bd.z1 - bd.z0) / 2) * l.s;
+      let lo = Infinity, hi = -Infinity;
+      for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) {
+        const y = heightY(t, wx((hx * i) / 3, (hz * j) / 3), wz((hx * i) / 3, (hz * j) / 3));
+        lo = Math.min(lo, y); hi = Math.max(hi, y);
+      }
+      y0 = hi - 0.03;
+      if (hi - lo > 0.04) {
+        const depth = hi - lo + 0.12;
+        const pad = new THREE.BoxGeometry(hx * 2 + 0.08, depth, hz * 2 + 0.08);
+        pad.translate(0, -depth / 2 - 0.004, 0);
+        const n = pad.attributes.position.count, col = new Float32Array(n * 3), top0 = new THREE.Color('#bfae8c'), side = new THREE.Color('#a8936d');
+        for (let i = 0; i < n; i++) (pad.attributes.normal.getY(i) > 0.5 ? top0 : side).toArray(col, i * 3);
+        pad.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        const main = g.children.find(o => (o as THREE.Mesh).isMesh && ((o as THREE.Mesh).material as THREE.MeshLambertMaterial).vertexColors) as THREE.Mesh | undefined;
+        if (main) outer.add(new THREE.Mesh(pad, main.material));
+        else pad.dispose();
+      }
+      const crowd = g.userData.crowd as THREE.Object3D | undefined;
+      if (crowd) loose.push({ o: crowd, lx: ox + crowd.position.x * l.s, lz: oz + crowd.position.z * l.s, k: l.s });
+      if (l.gelik) {
+        // a second one waits its turn on the forecourt (the first is in the foam in bay one), at building
+        // scale and inside the footprint, so it never ends up on a neighbour's pitch
+        const car = gelikProp(l.side ?? 1);
+        car.scale.setScalar(l.s);
+        car.rotation.y = Math.PI / 2 + 0.22;
+        car.position.set(ox + 0.45 * l.s, 0.07 * l.s, oz + Math.min(1.95, bd.z1 - 0.7) * l.s);
+        outer.add(car);
+      }
+    }
+    outer.position.set(l.x, y0, l.z);
+    for (const q of loose) q.o.position.y = (heightY(t, wx(q.lx, q.lz), wz(q.lx, q.lz)) - 0.03 - y0) / q.k;
+    outer.rotation.y = l.ry;
+    holder.add(outer);
+    outer.updateMatrixWorld(true);
+    const signs: THREE.Object3D[] = [];
+    const meshes: THREE.Mesh[] = [];
+    outer.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) meshes.push(m); });
+    const ck = `${Math.floor(l.x / 60)}:${Math.floor(l.z / 60)}`;
+    for (const m of meshes) {
+      const mat = m.material as THREE.MeshLambertMaterial;
+      tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+      if (!Array.isArray(m.material) && mat.vertexColors && merge.add(m, `${ck}:${mat.uuid}:${l.small ? 's' : 'b'}`, l.small, l.x, l.z)) {
+        m.removeFromParent();
+        continue;
+      }
+      // canvas signs: re-parent to the holder with their world transform, shown only up close
+      m.updateWorldMatrix(true, false);
+      m.matrixWorld.decompose(m.position, m.quaternion, m.scale);
+      m.removeFromParent();
+      m.castShadow = false;
+      m.visible = false;
+      holder.add(m);
+      signs.push(m);
+    }
+    outer.removeFromParent();
+    list.push({ l, signs, top });
+  }
+  const chunks = merge.build(holder, !low);
+  let next = 0;
+  return {
+    list, tris,
+    update(view) {
+      if (!view) return;
+      const now = performance.now();
+      if (now < next) return;
+      next = now + 120;
+      const tx = view.target.x, tz = view.target.z, d = view.dist;
+      // signs: readable only close up
+      const signR = d < 75 ? 34 + d * 0.5 : -1;
+      for (const v of list) {
+        const on = signR > 0 && (v.l.x - tx) ** 2 + (v.l.z - tz) ** 2 < signR * signR && !(low && v.l.small && d > 45);
+        if (v.signs.length && v.signs[0].visible !== on) for (const s of v.signs) s.visible = on;
+      }
+      // low power: small places only near the camera; from the overview (where a school is 3 px) none at all
+      if (low) for (const c of chunks) {
+        c.mesh.visible = c.small ? d < 110 && (c.cx - tx) ** 2 + (c.cz - tz) ** 2 < 95 * 95 : d < 170;
+      }
+    },
+  };
+}
+
+/** Донер Бей's real address is 2.6 km north of the map: a signpost on the north edge points there. */
+function donerSignpost(t: Terrain, x: number): THREE.Group {
+  const g = new THREE.Group();
+  const z = 1.6;
+  const y = heightY(t, x, z);
+  const wood = new THREE.MeshLambertMaterial({ color: '#7a5636' });
+  const pole = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.4, 0.12), wood);
+  pole.position.set(0, 1.2, 0);
+  g.add(pole);
+  // an arrow board pointing north (−z)
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const ctx = c.getContext('2d')!;
+  const paint = () => {
+    ctx.clearRect(0, 0, 256, 128);
+    ctx.fillStyle = '#f2c12e';
+    ctx.beginPath(); ctx.moveTo(8, 24); ctx.lineTo(196, 24); ctx.lineTo(248, 64); ctx.lineTo(196, 104); ctx.lineTo(8, 104); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#2b2622'; ctx.lineWidth = 5; ctx.stroke();
+    ctx.fillStyle = '#2b2622'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '800 30px Unbounded, "Arial Black", sans-serif';
+    ctx.fillText('ДОНЕР БЕЙ', 112, 52, 180);
+    ctx.font = '700 22px "Golos Text", Arial, sans-serif';
+    ctx.fillText('2,6 км · Грозный', 112, 84, 180);
+    tex.needsUpdate = true;
+  };
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  paint();
+  (document as Document & { fonts?: FontFaceSet }).fonts?.load('800 30px Unbounded').then(paint, () => { /* system font */ });
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.9), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, alphaTest: 0.3 }));
+  board.position.set(0, 2.1, 0);
+  board.rotation.y = Math.PI / 2; // arrow tip (canvas right) points to −z, north
+  g.add(board);
+  g.position.set(x, y - 0.05, z);
+  g.rotation.y = 0.35; // turned a little towards the opening camera
+  g.userData.real = DONER_REAL;
+  return g;
+}
+
+export function buildDecor(parent: THREE.Object3D, sim: Sim, view?: DecorView): Decor {
   const t = sim.terrain;
   const root = new THREE.Group();
   root.name = 'decor';
@@ -99,12 +324,18 @@ export function buildDecor(parent: THREE.Object3D, sim: Sim): Decor {
     const sp = g.userData.spit as THREE.Object3D | undefined;
     if (sp) spins.push(sp);
   }
+  // the real Донер Бей is in Grozny, off the north edge: a signpost above pts[8]
+  root.add(donerSignpost(t, dp.x));
   if (low) root.traverse(o => { o.castShadow = false; });
+  const lm = buildLandmarks(root, t, low);
+  console.info(`landmarks ${lm.list.length}, ${Math.round(lm.tris / 1000)}k tris`);
 
   let time = 0;
   return {
+    landmarks: lm,
     update(dt: number) {
       time += dt;
+      lm.update(view);
       for (const s of spins) s.rotation.y += dt * 1.4;
       marker.update(time);
       for (const p of puffs) {

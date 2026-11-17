@@ -72,6 +72,22 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .lbl-doner .nm { font-family: var(--f-display); font-weight: 800; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; background: var(--marker); }
 .lbl.far .sub, .lbl.far .fl { display: none; }
 .lbl.vfar { display: none; }
+/* v3 capture places: a handwritten name with the perk icon, the perk underneath */
+.lbl-place .nm { display: inline-flex; align-items: center; gap: 4px; font-family: var(--f-hand); font-weight: 700; font-size: 19px; line-height: 1; padding: 1px 7px 3px 5px; }
+.lbl-place .nm .pk { display: inline-block; width: 17px; height: 17px; flex: none; }
+.lbl-place .nm .pk svg { width: 100%; height: 100%; display: block; }
+.lbl-place .sub { font-size: 16px; }
+/* «2ГИС»: a tiny green tick on real places, only up close */
+.gis { display: none; font-family: var(--f-ui); font-weight: 800; font-size: 8.5px; letter-spacing: .04em; line-height: 1; color: #fff; background: #2f9a4a; padding: 2px 3px 2px; margin-left: 3px; align-self: flex-start; border-radius: 2px; }
+#labels.near .gis { display: inline-block; }
+.lbl-lm { display: inline-flex; align-items: flex-start; font-family: var(--f-ui); font-weight: 600; font-size: 11px; line-height: 1.1; color: var(--graphite); background: rgba(244,246,248,.92); border: 1px solid var(--graphite-2); padding: 1px 5px 2px; box-shadow: 1px 1px 0 rgba(0,0,0,.22); }
+.lbl-lm.s0 { border-color: var(--pen-a); } .lbl-lm.s1 { border-color: var(--pen-k); }
+.lbl-lm .gis { margin-top: 1px; }
+/* the real Донер Бей is off the north edge: a road sign pointing there */
+.lbl-edge { font-family: var(--f-ui); font-weight: 600; font-size: 11.5px; color: var(--graphite); background: var(--marker); border: 1.5px solid var(--graphite); padding: 2px 7px 3px; box-shadow: 2px 2px 0 rgba(0,0,0,.28); }
+.lbl-edge b { font-family: var(--f-display); font-weight: 800; font-size: 11px; letter-spacing: .03em; text-transform: uppercase; }
+.lbl-edge .up { display: inline-block; font-weight: 900; font-size: 14px; animation: edgeUp 1.6s ease-in-out infinite; }
+@keyframes edgeUp { 50% { transform: translateY(-3px) } }
 
 /* ---------- HUD ---------- */
 #hud { position: absolute; inset: 0; pointer-events: none; }
@@ -101,6 +117,27 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .bank .money { font-size: 28px; font-weight: 900; line-height: 1; }
 .bank .inc { font-family: var(--f-hand); font-size: 20px; color: var(--ok); }
 .bank .inc.off { color: var(--pen-k); }
+/* v3: «−N ₽» when ersno robs us, and the card buffs with their countdown */
+.bank-flash { position: absolute; right: -6px; top: -4px; transform: translateX(100%); font-family: var(--f-hand); font-weight: 700; font-size: 30px; line-height: 1; color: var(--pen-k); text-shadow: 0 0 3px #fff, 0 0 2px #fff, 0 0 6px #fff; pointer-events: none; white-space: nowrap; animation: bankFlash 1.5s ease-out forwards; }
+@keyframes bankFlash { 0% { transform: translateX(100%) scale(1.5); opacity: 0 } 12% { transform: translateX(100%) scale(1); opacity: 1 } 75% { opacity: 1 } to { transform: translate(100%, 26px); opacity: 0 } }
+.bank.hit { animation: bankHit .35s ease-out; }
+@keyframes bankHit { 25% { transform: translateX(-3px) rotate(-1deg) } 60% { transform: translateX(2px) } }
+.buffs { display: grid; gap: 3px; justify-items: start; }
+.buffs:empty { display: none; }
+.center .buffs.mine { justify-items: center; }
+.center .buffs.mine .buff { font-size: 13px; padding: 2px 8px 3px; box-shadow: 2px 2px 0 rgba(0,0,0,.25); }
+.center .buffs.mine .buff:nth-child(2) { transform: rotate(1.2deg); }
+.buff { display: inline-flex; align-items: baseline; gap: 6px; padding: 1px 6px 2px; border: 1.5px solid currentColor; background: var(--paper); font-size: 12px; line-height: 1.15; white-space: nowrap; transform: rotate(-1deg); }
+.buff b { font-weight: 700; }
+.buff .sh { display: none; }
+.buff i { font-style: normal; font-family: var(--f-display); font-weight: 800; font-size: 11px; }
+.buff.b-snus { color: #4d7d0f; background: #f3fbdc; }
+.buff.b-loop { color: #0d7468; background: #e2f7f3; }
+.buff.b-down { color: var(--graphite-2); background: #ecebe7; transform: rotate(1deg); }
+.buffs.them { margin-top: 3px; }
+.buffs.them .buff { font-size: 10.5px; padding: 0 5px 1px; }
+.buffs.them .buff::before { content: "у них:"; font-family: var(--f-hand); font-size: 14px; font-weight: 700; color: var(--graphite-2); }
+.side.s1 .buffs.them { justify-items: end; }
 
 /* deck: two notebook tabs («Юниты», «Пацаны») over a row of cards */
 .deck { position: absolute; left: 50%; transform: translateX(-50%); bottom: var(--edge-b); display: grid; justify-items: start; gap: 8px; pointer-events: none; }
@@ -135,6 +172,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .card.field .cn, .card.away .cn, .card.cool .cn { text-decoration: line-through 2px var(--pen-k); }
 .card.field .cc, .card.away .cc, .card.cool .cc { color: var(--graphite-2); }
 .card.field .st { color: var(--ok); }
+/* the admin on the field: when his pack is ready again */
+.card .st .pk { display: block; margin-top: 2px; font-size: 15px; color: var(--graphite); transform: rotate(3deg); }
+.card .st .pk.rdy { color: var(--pen-k); }
 .card.cool .st { color: var(--graphite); font-size: 30px; }
 .card.away .st { left: 50%; right: auto; transform: translateX(-50%) rotate(-8deg); font-family: var(--f-display); font-weight: 900; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--pen-k); border: 2px solid var(--pen-k); padding: 3px 5px; white-space: nowrap; text-shadow: none; background: rgba(244,246,248,.85); }
 .card[aria-disabled="true"] { cursor: not-allowed; }
@@ -205,6 +245,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 @keyframes tipUp { 70% { opacity: 1 } to { transform: translate(-50%, -230%); opacity: 0 } }
 
 .tip.tip-n { background: transparent; color: var(--pen-k); font-size: 32px; font-weight: 700; text-shadow: 0 0 3px #fff, 0 0 2px #fff, 0 0 6px #fff; }
+/* ersno's take: «+N ₽» in green pen over the thief */
+.tip.tip-plus { background: transparent; color: #1d8a3c; font-size: 27px; font-weight: 700; text-shadow: 0 0 3px #fff, 0 0 2px #fff, 0 0 6px #fff; }
+.tip.tip-plus.tip-big { font-size: 38px; animation-duration: 1.9s; }
 
 .hint { position: absolute; left: 50%; bottom: calc(var(--edge-b) + 196px); transform: translateX(-50%); font-family: var(--f-hand); font-size: 22px; color: #fff; text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.7); pointer-events: none; text-align: center; max-width: min(640px, 90vw); }
 .hint.rot { font-size: 20px; opacity: .92; }
@@ -347,6 +390,15 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .hint.rot { font-size: 18px; }
   .lbl-v .nm { font-size: 11.5px; }
   .lbl-hero { font-size: 10.5px; padding: 1px 5px 2px; }
+  /* card buffs: short names, small, and never wider than the side slip */
+  .buff .fl { display: none; } .buff .sh { display: inline; }
+  .buff { gap: 4px; }
+  .center .buffs.mine .buff { font-size: 11px; padding: 1px 6px 2px; }
+  .buffs.them { max-width: 100%; overflow: hidden; margin-top: 2px; }
+  .buffs.them .buff { font-size: 9.5px; padding: 0 4px 1px; }
+  .buffs.them .buff::before, .buffs.them .buff i { display: none; } /* the slip is narrow: their buff by name only */
+  .buff i { font-size: 10px; }
+  .bank-flash { font-size: 24px; }
 }
 /* phones held sideways: short screen, so the tabs stand to the left of the cards */
 @media (max-height: 500px) and (min-width: 600px) {
@@ -391,6 +443,17 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .hint { bottom: calc(var(--edge-b) + 104px); left: auto; right: calc(var(--edge-r) + 168px); transform: none; font-size: 18px; max-width: 40vw; text-align: right; }
   .ach-toast { top: calc(var(--edge-t) + 54px); }
   .banner { top: 34%; }
+  .buff .fl { display: none; } .buff .sh { display: inline; }
+  .center .buffs.mine .buff { font-size: 11.5px; padding: 1px 6px 2px; }
+  .buffs.them .buff { font-size: 10px; }
+  .buffs.them .buff i { display: inline; }
+}
+/* phones upright: the toolbar sits under the clock, so our buffs go to the right edge under the side
+   slip, and the world-event sticker moves down past them */
+@media (max-width: 760px) and (orientation: portrait) {
+  .center .buffs.mine { position: absolute; right: 0; top: 62px; justify-items: end; }
+  .center[data-nb="1"] .evchip { top: 88px; }
+  .center[data-nb="2"] .evchip { top: 110px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

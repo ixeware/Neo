@@ -9,6 +9,7 @@ import {
   GELIK, SPORTIK, PLACE, BUFF, type Card,
 } from './defs';
 import { buildFlow, flowDir, type Flow } from './flow';
+import { normAdm, ADM_MAX, type Adm } from './admin';
 import { navIndex, passable, lcAt, LC, type Terrain } from '../world/terrain';
 import { CAPTURE_PLACES } from '../data/places';
 
@@ -23,7 +24,7 @@ export interface U {
   fr: number; // scared until tick (админ «Курение убивает»): runs from the pack, never attacks
 }
 /** Unit flags (U.f). */
-export const UF = { LAGMAN: 1, GONE: 2, UNLOADED: 4, FLEE: 8 } as const;
+export const UF = { LAGMAN: 1, GONE: 2, UNLOADED: 4, FLEE: 8, ADM: 16 } as const; // ADM: removed by the admin (no bounty, no burst, no spill)
 export interface P {
   x: number; z: number; tx: number; tz: number; tg: number; hq: number; s: Side;
   dmg: number; sp: number; slow: number; at: number; k: number; from: number;
@@ -74,6 +75,12 @@ export interface Away { s: Side; t: number; hp: number; mhp: number; back: numbe
 export interface Ev { next: number; last: string; jam: number; black: number; sale: number; friday: number; flood: number }
 /** админ «Курение убивает»: a cigarette pack lying at x,z from tick `at` until `until`; s = admin's side, id = admin. */
 export interface Pack { s: Side; id: number; x: number; z: number; r: number; at: number; until: number }
+/**
+ * Admin toggles per side. Created by the first admin command that sets one (saves without admin
+ * activity keep their old shape and hash). frz: units neither move nor attack; god: units and the
+ * high-rise take no damage; ai: 0 auto, 1 always AI, 2 never AI.
+ */
+export interface AdmState { frz: [number, number]; god: [number, number]; ai: [number, number] }
 export interface State {
   v: 1; tick: number; era: number; seed: number; rng: number; nextId: number;
   units: U[]; proj: P[]; pts: Pt[]; sides: [SideState, SideState]; votes: [Vote, Vote];
@@ -81,13 +88,16 @@ export interface State {
   players: Record<string, Player>; diff: number; humanSide: -1 | 0 | 1; mp: number;
   aoe: Aoe[]; away: Away[]; ev: Ev;
   packs: Pack[];
+  adm?: AdmState;
 }
 
 export type Cmd =
   | { t: number; id: string; p: string; k: 'join'; s: Side }
   | { t: number; id: string; p: string; k: 'dep'; s: Side; u: number; x: number; z: number }
   | { t: number; id: string; p: string; k: 'vote'; s: Side; o: number }
-  | { t: number; id: string; p: string; k: 'cfg'; d: number; hs: -1 | 0 | 1; mp: number };
+  | { t: number; id: string; p: string; k: 'cfg'; d: number; hs: -1 | 0 | 1; mp: number }
+  /** Admin command (src/sim/admin.ts normAdm documents the fields per op). Shared war: only from the 'adm' channels. */
+  | { t: number; id: string; p: string; k: 'adm'; op: string; s?: number; v?: number; n?: number; u?: number; x?: number; z?: number; r?: number; key?: string; txt?: string };
 
 export type FxEv =
   | { e: 'spawn'; id: number; s: Side; t: number; x: number; z: number; own: number }
@@ -141,7 +151,12 @@ export type FxEv =
   /** админ «Курение убивает»: a pack lies at x,z until tick; n enemies got scared on landing. s = admin's side. */
   | { e: 'pack'; s: Side; id: number; x: number; z: number; r: number; until: number; n: number }
   /** «Закинуть снюс» wore off for side s: «отходняк» (−20% speed) until tick. */
-  | { e: 'comedown'; s: Side; until: number };
+  | { e: 'comedown'; s: Side; until: number }
+  // ---- admin ---------------------------------------------------------------------------
+  /** Announcement from the admin: plain text, ≤ 140 characters, for everyone. */
+  | { e: 'adminSay'; txt: string }
+  /** An admin command took effect. s: side (-1 both / none), n: amount, count or index, v: value. */
+  | { e: 'adm'; op: string; s: number; n: number; v: number };
 
 export const PT_ARGUN = 7;
 export const PT_DONER = 8;
@@ -298,6 +313,19 @@ export class Sim {
       const sd = st.sides[s];
       if (sd.hero[ADMIN] >= 0 && sd.pack === 0) sd.pack = st.tick + HERO.packFirst;
     }
+    // admin toggles: absent in saves without admin activity; anything malformed is repaired the same way everywhere
+    if (st.adm !== undefined) {
+      const a = st.adm as unknown as Record<string, unknown> | null;
+      if (!a || typeof a !== 'object') delete st.adm;
+      else {
+        const pair = (v: unknown, max: number): [number, number] => {
+          const q = Array.isArray(v) ? v : [];
+          const f = (x: unknown) => (Number.isInteger(x) && (x as number) >= 0 && (x as number) <= max ? (x as number) : 0);
+          return [f(q[0]), f(q[1])];
+        };
+        st.adm = { frz: pair(a.frz, 1), god: pair(a.god, 1), ai: pair(a.ai, 2) };
+      }
+    }
   }
 
   private emit(e: FxEv) { if (!this.quiet) this.fx.push(e); }
@@ -305,6 +333,7 @@ export class Sim {
   // ---- commands --------------------------------------------------------------
   apply(c: Cmd) {
     const st = this.st;
+    if (c.k === 'adm') { const a = normAdm(c); if (a) this.admin(a); return; } // bypasses the player/side check only
     if (c.k === 'cfg') { st.diff = c.d; st.humanSide = c.hs; st.mp = c.mp; return; }
     if (c.k === 'join') {
       const pl = st.players[c.p];
@@ -330,6 +359,185 @@ export class Sim {
       pl.cd = st.tick + ECON.deployCd;
       this.spawnGroup(c.s, c.u, c.x, c.z, pl.n);
       this.emit({ e: 'deployed', p: c.p, s: c.s, u: c.u });
+    }
+  }
+
+  // ---- admin -------------------------------------------------------------------------
+  /** Admin toggles, created on first use (see AdmState). */
+  private admState(): AdmState {
+    return (this.st.adm ??= { frz: [0, 0], god: [0, 0], ai: [0, 0] });
+  }
+
+  /** A passable spot near (x, z) on the map, or null: rings of 8 directions, deterministic. */
+  private admSpot(x: number, z: number): { x: number; z: number } | null {
+    const T = this.terrain;
+    x = Math.max(1, Math.min(T.W - 1, x)); z = Math.max(1, Math.min(T.H - 1, z));
+    if (passable(T, x, z)) return { x, z };
+    for (let r = 1; r <= 8; r++) {
+      for (let k = 0; k < 8; k++) {
+        const D = RING8[k], px = x + D[0] * r, pz = z + D[1] * r;
+        if (px > 0 && pz > 0 && px < T.W && pz < T.H && passable(T, px, pz)) return { x: px, z: pz };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Applies a validated admin command (normAdm). It skips the player/side check of ordinary
+   * commands and nothing else: caps, hero uniqueness, bounds and the war-over phase still hold.
+   */
+  private admin(a: Adm) {
+    const st = this.st, now = st.tick;
+    const fx = (n: number, v = 0) => this.emit({ e: 'adm', op: a.op, s: a.s, n, v });
+    switch (a.op) {
+      case 'money': case 'moneySet': {
+        const sd = st.sides[a.s as Side];
+        sd.money = Math.max(0, Math.min(ADM_MAX.bank, a.op === 'money' ? sd.money + a.v : a.v));
+        fx(Math.round(sd.money), a.v);
+        return;
+      }
+      case 'diff': st.diff = a.v; fx(0, a.v); return;
+      case 'ai': this.admState().ai[a.s as Side] = a.v; fx(0, a.v); return;
+      case 'freeze': this.admState().frz[a.s as Side] = a.v; fx(0, a.v); return;
+      case 'god': this.admState().god[a.s as Side] = a.v; fx(0, a.v); return;
+      case 'say': this.emit({ e: 'adminSay', txt: a.txt }); return;
+      case 'score': st.sides[0].wins = 0; st.sides[1].wins = 0; fx(0); return;
+      case 'newWar': this.newWar(); fx(st.era); return;
+      case 'reset': {
+        st.seed = a.v; st.rng = a.v | 0; st.era = 0;
+        delete st.adm;
+        this.newWar(); // era → 1, fresh sides, points, timers; tick, ids and players carry on
+        st.sides[0].wins = 0; st.sides[1].wins = 0;
+        fx(st.era, a.v);
+        return;
+      }
+      case 'heroCd': {
+        let n = 0;
+        for (const s of [0, 1] as Side[]) {
+          if (a.s !== -1 && a.s !== s) continue;
+          const sd = st.sides[s];
+          for (const t of HEROES) if (sd.heroCd[t] > 0) { sd.heroCd[t] = 0; n++; this.emit({ e: 'heroBack', s, t, id: -1 }); }
+          for (const u of st.units) if (u.s === s && u.hp > 0 && (u.t === BOSS || UNITS[u.t].hero)) { u.ab = 0; u.f &= ~UF.LAGMAN; }
+          sd.pack = 0;
+        }
+        fx(n);
+        return;
+      }
+    }
+    if (st.winner !== -1) return; // the rest acts on the field: nothing to do until the next war
+    switch (a.op) {
+      case 'spawn': {
+        const s = a.s as Side, sd = st.sides[s], d = UNITS[a.u];
+        let n = a.n;
+        if (d.hero) {
+          if (sd.hero[a.u] !== -1) return; // on the field or «на парах»: one per side
+          n = 1; sd.heroCd[a.u] = 0;
+        }
+        n = Math.min(n, Math.floor((ECON.unitCap - this.count(s)) / (1 + (d.carry ? d.carry[s] : 0))));
+        if (n <= 0) { fx(0, a.u); return; }
+        const c = !Number.isNaN(a.x) ? this.admSpot(a.x, a.z) : this.hqSpot(s, 0);
+        if (!c) return;
+        for (let i = 0; i < n; i++) {
+          let x = c.x, z = c.z;
+          if (i > 0) {
+            const ring = Math.floor((i - 1) / 8), D = RING8[(i - 1) % 8], R = 0.9 + ring * 0.9;
+            const px = c.x + D[0] * R, pz = c.z + D[1] * R;
+            if (passable(this.terrain, px, pz)) { x = px; z = pz; }
+          }
+          this.spawn(s, a.u, x, z, -1);
+        }
+        fx(n, a.u);
+        return;
+      }
+      case 'boss': {
+        const sd = st.sides[a.s as Side];
+        if (sd.boss !== -1) return;
+        sd.bossCd = 0;
+        this.spawnBoss(a.s as Side);
+        fx(1);
+        return;
+      }
+      case 'kill': {
+        const r2 = Number.isNaN(a.r) ? -1 : a.r * a.r;
+        let n = 0;
+        for (const u of st.units) {
+          if (u.hp <= 0 || (a.s !== -1 && u.s !== a.s)) continue;
+          if (r2 >= 0) { const dx = u.x - a.x, dz = u.z - a.z; if (dx * dx + dz * dz > r2) continue; }
+          u.hp = 0; u.f |= UF.ADM; n++;
+        }
+        fx(n);
+        return;
+      }
+      case 'heal': {
+        let n = 0;
+        for (const u of st.units) if (u.s === a.s && u.hp > 0) { u.hp = u.mhp; u.psn = 0; n++; }
+        fx(n);
+        return;
+      }
+      case 'floors': case 'repair': case 'found4': {
+        const s = (a.op === 'found4' ? 0 : a.s) as Side, sd = st.sides[s], max = HQ.maxFloors[s];
+        const before = sd.floors;
+        const v = a.op === 'floors' ? Math.min(max, a.v) : a.op === 'found4' ? Math.min(max, Math.max(4, before)) : before;
+        sd.floors = v; sd.hq = v * HQ.floorHp[s];
+        if (v < before) this.emit({ e: 'floor', s, floors: v });
+        else if (v > before) this.emit({ e: 'floorUp', s, floors: v });
+        if (s === 0 && v >= 4 && !sd.found4) { sd.found4 = 1; this.emit({ e: 'found4' }); }
+        if (v === 0) sd.bossCd = Math.max(sd.bossCd, now + 1); // the war ends this tick (cleanup), no boss for a gone high-rise
+        fx(v, before);
+        return;
+      }
+      case 'heroBack': {
+        for (const w of st.away) w.back = now; // heroTimers() brings them back later in this step
+        fx(st.away.length);
+        return;
+      }
+      case 'owner': {
+        const p = st.pts[a.n];
+        if (!p || p.kind === 0) return;
+        const prev = p.owner;
+        p.owner = a.s; p.prog = a.s === 0 ? -100 : a.s === 1 ? 100 : 0;
+        if (prev !== p.owner) {
+          this.emit({ e: 'capture', p: a.n, s: p.owner });
+          if (p.owner >= 0) for (const u of st.units) if (u.g === a.n) u.rt = 0;
+        }
+        fx(a.n);
+        return;
+      }
+      case 'vote': {
+        if (st.votes[a.s as Side].open) return;
+        st.sides[a.s as Side].skip = 0;
+        this.openVote(a.s as Side);
+        fx(0);
+        return;
+      }
+      case 'card': {
+        const s = a.s as Side, c = CARDS[a.n];
+        let fp = -1;
+        if (c.fx === Fx.Focus) {
+          const cand: number[] = [];
+          st.pts.forEach((p, i) => { if (p.kind === 1 && p.owner !== s) cand.push(i); });
+          if (cand.length) fp = cand[rint(st, cand.length)];
+        }
+        this.applyCard(s, c, fp);
+        fx(c.id, fp);
+        return;
+      }
+      case 'event': this.startEvent(a.key); fx(0); return;
+      case 'endEvents': {
+        const ev = st.ev;
+        ev.jam = ev.black = ev.sale = ev.friday = ev.flood = 0;
+        for (const w of st.away) w.back = now;
+        fx(0);
+        return;
+      }
+      case 'win': {
+        const l = (1 - a.s) as Side, ls = st.sides[l];
+        ls.hq = 0;
+        ls.bossCd = Math.max(ls.bossCd, now + 1);
+        if (ls.floors > 0) { ls.floors = 0; this.emit({ e: 'floor', s: l, floors: 0 }); }
+        fx(0); // cleanup() at the end of this step declares the winner: the normal victory → newWar flow
+        return;
+      }
     }
   }
 
@@ -533,7 +741,7 @@ export class Sim {
   private votes() {
     const st = this.st;
     if (st.tick === st.nextVote) {
-      for (const s of [0, 1] as Side[]) this.openVote(s);
+      for (const s of [0, 1] as Side[]) if (!st.votes[s].open) this.openVote(s); // an admin may have opened one already
     }
     for (const s of [0, 1] as Side[]) {
       const v = st.votes[s];
@@ -773,6 +981,9 @@ export class Sim {
   // ---- AI commanders -------------------------------------------------------------
   aiActive(s: Side): boolean {
     const st = this.st;
+    const m = st.adm ? st.adm.ai[s] : 0; // admin: 1 always AI, 2 never
+    if (m === 1) return true;
+    if (m === 2) return false;
     if (st.mp) return st.tick - st.sides[s].lastHuman > 900;
     if (st.humanSide !== s) return true;
     return st.tick - st.sides[s].lastHuman > 1200; // автопилот, если игрок отошёл
@@ -955,6 +1166,7 @@ export class Sim {
   private units() {
     const st = this.st, us = st.units, now = st.tick;
     const sec = now % 10 === 0;
+    const frz = st.adm ? st.adm.frz : null; // admin «заморозить»: neither move nor attack
     for (let i = 0; i < us.length; i++) {
       const u = us[i];
       if (u.hp <= 0) continue;
@@ -973,6 +1185,7 @@ export class Sim {
         this.emit({ e: 'ability', s: u.s, t: u.t, id: u.id, x: u.x, z: u.z, key: 'lagman', r: 0 });
       }
       if (u.stun > now) continue;
+      if (frz && frz[u.s]) continue;
       if (u.fr > now) { this.fearStep(u); continue; } // «Курение убивает»: бежим от пачки
       if (u.t === RIDE) { this.rideStep(u); continue; }
       if (u.t === ADAM) { this.adamStep(u); continue; }
@@ -1476,6 +1689,7 @@ export class Sim {
   /** Returns false when the hit was dodged. */
   hurt(u: U, dmg: number): boolean {
     const st = this.st, sd = st.sides[u.s];
+    if (st.adm && st.adm.god[u.s]) return false; // admin «бессмертие»
     if (sd.dodge > st.tick && rnd(st) < 0.4) { this.emit({ e: 'dodge', x: u.x, z: u.z, s: u.s }); return false; }
     if (sd.hero[BEKHAN] >= 0) { // «Главное не игра, главное дисциплина»
       const b = this.byId.get(sd.hero[BEKHAN]);
@@ -1486,6 +1700,7 @@ export class Sim {
   }
 
   hurtHq(s: Side, dmg: number) {
+    if (this.st.adm && this.st.adm.god[s]) return;
     const sd = this.st.sides[s];
     const before = Math.ceil(sd.hq / HQ.floorHp[s]);
     sd.hq -= dmg;
@@ -1589,10 +1804,12 @@ export class Sim {
         if (u.hp > 0) return true;
         this.byId.delete(u.id);
         if (u.f & UF.GONE) { this.emit({ e: 'gone', id: u.id, s: u.s, t: u.t, x: u.x, z: u.z }); return false; }
-        const d = UNITS[u.t], sd = st.sides[u.s];
+        const d = UNITS[u.t], sd = st.sides[u.s], adm = u.f & UF.ADM;
         const killer = st.sides[(1 - u.s) as Side];
-        killer.kills++;
-        killer.money += Math.floor(d.cost[u.s] * ECON.bounty) + (u.t === BOSS ? 300 : 2);
+        if (!adm) {
+          killer.kills++;
+          killer.money += Math.floor(d.cost[u.s] * ECON.bounty) + (u.t === BOSS ? 300 : 2);
+        }
         this.emit({ e: 'die', x: u.x, z: u.z, s: u.s, t: u.t });
         if (u.t === BOSS) {
           sd.boss = -1; sd.bossCd = now + BOSS_RESPAWN;
@@ -1606,8 +1823,8 @@ export class Sim {
           const m = this.byId.get(u.ld);
           if (m && m.ld === u.id) { m.ld = -1; m.ab = Math.max(m.ab, UNITS[MOHMAD].abCd!); }
         }
-        if (d.deathR) st.aoe.push({ s: u.s, x: u.x, z: u.z, r: d.deathR, dmg: d.deathDmg!, hq: 0, at: now + 1, n: 1, every: 0, k: d.key });
-        if (u.t === RIDE && !(u.f & UF.UNLOADED)) spill.push(u);
+        if (d.deathR && !adm) st.aoe.push({ s: u.s, x: u.x, z: u.z, r: d.deathR, dmg: d.deathDmg!, hq: 0, at: now + 1, n: 1, every: 0, k: d.key });
+        if (u.t === RIDE && !(u.f & UF.UNLOADED) && !adm) spill.push(u);
         return false;
       });
       for (const r of spill) this.unload(r); // пацаны выпрыгивают из подбитой машины
@@ -1661,6 +1878,7 @@ export class Sim {
 }
 
 const DIRS = [[1, 0], [0.5, 0.866], [-0.5, 0.866], [-1, 0], [-0.5, -0.866], [0.5, -0.866]];
+const RING8 = [[1, 0], [0.7071, 0.7071], [0, 1], [-0.7071, 0.7071], [-1, 0], [-0.7071, -0.7071], [0, -1], [0.7071, -0.7071]];
 // Heavy units push others around and are not knocked back (ersno is no tank since v3; the Гелик is).
 const MASS = UNITS.map((d, t) => (t === BOSS ? 9 : t === GOLEM || t === GELIK ? 4 : 1));
 const CAPW = UNITS.map(d => (d.capW !== undefined ? d.capW : 1));

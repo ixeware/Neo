@@ -22,6 +22,8 @@ export class Session {
   private seen = new Set<string>();
   private snaps: { tick: number; st: State }[] = [];
   tick0 = 0; wall0 = Date.now();
+  /** Game speed (local only: admin «Скорость»). tick0 may be fractional after a change of rate. */
+  rate = 1;
   lead = 1;
   paused = false;
   private pauseAt = 0;
@@ -33,18 +35,27 @@ export class Session {
 
   constructor(public sim: Sim, public backend: Backend, public pid: string) {}
 
-  setClock(tick0: number, wall0: number) { this.tick0 = tick0; this.wall0 = wall0; }
+  setClock(tick0: number, wall0: number) { this.tick0 = tick0; this.wall0 = wall0; this.rate = 1; }
 
   targetTick(now = Date.now()) {
     if (this.paused) now = this.pauseAt;
-    return this.tick0 + Math.floor((now - this.wall0) / TICK_MS);
+    return Math.floor(this.tick0 + ((now - this.wall0) * this.rate) / TICK_MS);
   }
 
   /** Fraction of the current tick elapsed — for render interpolation. */
   alpha(now = Date.now()) {
     if (this.paused) return 1;
-    const f = ((now - this.wall0) % TICK_MS) / TICK_MS;
-    return Math.max(0, Math.min(1, f));
+    const f = this.tick0 + ((now - this.wall0) * this.rate) / TICK_MS;
+    return Math.max(0, Math.min(1, f - Math.floor(f)));
+  }
+
+  /** Change the game speed from now on (×0.25..×8); the clock is re-anchored so no tick is skipped or repeated. */
+  setRate(r: number) {
+    if (!(r >= 0.25 && r <= 8) || r === this.rate) return;
+    const now = this.paused ? this.pauseAt : Date.now();
+    this.tick0 += ((now - this.wall0) * this.rate) / TICK_MS;
+    this.wall0 = now;
+    this.rate = r;
   }
 
   pause(on: boolean) {
@@ -53,27 +64,46 @@ export class Session {
     else { this.paused = false; this.wall0 += Date.now() - this.pauseAt; }
   }
 
-  submit(c: CmdBody): Cmd {
-    const cmd = { ...c, t: this.sim.st.tick + this.lead, id: `${this.pid}:${Date.now().toString(36)}:${(this.seq++).toString(36)}`, p: this.pid } as Cmd;
+  /** Stamp, apply here and send. `lead`: ticks ahead (default this.lead; admin commands in a shared war use more). */
+  submit(c: CmdBody, lead = this.lead): Cmd {
+    const cmd = { ...c, t: this.sim.st.tick + Math.max(1, Math.floor(lead)), id: `${this.pid}:${Date.now().toString(36)}:${(this.seq++).toString(36)}`, p: this.pid } as Cmd;
     this.insert(cmd);
     this.backend.send(cmd);
     return cmd;
   }
 
+  /**
+   * Take back an admin command that never reached the others (the store or server refused it):
+   * removes it from the log and replays from before it if it was already applied. The id stays seen.
+   */
+  drop(id: string): boolean {
+    for (const [t, l] of this.cmds) {
+      const i = l.findIndex(c => c.id === id && c.k === 'adm');
+      if (i < 0) continue;
+      l.splice(i, 1);
+      if (t < this.sim.st.tick) this.rollback(t);
+      return true;
+    }
+    return false;
+  }
+
+  /** Admin commands keep their own id space: an ordinary command reusing an admin id cannot shadow it. */
+  private key(c: Cmd) { return c.k === 'adm' ? 'adm\u0000' + c.id : c.id; }
+
   /** A command from elsewhere (or replayed from storage). */
   receive(c: Cmd) {
-    if (this.seen.has(c.id)) return;
+    if (this.seen.has(this.key(c))) return;
     const late = c.t < this.sim.st.tick;
     this.insert(c);
     if (late) this.rollback(c.t);
   }
 
   private insert(c: Cmd) {
-    this.seen.add(c.id);
+    this.seen.add(this.key(c));
     let l = this.cmds.get(c.t);
     if (!l) this.cmds.set(c.t, (l = []));
     l.push(c);
-    l.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    l.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
   }
 
   private rollback(t: number) {

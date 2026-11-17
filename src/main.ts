@@ -27,6 +27,8 @@ import {
 } from './data/heroes';
 import { Achievements, AchToasts, achievedIds } from './ui/achievements';
 import { DECK_KEYS } from './ui/hud';
+import { initAdmin } from './ui/admin';
+import { localChannel, artifactChannel } from './net/adminChannel';
 
 const $ = (id: string) => document.getElementById(id)!;
 const bootMsg = (s: string) => { $('boot-msg').textContent = s; };
@@ -621,6 +623,7 @@ async function boot() {
           if (e.s === side && near(e.x, e.z, 50)) sound.swish();
           if (e.s === side && cool('dodge', 45000)) say('Ислам', 'Шампунь +40 к удаче', 1);
           break;
+        case 'adminSay': case 'adm': admin.fx(e); break;
         default: v3Feed(e as unknown as V3Ev);
       }
     }
@@ -632,6 +635,16 @@ async function boot() {
     shared = s;
     if (!playing && !$('menu').hidden) openMenu();
   }).catch(() => { shared = null; });
+
+  // ---- admin panel: #admin or /admin (src/ui/admin.ts); who may command: src/net/adminChannel.ts --------
+  const admLocal = localChannel(() => session), admArtifact = artifactChannel(() => shared, () => session);
+  const admin = initAdmin({
+    sim, terrain, stage, hud, prefs, session: () => session, shared: () => shared, side: () => side,
+    channel: () => (session?.backend.kind === 'shared' ? admArtifact : admLocal),
+    setSpicy: on => { prefs.spicy = on; savePrefs(prefs); applySpicy(); },
+    setMusic: on => { prefs.music = on; sound.setMusic(on); savePrefs(prefs); },
+    newLocal: () => startLocal(side, prefs.diff), resumeLocal: () => resumeLocal(),
+  });
 
   // ---- loop --------------------------------------------------------------------------------------------
   let last = performance.now();

@@ -1,5 +1,6 @@
 // Headless AI-vs-AI run: balance, speed, content events, state size, determinism, plus unit checks
-// for every mechanic (heroes, v3: гелики, спортики, ersno steal, админ pack, снюс/LOOP cards, places).
+// for every mechanic (heroes, v3: гелики, спортики, ersno steal, админ pack, снюс/LOOP cards, places)
+// and for the admin commands (every op, malformed bodies, channels, snapshots and rollback).
 // npx tsx tools/simtest.ts <minutes> <seed>
 import { loadTerrain, lcAt, navIndex, LC } from '../src/world/terrain';
 import { Sim, hashState, PT_DONER, PT_PLACE0, PT_COUNT, type Cmd, type State, type U } from '../src/sim/sim';
@@ -8,6 +9,11 @@ import {
   HERO, PLACE, BUFF, Fx, SHOP, unitName, cardText, type Card, type Side,
 } from '../src/sim/defs';
 import { CAPTURE_PLACES } from '../src/data/places';
+import { HEROES as HEROES_T, HQ, ECON } from '../src/sim/defs';
+import { normAdm, cleanSay } from '../src/sim/admin';
+import { Session, type Backend } from '../src/net/session';
+import { validCmd, validAdmCmd } from '../src/net/shared';
+import { admBody, localChannel } from '../src/net/adminChannel';
 
 const MIN = Number(process.argv[2] || 30);
 const SEED = Number(process.argv[3] || 42);
@@ -482,3 +488,292 @@ const strip = (o: Record<string, unknown>, keys: string[]) => { for (const k of 
 }
 
 console.log(fails.length ? `v3 checks FAILED: ${fails.join('; ')}` : 'v3 checks OK');
+
+// ---- admin commands (Cmd k: 'adm', src/sim/admin.ts) ------------------------------------------
+console.log('--- admin checks ---');
+const admFails0 = fails.length;
+let admSeq = 0;
+/** An admin command for tick t (default: the sim's next step). */
+const adm = (s: Sim | number, body: Record<string, unknown>): Cmd =>
+  ({ t: typeof s === 'number' ? s : s.st.tick, id: `adm:${String(++admSeq).padStart(5, '0')}`, p: 'admin', k: 'adm', ...body }) as unknown as Cmd;
+/** Apply through step() exactly like a session does. */
+const doAdm = (s: Sim, body: Record<string, unknown>) => { s.fx.length = 0; s.step([adm(s, body)]); return s.fx.slice(); };
+{
+  const s = sandbox(11), st = s.st, a = st.pts[0], k = st.pts[1];
+  const m0 = st.sides[0].money;
+  doAdm(s, { op: 'money', s: 0, v: 1000 });
+  check('adm money: +1000 ₽', st.sides[0].money === m0 + 1000, `${m0} → ${st.sides[0].money}`);
+  const m1 = st.sides[1].money;
+  doAdm(s, { op: 'money', s: 1, v: 1e12 });
+  check('adm money: amount clamped (±1 000 000 per command)', st.sides[1].money === m1 + 1_000_000);
+  doAdm(s, { op: 'moneySet', s: 1, v: 0 });
+  check('adm moneySet: 0', st.sides[1].money === 0);
+  doAdm(s, { op: 'money', s: 1, v: -500 });
+  check('adm money: never below 0', st.sides[1].money === 0);
+
+  const n0 = s.count(0);
+  doAdm(s, { op: 'spawn', s: 0, u: 1, n: 10 });
+  check('adm spawn: 10 борцов at the high-rise', s.count(0) - n0 === 10 && s.st.units.filter(u => u.s === 0 && u.t === 1).every(u => near2(u, a) < 12));
+  doAdm(s, { op: 'spawn', s: 1, u: 0, n: 999, x: k.x - 6, z: k.z });
+  check('adm spawn: count clamped to 50', s.count(1) === 50);
+  doAdm(s, { op: 'spawn', s: 1, u: 2, n: 3, x: -500, z: 1e9 });
+  check('adm spawn: off-map point clamped onto the map', s.count(1) === 53 && s.st.units.every(u => u.x >= 0 && u.z >= 0 && u.x <= terrain.W && u.z <= terrain.H));
+  doAdm(s, { op: 'spawn', s: 0, u: WOU, n: 5 });
+  doAdm(s, { op: 'spawn', s: 0, u: WOU, n: 5 });
+  check('adm spawn: a hero is one per side', s.countType(0, WOU) === 1 && st.sides[0].hero[WOU] >= 0);
+  doAdm(s, { op: 'spawn', s: 0, u: BOSS, n: 1 });
+  check('adm spawn: the boss type is refused (only «boss»)', s.countType(0, BOSS) === 0);
+  doAdm(s, { op: 'boss', s: 1 });
+  check('adm boss: Зураб comes out through spawnBoss', st.sides[1].boss >= 0 && s.unit(st.sides[1].boss)?.t === BOSS);
+  for (let n = s.count(1); n < ECON.unitCap; n++) s.spawn(1, 0, k.x - 5, k.z + 3, -1);
+  doAdm(s, { op: 'spawn', s: 1, u: 0, n: 20 });
+  check('adm spawn: the 150 cap holds', s.count(1) === ECON.unitCap);
+
+  // freeze: frozen units neither walk nor hit
+  doAdm(s, { op: 'freeze', s: 0, v: 1 });
+  const e1 = s.spawn(1, 1, a.x + 2, a.z + 2, -1); e1.hp = e1.mhp = 1e6;
+  st.sides[0].turretCd = 1e9; // the high-rise turret is not a unit: keep it out of this check
+  const pos0 = st.units.filter(u => u.s === 0).map(u => [u.x, u.z]);
+  let moved = 0;
+  for (let i = 0; i < 40; i++) { s.step(undefined); moved += st.units.filter(u => u.s === 0 && u.mv).length; }
+  check('adm freeze: frozen side does not move or attack', moved === 0 && e1.hp === 1e6 && st.adm?.frz[0] === 1, `moved ${moved}, enemy hp ${e1.hp}, ${pos0.length} units`);
+  st.sides[0].turretCd = 0;
+  doAdm(s, { op: 'freeze', s: 0, v: 0 });
+  // god: Курчалой takes no damage, units or high-rise
+  doAdm(s, { op: 'god', s: 1, v: 1 });
+  e1.hp = e1.mhp; // it took a hit in the step that unfroze Атаги
+  const hq1 = st.sides[1].hq;
+  s.hurtHq(1, 5000);
+  const kHp = st.units.filter(u => u.s === 1).map(u => u.hp);
+  for (let i = 0; i < 60; i++) s.step(undefined);
+  const hurt1 = st.units.filter(u => u.s === 1 && u.hp < u.mhp).length;
+  check('adm god: no damage to units or the high-rise', st.sides[1].hq === hq1 && st.units.filter(u => u.s === 1).length === kHp.length && hurt1 === 0, `hq ${hq1} → ${st.sides[1].hq}, ${kHp.length} → ${st.units.filter(u => u.s === 1).length} units, ${hurt1} hurt`);
+  doAdm(s, { op: 'god', s: 1, v: 0 });
+
+  // kill: whole side and a radius; no bounty, no kills counted
+  const money1 = st.sides[1].money, kills1 = st.sides[1].kills;
+  doAdm(s, { op: 'kill', s: 0 });
+  s.step(undefined);
+  check('adm kill: a whole side, no bounty for the other', s.count(0) === 0 && st.sides[1].money === money1 && st.sides[1].kills === kills1 && st.sides[0].hero[WOU] === -1);
+  const c1 = s.count(1), mid = st.units.find(u => u.s === 1)!;
+  doAdm(s, { op: 'kill', s: -1, x: mid.x, z: mid.z, r: 3 });
+  s.step(undefined);
+  check('adm kill: in a radius only', s.count(1) < c1 && s.count(1) > 0, `${c1} → ${s.count(1)}`);
+  doAdm(s, { op: 'kill', s: 1 });
+  s.step(undefined);
+
+  // heal
+  const w = s.spawn(0, 1, a.x + 3, a.z, -1); w.hp = 10; w.psn = st.tick + 100;
+  doAdm(s, { op: 'heal', s: 0 });
+  check('adm heal: full hp, poison gone', w.hp === w.mhp && w.psn === 0);
+
+  // floors, repair, 4-й этаж
+  const fx1 = doAdm(s, { op: 'floors', s: 0, v: 5 });
+  check('adm floors: Атаги 5 floors, 4-й этаж found', st.sides[0].floors === 5 && st.sides[0].hq === 5 * HQ.floorHp[0] && st.sides[0].found4 === 1 && fx1.some(e => e.e === 'floorUp') && fx1.some(e => e.e === 'found4'));
+  doAdm(s, { op: 'floors', s: 1, v: 99 });
+  check('adm floors: clamped to the max', st.sides[1].floors === HQ.maxFloors[1]);
+  st.sides[1].hq -= 700;
+  doAdm(s, { op: 'repair', s: 1 });
+  check('adm repair: full hp of the floors it has', st.sides[1].hq === st.sides[1].floors * HQ.floorHp[1]);
+  doAdm(s, { op: 'floors', s: 0, v: 2 });
+  st.sides[0].found4 = 0;
+  doAdm(s, { op: 'found4' });
+  check('adm found4: Атаги get 4 floors and found4', st.sides[0].floors === 4 && st.sides[0].found4 === 1);
+
+  // heroes: cooldowns, back from «пары»
+  st.sides[0].heroCd[CHIMAEV] = st.tick + 500; st.sides[1].heroCd[ADMIN] = st.tick + 500;
+  doAdm(s, { op: 'heroCd', s: -1 });
+  check('adm heroCd: every hero cooldown reset', HEROES_T.every(t => st.sides[0].heroCd[t] === 0 && st.sides[1].heroCd[t] === 0));
+  doAdm(s, { op: 'spawn', s: 1, u: MOHMAD, n: 1 });
+  s.startEvent('classes');
+  check('classes: Мохьмад away', st.away.length === 1 && st.sides[1].hero[MOHMAD] === -2);
+  doAdm(s, { op: 'heroBack' });
+  check('adm heroBack: back from «пары» now', st.away.length === 0 && st.sides[1].hero[MOHMAD] >= 0);
+
+  // points
+  doAdm(s, { op: 'owner', n: 4, s: 1 });
+  check('adm owner: Шали → Курчалой', st.pts[4].owner === 1 && st.pts[4].prog === 100);
+  doAdm(s, { op: 'owner', n: PT_DONER, s: -1 });
+  check('adm owner: Донер Бей → ничьё', st.pts[PT_DONER].owner === -1 && st.pts[PT_DONER].prog === 0);
+  doAdm(s, { op: 'owner', n: 0, s: 1 });
+  doAdm(s, { op: 'owner', n: 99, s: 1 });
+  check('adm owner: high-rises and missing points are refused', st.pts[0].owner === 0);
+
+  // сход and cards
+  doAdm(s, { op: 'vote', s: 1 });
+  check('adm vote: a сход opens now', st.votes[1].open === 1 && st.votes[1].opts.length === 3);
+  const mm = st.sides[0].money;
+  doAdm(s, { op: 'card', s: 0, n: 0 });
+  check('adm card: «Взнос по 100 рублей» +300 ₽', st.sides[0].money === mm + 300);
+  for (let id = 0; id < CARDS.length; id++) doAdm(s, { op: 'card', s: (id % 2) as Side, n: id });
+  check('adm card: every card applies without throwing', true);
+
+  // events
+  doAdm(s, { op: 'event', key: 'jam' });
+  check('adm event: Пробки в Аргуне now', st.ev.jam > st.tick && st.ev.last === 'jam');
+  doAdm(s, { op: 'event', key: 'flood' });
+  doAdm(s, { op: 'endEvents' });
+  check('adm endEvents: nothing active', st.ev.jam === 0 && st.ev.flood === 0 && st.ev.black === 0);
+
+  // AI and difficulty
+  doAdm(s, { op: 'diff', v: 2 });
+  doAdm(s, { op: 'ai', s: 0, v: 2 }); doAdm(s, { op: 'ai', s: 1, v: 1 });
+  st.humanSide = 1;
+  check('adm ai/diff: off for Атаги, on for Курчалой despite a human', st.diff === 2 && !s.aiActive(0) && s.aiActive(1));
+  doAdm(s, { op: 'ai', s: 0, v: 0 }); doAdm(s, { op: 'ai', s: 1, v: 0 }); st.humanSide = -1;
+
+  // announcement: plain text, no control characters, ≤ 140
+  const say = doAdm(s, { op: 'say', txt: '  Сход\u0000 в 10:20\u202e у молла <b>x</b> ' + 'а'.repeat(300) });
+  const sayEv = say.find(e => e.e === 'adminSay') as { txt: string } | undefined;
+  check('adm say: FxEv adminSay, cleaned and cut to 140', !!sayEv && Array.from(sayEv.txt).length === 140 && !/[\u0000\u202e]/.test(sayEv.txt) && sayEv.txt.startsWith('Сход в 10:20 у молла <b>x</b>'));
+  check('adm say: nothing in the state', !JSON.stringify(st).includes('молла'));
+
+  // war: winner through the normal flow, new war, score, full reset
+  const wins0 = st.sides[0].wins;
+  const wf = doAdm(s, { op: 'win', s: 0 });
+  check('adm win: Атаги win through cleanup (victory fx, wins+1, no boss)', st.winner === 0 && st.sides[0].wins === wins0 + 1 && wf.some(e => e.e === 'victory') && !wf.some(e => e.e === 'boss'));
+  const before0 = s.count(0);
+  doAdm(s, { op: 'spawn', s: 0, u: 0, n: 5 });
+  check('adm spawn waits while the war is over', s.count(0) === before0);
+  const era0 = st.era;
+  const nw = doAdm(s, { op: 'newWar' });
+  check('adm newWar: next era now, score kept', s.st.era === era0 + 1 && s.st.winner === -1 && s.st.sides[0].wins === wins0 + 1 && nw.some(e => e.e === 'newWar'));
+  doAdm(s, { op: 'score' });
+  check('adm score: 0:0', s.st.sides[0].wins === 0 && s.st.sides[1].wins === 0);
+  doAdm(s, { op: 'god', s: 0, v: 1 });
+  const tickR = s.st.tick, idR = s.st.nextId;
+  doAdm(s, { op: 'reset', v: 123456789 });
+  check('adm reset: new seed, war №1, toggles gone, tick and ids go on', s.st.seed === 123456789 && s.st.era === 1 && s.st.adm === undefined && s.st.tick === tickR + 1 && s.st.nextId >= idR && s.st.units.length === 0);
+}
+
+// malformed admin commands are ignored without throwing, and leave the world exactly as it was
+{
+  const bad: unknown[] = [
+    null, 0, 'x', [], {}, { k: 'adm' }, { k: 'adm', op: 'nope' }, { k: 'adm', op: '__proto__' }, { k: 'adm', op: 'constructor' },
+    { k: 'adm', op: 'money', s: 2, v: 1 }, { k: 'adm', op: 'money', s: '0', v: 1 }, { k: 'adm', op: 'money', s: 0, v: 'x' }, { k: 'adm', op: 'money', s: 0, v: NaN },
+    { k: 'adm', op: 'money', s: 0, v: Infinity }, { k: 'adm', op: 'moneySet', s: 0 },
+    { k: 'adm', op: 'spawn', s: 0, u: 5 }, { k: 'adm', op: 'spawn', s: 0, u: 18 }, { k: 'adm', op: 'spawn', s: 0, u: -1 }, { k: 'adm', op: 'spawn', s: 0, u: 1.5e300 },
+    { k: 'adm', op: 'spawn', s: 0 }, { k: 'adm', op: 'spawn', s: -1, u: 0 }, { k: 'adm', op: 'boss', s: 7 }, { k: 'adm', op: 'kill', s: 3 },
+    { k: 'adm', op: 'freeze', s: 0, v: 2 }, { k: 'adm', op: 'god', s: 0, v: true }, { k: 'adm', op: 'ai', s: 0, v: 3 }, { k: 'adm', op: 'diff', v: -1 },
+    { k: 'adm', op: 'floors', s: 0, v: 'many' }, { k: 'adm', op: 'owner', n: 0, s: 1 }, { k: 'adm', op: 'owner', n: 1e9, s: 1 }, { k: 'adm', op: 'owner', n: 3, s: 5 },
+    { k: 'adm', op: 'card', s: 0, n: 34 }, { k: 'adm', op: 'card', s: 0, n: -1 }, { k: 'adm', op: 'card', s: 0, n: 2.5 },
+    { k: 'adm', op: 'event', key: 'nope' }, { k: 'adm', op: 'event', key: 'toString' }, { k: 'adm', op: 'event' },
+    { k: 'adm', op: 'say', txt: '' }, { k: 'adm', op: 'say', txt: '\u0000\u0001  ' }, { k: 'adm', op: 'say', txt: 42 }, { k: 'adm', op: 'say' },
+    { k: 'adm', op: 'reset', v: 'seed' }, { k: 'adm', op: 'win', s: -1 }, { k: 'adm', op: 'vote' }, { k: 'adm', op: 'heroCd', s: 9 },
+  ];
+  const mk = (i: number, b: unknown) => (b && typeof b === 'object' && !Array.isArray(b) ? { ...(b as object), t: 0, id: 'bad' + i, p: 'x', k: 'adm' } : { t: 0, id: 'bad' + i, p: 'x', k: 'adm', op: b });
+  let threw = '';
+  const x = runTo(SEED, 1500), y = runTo(SEED, 1500);
+  try {
+    for (let i = 0; i < 300; i++) {
+      const cmds = i % 6 === 0 ? bad.map((b, j) => ({ ...mk(j, b), t: x.st.tick }) as unknown as Cmd) : undefined;
+      x.step(cmds); y.step(undefined);
+    }
+  } catch (err) { threw = String(err); }
+  check('malformed adm commands: ignored, no throw, world identical', !threw && hashState(x.st) === hashState(y.st) && x.st.adm === undefined, threw);
+  check('normAdm refuses every malformed body', bad.every(b => normAdm(b) === null && (b === null || typeof b !== 'object' || Array.isArray(b) || normAdm({ ...(b as object), k: 'adm' }) === null)));
+  check('cleanSay: plain text only', cleanSay('a\u2028b\u200bc\ufeff') === 'a b c' && cleanSay('x'.repeat(500)).length === 140 && cleanSay(5) === '');
+}
+
+// channels: 'adm' never on the ordinary command path, ordinary commands never on the admin path
+{
+  const good = adm(100, { op: 'money', s: 0, v: 1000 });
+  const dep = { t: 100, id: 'u:1', p: 'u', k: 'dep', s: 0, u: 1, x: 10, z: 10 };
+  check('validCmd rejects adm (room topic cmd, ev/{uid})', !validCmd(good) && !validCmd({ ...good, op: 'say', txt: 'hi' }) && validCmd(dep) && !validCmd({ t: 1, id: 'c', p: 'x', k: 'cfg', d: 2, hs: 0, mp: 0 }));
+  check('validAdmCmd: only well-formed adm', validAdmCmd(good) && !validAdmCmd(dep) && !validAdmCmd({ ...good, t: -1 }) && !validAdmCmd({ ...good, t: 100.5 }) && !validAdmCmd({ ...good, id: '' }) && !validAdmCmd({ ...good, id: 'x'.repeat(200) }) && !validAdmCmd({ ...good, s: 3 }) && !validAdmCmd({ ...good, op: 'cfg' }));
+  // AdminChannel bodies: only the AdmBody fields leave the panel, invalid ones never do
+  const ab = admBody({ op: 'spawn', s: 1, u: 2, n: 5, x: 10, z: 20, junk: 1, __proto__: { evil: 1 }, t: 5, id: 'x', p: 'y', k: 'cfg' });
+  check('admBody: AdmBody fields only, k adm', JSON.stringify(ab) === JSON.stringify({ k: 'adm', op: 'spawn', s: 1, n: 5, u: 2, x: 10, z: 20 }) && admBody({ op: 'nope' }) === null && admBody({ op: 'money', s: 2, v: 1 }) === null && admBody(null) === null, JSON.stringify(ab));
+  // an ordinary command reusing an admin id (a forged 'dep' on 'cmd' or in ev/{uid}) cannot shadow it
+  {
+    const sim = runTo(SEED, 400), backend: Backend = { kind: 'local', send() { /* none */ }, checkpoint() { /* none */ } };
+    const sess = new Session(sim, backend, 'x');
+    const t = sim.st.tick + 3, m0 = sim.st.sides[0].money;
+    sess.receive({ t, id: 'same', p: 'evil', k: 'dep', s: 0, u: 0, x: 1, z: 1 } as Cmd);
+    sess.receive({ t, id: 'same', p: 'admin', k: 'adm', op: 'money', s: 0, v: 5000 } as unknown as Cmd);
+    for (let i = 0; i < 5; i++) (sess as unknown as { stepOnce(): void }).stepOnce();
+    check('Session: adm ids have their own space', sim.st.sides[0].money >= m0 + 5000 && sess.drop('same') && sess.allCmds().some(c => c.k === 'dep' && c.id === 'same'));
+    // localChannel: refuses without a local session, submits a cleaned body with one
+    const none = localChannel(() => null), ch = localChannel(() => sess);
+    const v1 = await none.check(), v2 = await ch.check();
+    const n0 = sess.allCmds().length;
+    ch.send({ k: 'adm', op: 'say', txt: 'hi', extra: [1, 2] }); ch.send({ k: 'adm', op: 'money', s: 9, v: 1 });
+    const last = sess.allCmds().filter(c => c.k === 'adm').at(-1) as unknown as Record<string, unknown>;
+    check('localChannel: check() and send()', typeof v1 === 'string' && v1.length > 0 && v2 === null && sess.allCmds().length === n0 + 1 && last.op === 'say' && last.txt === 'hi' && !('extra' in last));
+  }
+}
+
+// determinism: every admin op through apply(), snapshots through JSON and structuredClone, a session with rollback
+{
+  const script: [number, Record<string, unknown>][] = [
+    [3005, { op: 'money', s: 0, v: 5000 }], [3006, { op: 'moneySet', s: 1, v: 9000 }],
+    [3010, { op: 'spawn', s: 0, u: 1, n: 12 }], [3011, { op: 'spawn', s: 1, u: SPORTIK, n: 20, x: 200, z: 140 }], [3012, { op: 'spawn', s: 1, u: GELIK, n: 3 }],
+    [3013, { op: 'spawn', s: 0, u: MOHMAD, n: 1 }], [3014, { op: 'spawn', s: 0, u: RIDE, n: 2 }], [3015, { op: 'boss', s: 0 }],
+    [3020, { op: 'freeze', s: 1, v: 1 }], [3021, { op: 'god', s: 0, v: 1 }], [3022, { op: 'ai', s: 1, v: 2 }], [3023, { op: 'diff', v: 0 }],
+    [3030, { op: 'floors', s: 1, v: 7 }], [3031, { op: 'found4' }], [3032, { op: 'repair', s: 0 }], [3033, { op: 'heroCd', s: -1 }],
+    [3040, { op: 'owner', n: 4, s: 0 }], [3041, { op: 'owner', n: PT_PLACE0 + 2, s: 0 }], [3042, { op: 'vote', s: 0 }], [3043, { op: 'card', s: 1, n: 22 }],
+    [3044, { op: 'card', s: 0, n: 3 }], [3045, { op: 'card', s: 1, n: 18 }], [3046, { op: 'event', key: 'classes' }], [3050, { op: 'heroBack' }],
+    [3051, { op: 'event', key: 'flood' }], [3060, { op: 'say', txt: 'Чу вала' }], [3070, { op: 'kill', s: -1, x: 200, z: 140, r: 12 }],
+    [3080, { op: 'heal', s: 1 }], [3090, { op: 'freeze', s: 1, v: 0 }], [3100, { op: 'endEvents' }], [3110, { op: 'win', s: 1 }],
+    [3200, { op: 'newWar' }], [3210, { op: 'score' }], [3220, { op: 'spawn', s: 1, u: CHIMAEV, n: 1 }], [3300, { op: 'reset', v: 987654 }],
+    [3310, { op: 'god', s: 1, v: 1 }], [3320, { op: 'spawn', s: 0, u: 0, n: 30 }],
+  ];
+  const at = new Map<number, Cmd[]>();
+  script.forEach(([t, b], i) => at.set(t, [...(at.get(t) ?? []), { t, id: `adm:${String(i).padStart(3, '0')}`, p: 'admin', k: 'adm', ...b } as unknown as Cmd]));
+  // straight run
+  const A = runTo(SEED, 3000);
+  const B = new Sim(terrain); B.load(JSON.parse(JSON.stringify(A.st)) as State); B.quiet = true;
+  const C = new Sim(terrain); C.load(A.snapshot()); C.quiet = true;
+  let okD = true;
+  for (let t = 3000; t < 3500; t++) {
+    const cm = at.get(A.st.tick);
+    A.step(cm); B.step(cm); C.step(cm);
+    if (t % 25 === 24) {
+      const hA = hashState(A.st);
+      if (hA !== hashState(B.st) || hA !== hashState(C.st)) { okD = false; console.log('adm diverged at', A.st.tick); break; }
+      // every 100 ticks B restarts from its own JSON, C from its own structuredClone
+      if (t % 100 === 99) { const j = JSON.stringify(B.st); B.load(JSON.parse(j) as State); C.load(structuredClone(C.st)); }
+    }
+  }
+  check('adm determinism: every op, JSON and structuredClone restores, 500 ticks', okD && A.st.era === 1 && A.st.seed === 987654 && A.st.adm?.god[1] === 1);
+  okD = twin(A, 300, 'admin toggles live (god, after reset)') && okD;
+
+  // the same commands through a Session: half arrive late and force a rollback; one is taken back
+  const sim = runTo(SEED, 3000);
+  const backend: Backend = { kind: 'local', send() { /* nobody else */ }, checkpoint() { /* not stored */ } };
+  const sess = new Session(sim, backend, 'admin');
+  const stepS = (n: number) => { for (let i = 0; i < n; i++) (sess as unknown as { stepOnce(): void }).stepOnce(); };
+  const all = [...at.values()].flat();
+  for (const c of all) if (Number(c.id.slice(4)) % 2 === 0) sess.receive(c); // on time
+  let late = all.filter(c => Number(c.id.slice(4)) % 2 === 1);
+  const stray = { t: 3025, id: 'adm:zzz', p: 'admin', k: 'adm', op: 'money', s: 1, v: 777 } as unknown as Cmd;
+  while (sim.st.tick < 3500) {
+    stepS(7);
+    const now = late.filter(c => c.t <= sim.st.tick - 3 && c.t > sim.st.tick - 300);
+    for (const c of now) sess.receive(c); // late: rollback and replay
+    late = late.filter(c => !now.includes(c));
+    if (sim.st.tick > 3030 && sim.st.tick < 3040) { sess.receive(stray); stepS(5); sess.drop(stray.id); } // refused by the store: taken back
+  }
+  const ref = runTo(SEED, 3000);
+  while (ref.st.tick < sim.st.tick) ref.step(at.get(ref.st.tick));
+  check('adm through a Session: late commands roll back and replay to the same world, a dropped one leaves no trace', late.length === 0 && hashState(sim.st) === hashState(ref.st), `tick ${sim.st.tick}`);
+}
+
+// saves: no admin activity → no adm key (old hashes stay); a malformed adm is repaired the same way everywhere
+{
+  const s = runTo(SEED, 1200);
+  check('no admin activity: state has no adm key', !('adm' in s.st));
+  const old = JSON.parse(JSON.stringify(s.st)) as State & { adm?: unknown };
+  old.adm = { frz: [1, 'x'], god: 'no', ai: [7, 2, 3] };
+  const x = new Sim(terrain), y = new Sim(terrain);
+  x.load(structuredClone(old) as State); y.load(JSON.parse(JSON.stringify(old)) as State); x.quiet = y.quiet = true;
+  const shape = JSON.stringify(x.st.adm) === JSON.stringify({ frz: [1, 0], god: [0, 0], ai: [0, 2] });
+  for (let i = 0; i < 600; i++) { x.step(undefined); y.step(undefined); }
+  check('malformed adm in a save is repaired and replays identically', shape && hashState(x.st) === hashState(y.st), JSON.stringify(x.st.adm));
+  const z = JSON.parse(JSON.stringify(s.st)) as State & { adm?: unknown };
+  z.adm = 'junk';
+  const w = new Sim(terrain); w.load(z as State);
+  check('junk adm in a save is dropped', w.st.adm === undefined);
+}
+const admFails = fails.slice(admFails0);
+console.log(admFails.length ? `admin checks FAILED: ${admFails.join('; ')}` : 'admin checks OK');

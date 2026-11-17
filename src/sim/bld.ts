@@ -585,46 +585,48 @@ export function bldAoe(sim: Sim, a: Aoe): void {
   }
 }
 
-/** The enemy building that refuses unit u the step to (px, pz), or null. A unit may always move inside and out of its own cell. */
-function blocker(h: Host, u: U, cur: number, px: number, pz: number): B | null {
-  const c = navIndex(h.terrain, px, pz);
-  if (c === cur) return null;
+/**
+ * May unit u step to (px, pz)? 0 = yes, −1 = the terrain refuses (off the map or an impassable cell: exactly
+ * terrain.passable), else index + 1 in State.bld of the enemy building that stands there. A unit may always
+ * move inside its own cell and out of it.
+ */
+function probe(h: Host, u: U, cur: number, px: number, pz: number): number {
+  const T = h.terrain;
+  if (px < 1 || pz < T.z0 + 1 || px > T.W - 1 || pz > T.H - 1) return -1;
+  const c = navIndex(T, px, pz);
+  if (!(T.navCost[c] > 0)) return -1;
+  if (c === cur) return 0;
   const v = h.bi.cell[c];
-  if (!v) return null;
+  if (!v) return 0;
   const b = h.st.bld[v - 1];
-  if (!b || b.s === u.s || b.hp <= 0) return null;
-  if (BUILDINGS[b.t].solid === 2 && UNITS[u.t].kind !== Kind.Fast) return null; // «Шлагбаум»: vehicles only
-  return b;
+  if (!b || b.s === u.s || b.hp <= 0) return 0;
+  if (BUILDINGS[b.t].solid === 2 && UNITS[u.t].kind !== Kind.Fast) return 0; // «Шлагбаум»: vehicles only
+  return UNITS[u.t].fly ? 0 : v; // flying units cross everything
 }
 
 /**
- * Sim.moveTo while the enemy has solid buildings: the same full step / x only / z only slide over the
+ * Sim.moveTo near the enemy's solid buildings: the same full step / x only / z only slide over the
  * terrain, and enemy buildings refuse steps too. A unit stopped by a building goes for it («мешает —
  * ломаем»); a wall stops a unit at once instead of letting it crawl along (unless a player told it
  * where to walk). A ride unloads instead.
  */
 export function bldMove(sim: Sim, u: U, x: number, z: number, nudge: boolean): void {
-  const h = H(sim), T = h.terrain;
-  const ghost = !!UNITS[u.t].fly; // flying units cross everything
-  const cur = navIndex(T, u.x, u.z);
-  let hit: B | null = null;
-  if (passable(T, x, z)) {
-    const b = ghost ? null : blocker(h, u, cur, x, z);
-    if (!b) { u.x = x; u.z = z; if (!nudge) u.mv = 1; return; }
-    hit = b;
-    if (BUILDINGS[b.t].wall && !nudge && !(u.o && (u.o.m === OM.MOVE || u.o.m === OM.POSSESS))) { stopped(h, u, b); return; }
+  const h = H(sim), bld = h.st.bld;
+  const cur = navIndex(h.terrain, u.x, u.z);
+  let hit = 0;
+  let v = probe(h, u, cur, x, z);
+  if (v === 0) { u.x = x; u.z = z; if (!nudge) u.mv = 1; return; }
+  if (v > 0) {
+    hit = v;
+    if (BUILDINGS[bld[v - 1].t].wall && !nudge && !(u.o && (u.o.m === OM.MOVE || u.o.m === OM.POSSESS))) { stopped(h, u, bld[v - 1]); return; }
   }
-  if (passable(T, x, u.z)) {
-    const b = blocker(h, u, cur, x, u.z);
-    if (!b) { u.x = x; if (!nudge) u.mv = 1; return; }
-    hit ??= b;
-  }
-  if (passable(T, u.x, z)) {
-    const b = blocker(h, u, cur, u.x, z);
-    if (!b) { u.z = z; if (!nudge) u.mv = 1; return; }
-    hit ??= b;
-  }
-  if (hit && !nudge) stopped(h, u, hit);
+  v = probe(h, u, cur, x, u.z);
+  if (v === 0) { u.x = x; if (!nudge) u.mv = 1; return; }
+  if (v > 0 && !hit) hit = v;
+  v = probe(h, u, cur, u.x, z);
+  if (v === 0) { u.z = z; if (!nudge) u.mv = 1; return; }
+  if (v > 0 && !hit) hit = v;
+  if (hit && !nudge) stopped(h, u, bld[hit - 1]);
 }
 
 function stopped(h: Host, u: U, b: B) {
@@ -711,6 +713,12 @@ export function bldStep(sim: Sim): void {
   if (!bld.length) return;
   const now = st.tick, frz = st.adm ? st.adm.frz : null;
   const dk = [dark(st, 0), dark(st, 1)];
+  // is any enemy unit near a side's buildings at all? (the box around them, widened by the longest reach)
+  const busy = [false, false], bx = h.bi.box;
+  for (const u of st.units) {
+    const q = bx[1 - u.s];
+    if (!busy[1 - u.s] && u.hp > 0 && u.x > q[0] - BASE.reach && u.x < q[2] + BASE.reach && u.z > q[1] - BASE.reach && u.z < q[3] + BASE.reach) { busy[1 - u.s] = true; if (busy[u.s]) break; }
+  }
   for (let i = 0; i < bld.length; i++) {
     const b = bld[i];
     if (b.hp <= 0) continue;
@@ -726,6 +734,7 @@ export function bldStep(sim: Sim): void {
     const L = lv - 1, isDark = dk[b.s];
     if (b.t === T_SUB || b.t === T_ARB) { superStep(sim, h, b, L, isDark); continue; }
     if (b.cd > now || !d.rate) continue;
+    if (!busy[b.s] && b.t !== T_SHAURMA) { if (b.tg !== -1) b.tg = -1; continue; } // nobody to shoot at, bite or trap
     if (d.pw && isDark) { b.tg = -1; continue; }
     switch (b.t) {
       case T_ROG: case T_SEB: case T_ANTI: case T_GANTEL: {

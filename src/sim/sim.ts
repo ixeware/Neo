@@ -12,7 +12,7 @@ import { buildFlow, flowDir, type Flow } from './flow';
 import { normAdm, ADM_MAX, type Adm } from './admin';
 import { navIndex, passable, lcAt, LC, NAV, cellX, cellZ, type Terrain } from '../world/terrain';
 import { CAPTURE_PLACES } from '../data/places';
-import { BUILDINGS, BKEY } from './bdefs';
+import { BUILDINGS, BKEY, BASE } from './bdefs';
 import {
   newBIdx, bldReindex, bldApply, bldStep, bldCleanup, bldIncome, bldPick, bldFront, bldMove, attackBld, bldProj, bldAoe, bldAi, bldAdmin,
   bldWarEnd, bldNewWar, bldEff, bldSafe, bldMark, ordBld, canBuild, canBuildType, canUp, canSell, canRep, canFire, bcost, buildZone, baseLevel, bldCaps,
@@ -1822,7 +1822,10 @@ export class Sim {
   }
 
   private moveTo(u: U, x: number, z: number, nudge = false) {
-    if (this.bi.sol[1 - u.s]) { bldMove(this, u, x, z, nudge); return; } // the enemy has walls or buildings in the way
+    if (this.bi.sol[1 - u.s]) { // the enemy has walls or buildings: ask them, but only near its base
+      const q = this.bi.box[1 - u.s], m = BASE.near;
+      if (x > q[0] - m && x < q[2] + m && z > q[1] - m && z < q[3] + m) { bldMove(this, u, x, z, nudge); return; }
+    }
     const T = this.terrain;
     if (passable(T, x, z)) { u.x = x; u.z = z; if (!nudge) u.mv = 1; return; }
     if (passable(T, x, u.z)) { u.x = x; if (!nudge) u.mv = 1; return; }

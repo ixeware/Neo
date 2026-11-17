@@ -85,6 +85,10 @@ export const BASE = {
   disc: 0.75, discFor: 900, insPct: 0.5, insMax: 500,
   /** «Генератор» / «Вышка связи» reach; «Тесла» needs a generator within genR. */
   genR: 9, vyR: 8,
+  /** Nothing a building does reaches further than this from it (the longest range with every boost, rounded up): towers sleep while no enemy is this near the base. */
+  reach: 22,
+  /** Sim.moveTo asks the buildings only this close to the box around the enemy's base (more than the longest knock-back). */
+  near: 8,
   /** Units that hit a building keep it while it is within reach + stick. */
   stick: 1.5,
   /** «Buildings only» units (UnitDef.bldg) and structure-busting pulses multiply damage against buildings by min(their factor, this); the high-rise takes the full factor. */

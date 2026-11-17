@@ -52,8 +52,6 @@ export interface UnitDef {
   steal?: [number, number];
   /** Heavy: pushes the crowd aside and is never knocked back (sim MASS; default 1, bosses 9). */
   mass?: number;
-  /** Brings a Голем with him: summoned when none is linked, again HERO.golemCd ticks after it falls. */
-  golem?: true;
 }
 
 const BOTH: [boolean, boolean] = [true, true];
@@ -126,7 +124,7 @@ export const UNITS: UnitDef[] = [
     blurb: ['Оверсайз, в руках банковские карты, с ним Голем. Каждый удар — «перевод по номеру карты» с соседского счёта. «Списание с карты»', 'Оверсайз, в руках банковские карты, с ним Голем. Каждый удар — «перевод по номеру карты» с соседского счёта. «Списание с карты»'],
     cost: [360, 360], count: 1, kind: Kind.Melee, avail: BOTH, hero: true, respawn: 750,
     hp: 420, dmg: [20, 20], cd: 10, range: 1.3, speed: 0.31, aggro: 8, radius: 0.5,
-    steal: [4, 8], abCd: 120, abR: 10, golem: true,
+    steal: [4, 8], abCd: 120, abR: 10, // + his Голем: SideState.golem, HERO.golemCd
   },
   {
     key: 'bekhan', name: ['Бекхан', 'Бекхан'],
@@ -147,7 +145,7 @@ export const UNITS: UnitDef[] = [
     key: 'mohmad', name: ['Мохьмад (старый)', 'Мохьмад (старый)'],
     blurb: ['«Мы тебя по одиночке толпой забьём». «У меня Голем был всю игру»', '«Мы тебя по одиночке толпой забьём». «У меня Голем был всю игру»'],
     cost: [380, 380], count: 1, kind: Kind.Melee, avail: [false, false], hero: true, respawn: 800,
-    hp: 420, dmg: [18, 18], cd: 10, range: 1.3, speed: 0.27, aggro: 8, radius: 0.5, abCd: 400, golem: true,
+    hp: 420, dmg: [18, 18], cd: 10, range: 1.3, speed: 0.27, aggro: 8, radius: 0.5, abCd: 400,
   },
   // ---- призывы и транспорт ------------------------------------------------------------------
   {

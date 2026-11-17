@@ -22,7 +22,7 @@ interface Ring {
 }
 interface Stamp { s: THREE.Sprite; on: boolean; x: number; y: number; z: number; size: number; age: number; life: number; kind: string; aspect: number }
 /** A Себозол bottle of the «Себозол-душ»: flies from the boss up and rains down at x1, z1 (seconds). */
-interface Bottle { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; t0: number; dur: number; arc: number; spin: number; landed: boolean }
+interface Bottle { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; t0: number; dur: number; arc: number; spin: number }
 const BOTTLE_CAP = 32;
 interface Emitter { kind: 'steam' | 'glitch'; x: number; y: number; z: number; until: number; next: number }
 interface Hack { side: number; until: number; x: number; z: number; y: number }
@@ -91,7 +91,7 @@ export class AbilityFx {
     }, `700 76px Caveat`);
     addStamps(word('ПЛЮХ!', '#2a52d1', 256), 'plyuh', 256 / 96, 2);
     addStamps(word('СЕБОЗОЛ-ДУШ!', '#128a7e', 512), 'sebozol', 512 / 96, 1);
-    this.bottleMesh = new THREE.InstancedMesh(sebozolGeometry(1.15), new THREE.MeshLambertMaterial({ vertexColors: true }), BOTTLE_CAP);
+    this.bottleMesh = new THREE.InstancedMesh(sebozolGeometry(1.5), new THREE.MeshLambertMaterial({ vertexColors: true }), BOTTLE_CAP);
     this.bottleMesh.count = 0; this.bottleMesh.visible = false; this.bottleMesh.frustumCulled = false;
     this.group.add(this.bottleMesh);
     // green scan-line bars over a hacked high-rise
@@ -165,7 +165,7 @@ export class AbilityFx {
       if (this.bottles.length >= BOTTLE_CAP) this.bottles.shift();
       const a = (k / n) * Math.PI * 2 + Math.random() * 0.4, d = r * (0.3 + Math.random() * 0.65);
       const x1 = x + Math.cos(a) * d, z1 = z + Math.sin(a) * d;
-      this.bottles.push({ x0: x, y0: y + 2.8, z0: z, x1, y1: this.gy(x1, z1) + 0.25, z1, t0: t + k * 0.035, dur: 0.6 + Math.random() * 0.35, arc: 3 + Math.random() * 2, spin: Math.random() * 6, landed: false });
+      this.bottles.push({ x0: x, y0: y + 2.8, z0: z, x1, y1: this.gy(x1, z1) + 0.25, z1, t0: t + k * 0.035, dur: 0.6 + Math.random() * 0.35, arc: 3 + Math.random() * 2, spin: Math.random() * 6 });
     }
     // the «душ»: a short drizzle of droplets falling over the whole circle
     for (let k = 0; k < this.n(10); k++) {
@@ -173,7 +173,7 @@ export class AbilityFx {
       this.particles.emit(x + Math.cos(a) * d, y + 4.5 + Math.random(), z + Math.sin(a) * d, { n: 2, color: '#cfeefa', size: 0.16, life: 0.9, spread: 0.2, up: -2.5, grav: 6, jitter: 1.2 });
     }
     this.ring(x, z, 0.6, r, '#1aa597', 0.9, 0.4, 0.85);
-    this.stamp(x, y + 4.6, z, 1.5, 'sebozol', 1.7);
+    this.stamp(x, y + 5.2, z, 1.05, 'sebozol', 1.7);
   }
 
   private foamAt(x: number, y: number, z: number) {
@@ -236,7 +236,7 @@ export class AbilityFx {
               this.ring(e.x, e.z, 0.2, e.r * 0.6, '#f5f1e6', 0.4, 0.3, 0.7);
               this.dust(e.x, e.z, 18, e.r * 0.9, 0.95);
               this.stones(e.x, e.z, 10, e.r * 0.7);
-              this.stamp(e.x, y + 3.6, e.z, 1.25, 'plyuh', 1.0);
+              this.stamp(e.x, y + 4.3, e.z, 1.2, 'plyuh', 1.0);
               this.shake(e.x, e.z, 0.55);
               break;
           }
@@ -404,7 +404,7 @@ export class AbilityFx {
     let nb0 = 0;
     for (let i = this.bottles.length - 1; i >= 0; i--) {
       const b = this.bottles[i], f = (now - b.t0) / b.dur;
-      if (f >= 1) { if (!b.landed) this.foamAt(b.x1, b.y1, b.z1); this.bottles.splice(i, 1); continue; }
+      if (f >= 1) { this.foamAt(b.x1, b.y1, b.z1); this.bottles.splice(i, 1); continue; }
       if (f < 0) continue;
       this.v.set(b.x0 + (b.x1 - b.x0) * f, b.y0 + (b.y1 - b.y0) * f + Math.sin(Math.PI * f) * b.arc, b.z0 + (b.z1 - b.z0) * f);
       this.eu.set(f * 13 + b.spin, b.spin, f * 7);

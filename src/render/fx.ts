@@ -101,7 +101,7 @@ function projGeo(k: number): THREE.BufferGeometry {
       b.add(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 8), PAL.black, [-0.17, 0, 0], [0, 0, Math.PI / 2]);
       b.add(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 8), PAL.black, [0.17, 0, 0], [0, 0, Math.PI / 2]);
       break;
-    case 2: sebozol(b, 1); break; // Ислам: флакон Себозола, кувыркается; на земле — пена (Shots.foam)
+    case 2: sebozol(b, 1.35); break; // Ислам: флакон Себозола (крупнее настоящего, чтобы читался), кувыркается; на земле — пена
     case 3: // тапок
       b.box(new THREE.Color('#2a5c8a'), [0, 0, 0], [0.16, 0.04, 0.38]);
       b.box(new THREE.Color('#d9d2c2'), [0, 0.04, 0.06], [0.17, 0.05, 0.08]);

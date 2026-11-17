@@ -1,11 +1,12 @@
 // Hero abilities, summons and rides on screen: ground rings draped on the terrain, dust and
 // stones, Бекхан's lagman steam, the green glitch over a hacked high-rise, the админ's «Н»
-// stamp, feathers, door puffs. Reads FxEv only; never touches the sim.
+// stamp, feathers, door puffs, Амина's «Плюхнулась» (ring, dust, «ПЛЮХ!») and Ислам's
+// «Себозол-душ» (a fountain of shampoo bottles raining foam). Reads FxEv only; never touches the sim.
 import * as THREE from 'three';
 import type { FxEv } from '../sim/sim';
 import { HERO, TICK_MS } from '../sim/defs';
 import { heightY, type Terrain } from '../world/terrain';
-import { PAL } from './models';
+import { PAL, sebozolGeometry } from './models';
 import { decorSpots } from './world';
 import type { Particles } from './fx';
 import type { Stage } from './scene';
@@ -19,7 +20,10 @@ interface Ring {
   mesh: THREE.Mesh; pos: Float32Array; mat: THREE.MeshBasicMaterial;
   on: boolean; x: number; z: number; r0: number; r1: number; w: number; age: number; life: number; alpha: number;
 }
-interface Stamp { s: THREE.Sprite; on: boolean; x: number; y: number; z: number; size: number; age: number; life: number }
+interface Stamp { s: THREE.Sprite; on: boolean; x: number; y: number; z: number; size: number; age: number; life: number; kind: string; aspect: number }
+/** A Себозол bottle of the «Себозол-душ»: flies from the boss up and rains down at x1, z1 (seconds). */
+interface Bottle { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; t0: number; dur: number; arc: number; spin: number }
+const BOTTLE_CAP = 32;
 interface Emitter { kind: 'steam' | 'glitch'; x: number; y: number; z: number; until: number; next: number }
 interface Hack { side: number; until: number; x: number; z: number; y: number }
 
@@ -48,6 +52,9 @@ export class AbilityFx {
   private glitch: THREE.InstancedMesh;
   private hackSign: THREE.Sprite;
   private texN: THREE.Texture;
+  private bottles: Bottle[] = [];
+  private bottleMesh: THREE.InstancedMesh;
+  private q = new THREE.Quaternion(); private eu = new THREE.Euler();
   private time = 0;
   private glitchNext = 0;
   private m = new THREE.Matrix4(); private v = new THREE.Vector3(); private s = new THREE.Vector3();
@@ -66,12 +73,27 @@ export class AbilityFx {
       g.strokeStyle = '#fbfaf5'; g.lineWidth = 14; g.strokeText('Н', 0, 0);
       g.fillStyle = '#d32a1c'; g.fillText('Н', 0, 0);
     }, `700 124px Caveat`);
-    for (let k = 0; k < 4; k++) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.texN, transparent: true, depthWrite: false, opacity: 0 }));
-      sp.visible = false; sp.renderOrder = 9;
-      this.group.add(sp);
-      this.stamps.push({ s: sp, on: false, x: 0, y: 0, z: 0, size: 1, age: 0, life: 1 });
-    }
+    const addStamps = (tex: THREE.Texture, kind: string, aspect: number, n: number) => {
+      for (let k = 0; k < n; k++) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 }));
+        sp.visible = false; sp.renderOrder = 9;
+        this.group.add(sp);
+        this.stamps.push({ s: sp, on: false, x: 0, y: 0, z: 0, size: 1, age: 0, life: 1, kind, aspect });
+      }
+    };
+    addStamps(this.texN, 'n', 1, 4);
+    // pen words over a blast: Амина's «ПЛЮХ!» in Атаги blue, Ислам's «СЕБОЗОЛ-ДУШ!» in teal
+    const word = (text: string, color: string, w: number) => canvasTexture(w, 96, g => {
+      g.translate(w / 2, 52); g.rotate(-0.06);
+      g.font = `700 76px ${HAND}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+      g.strokeStyle = '#fbfaf5'; g.lineWidth = 14; g.strokeText(text, 0, 0);
+      g.fillStyle = color; g.fillText(text, 0, 0);
+    }, `700 76px Caveat`);
+    addStamps(word('ПЛЮХ!', '#2a52d1', 256), 'plyuh', 256 / 96, 2);
+    addStamps(word('СЕБОЗОЛ-ДУШ!', '#128a7e', 512), 'sebozol', 512 / 96, 1);
+    this.bottleMesh = new THREE.InstancedMesh(sebozolGeometry(1.5), new THREE.MeshLambertMaterial({ vertexColors: true }), BOTTLE_CAP);
+    this.bottleMesh.count = 0; this.bottleMesh.visible = false; this.bottleMesh.frustumCulled = false;
+    this.group.add(this.bottleMesh);
     // green scan-line bars over a hacked high-rise
     const nBars = this.low ? 10 : 22;
     this.glitch = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: '#3cf06a', transparent: true, opacity: 0.75, depthTest: false, depthWrite: false }), nBars * 2);
@@ -128,11 +150,35 @@ export class AbilityFx {
     r.mesh.visible = true;
   }
 
-  private stamp(x: number, y: number, z: number, size: number) {
-    let st = this.stamps.find(o => !o.on);
-    if (!st) { st = this.stamps[0]; for (const o of this.stamps) if (o.age > st.age) st = o; }
-    st.on = true; st.x = x; st.y = y; st.z = z; st.size = size; st.age = 0; st.life = 1.1;
+  private stamp(x: number, y: number, z: number, size: number, kind = 'n', life = 1.1) {
+    const pool = this.stamps.filter(o => o.kind === kind);
+    let st = pool.find(o => !o.on);
+    if (!st) { st = pool[0]; for (const o of pool) if (o.age > st.age) st = o; }
+    st.on = true; st.x = x; st.y = y; st.z = z; st.size = size; st.age = 0; st.life = life;
     st.s.visible = true;
+  }
+
+  /** «Себозол-душ»: bottles fly up out of Ислам and rain down over radius r, foaming where they land. */
+  private shower(x: number, z: number, r: number) {
+    const y = this.gy(x, z), n = this.n(14), t = this.time;
+    for (let k = 0; k < n; k++) {
+      if (this.bottles.length >= BOTTLE_CAP) this.bottles.shift();
+      const a = (k / n) * Math.PI * 2 + Math.random() * 0.4, d = r * (0.3 + Math.random() * 0.65);
+      const x1 = x + Math.cos(a) * d, z1 = z + Math.sin(a) * d;
+      this.bottles.push({ x0: x, y0: y + 2.8, z0: z, x1, y1: this.gy(x1, z1) + 0.25, z1, t0: t + k * 0.035, dur: 0.6 + Math.random() * 0.35, arc: 3 + Math.random() * 2, spin: Math.random() * 6 });
+    }
+    // the «душ»: a short drizzle of droplets falling over the whole circle
+    for (let k = 0; k < this.n(10); k++) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * r;
+      this.particles.emit(x + Math.cos(a) * d, y + 4.5 + Math.random(), z + Math.sin(a) * d, { n: 2, color: '#cfeefa', size: 0.16, life: 0.9, spread: 0.2, up: -2.5, grav: 6, jitter: 1.2 });
+    }
+    this.ring(x, z, 0.6, r, '#1aa597', 0.9, 0.4, 0.85);
+    this.stamp(x, y + 5.2, z, 1.05, 'sebozol', 1.7);
+  }
+
+  private foamAt(x: number, y: number, z: number) {
+    this.particles.emit(x, y, z, { n: this.n(6), color: '#ffffff', size: 0.34, life: 1.0, spread: 1.0, up: 0.5, grav: 0.25, grow: 0.5, wob: 0.8, jitter: 0.4 });
+    this.particles.emit(x, y, z, { n: this.n(4), color: '#9fe3da', size: 0.22, life: 0.8, spread: 1.4, up: 0.8, grav: 0.4, wob: 1, jitter: 0.3 });
   }
 
   private gy(x: number, z: number) { return heightY(this.t, x, z); }
@@ -185,9 +231,20 @@ export class AbilityFx {
               this.dust(e.x, e.z, 8, 1.6, 0.5);
               this.particles.emit(e.x, y + 0.7, e.z, { n: this.n(10), color: '#fbfaf5', size: 0.14, life: 0.45, spread: 3.2, up: 0.2, grav: 0, jitter: 0.6 });
               break;
+            case 'slam': // Амина «Плюхнулась»: the ground jumps, everybody around flies off
+              this.ring(e.x, e.z, 0.4, e.r + 0.4, PAL.side[e.s], 0.55, 0.6, 0.95);
+              this.ring(e.x, e.z, 0.2, e.r * 0.6, '#f5f1e6', 0.4, 0.3, 0.7);
+              this.dust(e.x, e.z, 18, e.r * 0.9, 0.95);
+              this.stones(e.x, e.z, 10, e.r * 0.7);
+              this.stamp(e.x, y + 4.3, e.z, 1.2, 'plyuh', 1.0);
+              this.shake(e.x, e.z, 0.55);
+              break;
           }
           break;
         }
+        case 'ult':
+          if (e.s === 0 && this.near(e.x, e.z)) this.shower(e.x, e.z, e.r); // Ислам «Себозол-душ»
+          break;
         case 'pulse': {
           if (!this.near(e.x, e.z)) break;
           const y = this.gy(e.x, e.z);
@@ -339,10 +396,25 @@ export class AbilityFx {
       if (f >= 1) { st.on = false; st.s.visible = false; continue; }
       const slam = f < 0.14 ? 1.8 - (f / 0.14) * 0.8 : 1;
       const k = st.size * slam;
-      st.s.position.set(st.x, st.y - (1 - slam) * 0.2, st.z);
-      st.s.scale.set(k, k, 1);
+      st.s.position.set(st.x, st.y - (1 - slam) * 0.2 + (st.kind === 'n' ? 0 : f * 0.6), st.z);
+      st.s.scale.set(k * st.aspect, k, 1);
       (st.s.material as THREE.SpriteMaterial).opacity = f < 0.1 ? f / 0.1 : f > 0.7 ? (1 - f) / 0.3 : 1;
     }
+    // «Себозол-душ» bottles: up out of Ислам, tumbling, down into foam
+    let nb0 = 0;
+    for (let i = this.bottles.length - 1; i >= 0; i--) {
+      const b = this.bottles[i], f = (now - b.t0) / b.dur;
+      if (f >= 1) { this.foamAt(b.x1, b.y1, b.z1); this.bottles.splice(i, 1); continue; }
+      if (f < 0) continue;
+      this.v.set(b.x0 + (b.x1 - b.x0) * f, b.y0 + (b.y1 - b.y0) * f + Math.sin(Math.PI * f) * b.arc, b.z0 + (b.z1 - b.z0) * f);
+      this.eu.set(f * 13 + b.spin, b.spin, f * 7);
+      this.q.setFromEuler(this.eu);
+      this.s.set(1, 1, 1);
+      this.m.compose(this.v, this.q, this.s);
+      this.bottleMesh.setMatrixAt(nb0++, this.m);
+    }
+    this.bottleMesh.count = nb0; this.bottleMesh.visible = nb0 > 0;
+    if (nb0) this.bottleMesh.instanceMatrix.needsUpdate = true;
     // steam and other lingering emitters
     for (let i = this.emitters.length - 1; i >= 0; i--) {
       const em = this.emitters[i];
@@ -389,6 +461,7 @@ export class AbilityFx {
     for (const st of this.stamps) { st.on = false; st.s.visible = false; }
     this.emitters.length = 0;
     this.hacks.length = 0;
+    this.bottles.length = 0; this.bottleMesh.count = 0; this.bottleMesh.visible = false;
     this.lastDie.clear();
     this.glitch.count = 0; this.glitch.visible = false;
     this.hackSign.visible = false;

@@ -228,10 +228,10 @@ export function seasonResult(a: number, k: number): -1 | 0 | 1 {
 // ---- баланс v4 (числа для симуляции; тики, если не сказано иначе) ---------------------------------
 
 export const V4 = {
-  /** Индексы новых типов юнитов в UNITS (по общему контракту). */
-  types: { ipit: 18, operator: 19, snitch: 20, drone: 21, bmw: 22 },
+  /** Индексы новых типов юнитов в UNITS (по общему контракту). 18 занят Аминой (танк Атагов), поэтому v4 — с 19. */
+  types: { ipit: 19, operator: 20, snitch: 21, drone: 22, bmw: 23 },
   /** Порядок карточек в магазине после Гелика (16): бэха, квадрик, ИПИТовцы, оператор, стукач. */
-  shopAfterGelik: [22, 21, 18, 19, 20],
+  shopAfterGelik: [23, 22, 19, 20, 21],
   /** Веса ИИ при покупке (ИПИТовцы — только пока сторона держит ГГНТУ). */
   ai: { ipit: 4, operator: 2, snitch: 3, drone: 4, bmw: 4 },
   /** Городские места (Pt.kind 4): радиус, вес цели для ИИ. */
@@ -639,9 +639,9 @@ export const COLLECTION: CollectionCard[] = [
   { id: 'kra95', title: 'Номера КРА 95', rarity: 'rare', icon: 'plate', ch: 0,
     desc: 'Не номер, а характер. Машина под ними крепче', buff: { key: 'hp', value: 3 },
     quote: { t: 'Шучу, на S-класс Мерседес', who: 'Зураб' } },
-  { id: 'ersno_card', title: 'Карта ersno', rarity: 'rare', icon: 'bank_card', ch: 0,
+  { id: 'ersno_card', title: 'Карта Мохьмада', rarity: 'rare', icon: 'bank_card', ch: 0,
     desc: 'Номер знают все. Деньги приходят сами', buff: { key: 'inc', value: 1 },
-    quote: { t: 'Бизнес бабки', who: 'ersno' } },
+    quote: { t: 'Бизнес бабки', who: 'Мохьмад' } },
   { id: 'jurnal', title: 'Журнал с «Н»', rarity: 'rare', icon: 'journal', ch: 0,
     desc: 'Красная «Н» на каждой странице. Курчалою — две', buff: { key: 'stun', value: 10 },
     quote: { t: 'Н дилна хьун (тебе Н поставили)', who: 'админ' } },
@@ -949,7 +949,7 @@ export const ENDINGS: Record<EndingId, EndingPanel[]> = {
     { who: 'Чимаев', text: 'Посоветуйте еду для набора массы, ребята, очень нужно!', art: 'chimaev_menu' },
     { who: 'Ислам', text: 'Что угодно из Донер Бея с фирменным соусом', art: 'islam_sauce' },
     { who: 'Амин', text: 'Я потрачу все токены, чтобы посчитать, кто кому должен', art: 'amin_laptop' },
-    { who: 'ersno', text: 'Я заплачу. Списанием с карты', art: 'ersno_cards' },
+    { who: 'Мохьмад', text: 'Я заплачу. Списанием с карты', art: 'ersno_cards' },
     { who: 'админ', text: 'Кто платит — тому не Н', art: 'admin_journal' },
     { who: 'Бекхан', text: 'Главное не игра, главное дисциплина. И лагман', art: 'bekhan_lagman' },
     { who: '', text: 'Счёт делят пополам. Шаурму — нет', art: 'doner_table' },
@@ -992,7 +992,7 @@ export const ENDING_ART: Record<string, string> = {
   chimaev_menu: 'Чимаев изучает меню на стене',
   islam_sauce: 'Ислам указывает на бутылку фирменного соуса',
   amin_laptop: 'Амин за ноутбуком, на экране таблица долгов',
-  ersno_cards: 'ersno раскрывает веер банковских карт над столом',
+  ersno_cards: 'Мохьмад раскрывает веер банковских карт над столом',
   bekhan_lagman: 'Бекхан с тарелкой лагмана',
   doner_table: 'Общий стол, шаурма разложена, счёт разорван пополам',
   marshrutka_night: 'Ночная газель у остановки, Чимаев садится внутрь',

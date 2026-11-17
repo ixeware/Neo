@@ -1,14 +1,16 @@
 // Headless AI-vs-AI run: balance, speed, content events, state size, determinism, plus unit checks
-// for every mechanic (heroes, v3: гелики, спортики, ersno steal, админ pack, снюс/LOOP cards, places)
-// and for the admin commands (every op, malformed bodies, channels, snapshots and rollback), and for
-// unit control (orders, possession, validation, flow-field cache, snapshots and rollback).
+// for every mechanic (heroes, v3: гелики, спортики, Мохьмад's (ersno) steal and Голем, админ pack,
+// снюс/LOOP cards, places, Амина's slam and taunt aura), for the admin commands (every op, malformed
+// bodies, channels, snapshots and rollback), and for unit control (orders, possession, validation,
+// flow-field cache, snapshots and rollback).
 // npx tsx tools/simtest.ts <minutes> <seed>
 import { loadTerrain, lcAt, navIndex, passable, LC } from '../src/world/terrain';
 import { Sim, hashState, PT_DONER, PT_PLACE0, PT_COUNT, OM, ORD_MAX, ORD_FLOWS, POSS_IDLE, ORD_IDLE, canControl, type Cmd, type State, type U } from '../src/sim/sim';
 import {
   UNITS, CARDS, SIDE_NAME, RIDE, GOLEM, CHICKEN, CHIMAEV, BEKHAN, WOU, ADMIN, ERSNO, ADAM, MOHMAD, GELIK, SPORTIK, BOSS,
-  HERO, PLACE, BUFF, Fx, SHOP, unitName, cardText, type Card, type Side,
+  HERO, PLACE, BUFF, Fx, SHOP, AMINA, AI_W, canBuy, unitName, cardText, type Card, type Side,
 } from '../src/sim/defs';
+import { ROSTER_ORDER, HERO_UNIT, heroForUnit, HEROES as HERO_LORE } from '../src/data/heroes';
 import { CAPTURE_PLACES } from '../src/data/places';
 import { HEROES as HEROES_T, HQ, ECON } from '../src/sim/defs';
 import { normAdm, cleanSay } from '../src/sim/admin';
@@ -137,7 +139,8 @@ console.log(`throughput (quiet) ${MIN} min in ${q.ms.toFixed(0)}ms = ${(ticks / 
 /** Private Sim internals the checks drive directly. */
 interface Priv {
   applyCard(s: Side, c: Card, f: number): void;
-  packUlt(u: U): void; cardSteal(u: U): void; adminN(u: U): void; taunt(u: U): void; openVote(s: Side): void;
+  packUlt(u: U): void; cardSteal(u: U): void; adminN(u: U): void; taunt(u: U, emit?: boolean): void; openVote(s: Side): void;
+  slam(u: U): void; knock(a: U, t: U, f: number): void; heroOk(s: Side, t: number): boolean;
   stats(u: U): { dmg: number; range: number; spd: number; cd: number };
   income(s: Side): number; hash(): void;
   splash(s: Side, x: number, z: number, r: number, dmg: number, slow: number, knock: number, stun?: number): void;
@@ -289,6 +292,126 @@ check('card ids are their indices', CARDS.every((c, i) => c.id === i) && CARDS.l
   check('AI buys ersno when the enemy is rich', rich > 3 * Math.max(1, poor), `rich ${rich} / poor ${poor} of 300`);
 }
 
+// ---- Мохьмад = ersno (type 9) brings the Голем; the old summoner (12) is retired --------------
+{
+  const s = sandbox();
+  const c = s.st.pts[4], sd = s.st.sides[0];
+  const e = s.spawn(0, ERSNO, c.x, c.z, -1);
+  e.hp = e.mhp = 1e6;
+  s.step(undefined);
+  const g = s.st.units.find(u => u.t === GOLEM && u.s === 0);
+  const sum = s.fx.find(f => f.e === 'summon' && f.t === GOLEM);
+  check('Мохьмад (9) brings a Голем as soon as he is out, linked both ways', !!g && g.ld === e.id && e.ld === g.id && !!sum && sd.golem === s.st.tick - 1 + HERO.golemCd, `golem ${g?.id}, cd ${sd.golem}`);
+  check('…and his «Списание с карты» keeps its own cooldown', e.ab > 0 && e.ab <= 60);
+  for (let i = 0; i < 60; i++) s.step(undefined);
+  check('one Голем at a time', s.countType(0, GOLEM) === 1);
+  g!.hp = 0; s.step(undefined);
+  const downAt = s.st.tick - 1;
+  check('Голем down: the next one in golemCd', s.countType(0, GOLEM) === 0 && e.ld === -1 && sd.golem === downAt + HERO.golemCd, `cd ${sd.golem - downAt}`);
+  let back = -1;
+  for (let i = 0; i < HERO.golemCd + 20 && back < 0; i++) { s.step(undefined); if (s.countType(0, GOLEM) === 1) back = s.st.tick - 1 - downAt; }
+  check('…and he brings a new one right on time', back === HERO.golemCd, `after ${back} ticks`);
+  P(s).applyCard(0, CARDS[26], -1);
+  check('«Копил ульту» readies the Голем timer too', sd.golem === 0);
+  // the old Мохьмад (12) from a save: still fights and summons with his own U.ab
+  const old = s.spawn(1, MOHMAD, c.x + 30, c.z + 30, -1); old.hp = old.mhp = 1e6;
+  const sd1 = s.st.sides[1], k0 = sd1.golem;
+  s.step(undefined); s.step(undefined);
+  const og = s.st.units.find(u => u.t === GOLEM && u.s === 1);
+  check('old unit 12 still summons on U.ab', !!og && og.ld === old.id && old.ld === og.id && old.ab > UNITS[MOHMAD].abCd! - 5 && sd1.golem === k0);
+  og!.hp = 0; s.step(undefined);
+  check('…and waits abCd after his Голем falls (SideState.golem untouched)', old.ld === -1 && old.ab >= UNITS[MOHMAD].abCd! - 1 && sd1.golem === k0);
+  // unit 12 is out of the shop, the AI, the roster; 9 is shown as Мохьмад everywhere
+  const at = s.st.pts[0];
+  s.st.sides[0].money = 9999;
+  check('unit 12 cannot be bought: not in SHOP, canBuy false, deploy refused, no AI weight', !SHOP.includes(MOHMAD) && !canBuy(0, MOHMAD) && !canBuy(1, MOHMAD)
+    && s.canDeploy(0, MOHMAD, at.x + 3, at.z) !== '' && AI_W[0][MOHMAD] === 0 && AI_W[1][MOHMAD] === 0 && !P(s).heroOk(0, MOHMAD) && !P(s).heroOk(1, MOHMAD));
+  check('one Мохьмад: type 9 named Мохьмад, roster without a second card, old 12 shown as him', UNITS[ERSNO].name.every(n => n === 'Мохьмад') && unitName(0, ERSNO) === 'Мохьмад'
+    && unitName(1, MOHMAD) === 'Мохьмад' && HERO_LORE.ersno.name === 'Мохьмад' && !(ROSTER_ORDER as string[]).includes('mohmad') && heroForUnit(12, 0) === 'ersno' && heroForUnit(9, 1) === 'ersno'
+    && !UNITS.some(u => u.name.some(n => /ersno/.test(n))) && CARDS[28].quote.includes('Мохьмад'));
+}
+
+// ---- Амина (type 18): Атаги tank, «Плюхнулась», taunt aura --------------------------------
+{
+  const s = sandbox();
+  const c = s.st.pts[4];
+  check('Амина: Атаги only, in the shop after the other heroes, 2400–2800 hp, heavy, slow', canBuy(0, AMINA) && !canBuy(1, AMINA) && SHOP[SHOP.length - 1] === AMINA
+    && SHOP.indexOf(AMINA) > Math.max(...[CHIMAEV, BEKHAN, WOU, ADMIN, ERSNO, ADAM].map(t => SHOP.indexOf(t))) && UNITS[AMINA].hero === true && UNITS[AMINA].hp >= 2400 && UNITS[AMINA].hp <= 2800
+    && UNITS[AMINA].mass! > 1 && UNITS[AMINA].speed < UNITS[0].speed && ROSTER_ORDER.includes('amina') && HERO_UNIT.amina === AMINA && heroForUnit(AMINA, 0) === 'amina');
+  const a = s.spawn(0, AMINA, c.x, c.z, -1);
+  check('Амина spawns with full hp and a hero slot', a.hp === UNITS[AMINA].hp && a.mhp === a.hp && s.st.sides[0].hero[AMINA] === a.id);
+  const w = s.spawn(1, 1, c.x + 1.5, c.z, -1);
+  const ax = a.x, az = a.z;
+  P(s).knock(w, a, 0.45); P(s).hash(); P(s).splash(1, c.x + 1, c.z, 3, 0, 0, 2.2, 0);
+  check('never knocked back (melee knock, splash knock)', a.x === ax && a.z === az);
+  w.hp = 0; s.step(undefined);
+  P(s).hash(); a.ab = 0; P(s).slam(a);
+  check('no crowd: no slam, retries in a second', a.ab === 10);
+  // «Плюхнулась»: three enemies in reach
+  const crowd: U[] = [];
+  for (let i = 0; i < 3; i++) { const u = s.spawn(1, 0, c.x + 1.6, c.z - 0.8 + i * 0.8, -1); u.hp = u.mhp = 1e6; crowd.push(u); }
+  const far = s.spawn(1, 0, c.x + 9, c.z, -1); far.hp = far.mhp = 1e6;
+  const d0 = crowd.map(u => near2(u, a));
+  P(s).hash(); a.ab = 0; s.fx.length = 0; P(s).slam(a);
+  const ev = s.fx.find(f => f.e === 'ability' && f.key === 'slam');
+  check('«Плюхнулась»: damage, stun, knockback to everyone in reach, cooldown, FxEv', crowd.every((u, i) => u.mhp - u.hp === HERO.slamDmg && u.stun === s.st.tick + HERO.slamStun && near2(u, a) > d0[i] + 0.5)
+    && far.hp === far.mhp && far.stun === 0 && a.ab === UNITS[AMINA].abCd && !!ev && ev.e === 'ability' && ev.r === UNITS[AMINA].abR, crowd.map((u, i) => (near2(u, a) - d0[i]).toFixed(2)).join(' '));
+  // taunt aura: enemies within 6 hit only her, so the пацан behind her is left alone
+  for (const u of crowd) { u.stun = 0; u.x = a.x + 3; u.z = a.z; }
+  const mate = s.spawn(0, 0, a.x + 1.8, a.z + 1.6, -1); mate.hp = mate.mhp = 1e6; // closer to them than she is
+  for (const u of crowd) u.tg = mate.id;
+  const gel = s.spawn(1, GELIK, a.x + 2, a.z + 2, -1), boss = s.spawn(1, BOSS, a.x - 2, a.z + 3, -1);
+  far.x = a.x + 9; far.z = a.z;
+  P(s).hash(); s.fx.length = 0; P(s).taunt(a, false);
+  check('taunt aura: enemies within 6 switch to her; not the гелик, the boss, or anyone farther', crowd.every(u => u.tg === a.id && u.tn === a.id && u.tt === s.st.tick + HERO.tauntFor)
+    && gel.tt === 0 && boss.tt === 0 && far.tt === 0 && !s.fx.some(f => f.e === 'taunt'));
+  gel.hp = 0; boss.hp = 0; s.step(undefined);
+  let pulsed = 0;
+  for (let i = 0; i < HERO.tauntEvery; i++) { for (const u of crowd) u.tt = 0; s.step(undefined); if (crowd.every(u => u.tt > s.st.tick && u.tn === a.id)) pulsed++; }
+  check('the aura pulses by itself every tauntEvery ticks', pulsed >= 1);
+  P(s).hash(); P(s).taunt(a, false); // the loop above may have wiped the last pulse
+  let hitMate = false;
+  const mateHp = mate.hp;
+  for (let i = 0; i < 60; i++) { s.step(undefined); if (mate.hp < mateHp) hitMate = true; }
+  check('…and the пацан next to her is not hit, she takes it all', !hitMate && a.hp < a.mhp, `Амина ${Math.round(a.hp)}/${a.mhp}`);
+}
+
+// Амина fighting a crowd, snapshot through JSON and structuredClone mid-fight: slams and taunts replay the same
+{
+  const s = sandbox(11);
+  const c = s.st.pts[4];
+  const am = s.spawn(0, AMINA, c.x, c.z, -1);
+  for (let i = 0; i < 4; i++) s.spawn(0, 0, c.x - 1.5, c.z - 1 + i * 0.6, -1);
+  for (let i = 0; i < 10; i++) s.spawn(1, i % 3 ? 0 : 1, c.x + 4 + (i % 2), c.z - 2 + i * 0.45, -1);
+  for (let i = 0; i < 70; i++) s.step(undefined);
+  s.fx.length = 0;
+  const taunted = s.st.units.filter(u => u.s === 1 && u.tn === am.id && u.tt > s.st.tick).length; // in the snapshot
+  const okT = twin(s, 400, 'Амина vs crowd');
+  const slams = s.fx.filter(f => f.e === 'ability' && f.key === 'slam').length;
+  check('Амина: slams and taunts identical after JSON / structuredClone restore', okT && slams >= 1 && taunted >= 1, `${slams} slams, ${taunted} taunted in the window`);
+}
+
+// the AI buys Амина for Атаги (never for Курчалой)
+{
+  const pickA = (side: Side) => {
+    const t = sandbox(13); let n = 0;
+    for (let i = 0; i < 300; i++) {
+      const sd = t.st.sides[side];
+      sd.aiNext = 0; sd.money = 3000; sd.aiWant = -1; sd.hero[AMINA] = -1; sd.heroCd[AMINA] = 0;
+      for (let k = 0; k < 6; k++) if (t.count(side) < 8) t.spawn(side, 0, t.st.pts[side].x + (side ? -2 : 2), t.st.pts[side].z, -1);
+      const before = t.st.units.length;
+      (t as unknown as { ai(s: Side): void }).ai(side);
+      for (let k = before; k < t.st.units.length; k++) if (t.st.units[k].t === AMINA) n++;
+      for (const u of t.st.units) if (u.s === side && u.t !== 0) u.hp = 0;
+      t.st.units = t.st.units.filter(u => u.hp > 0); t.reindex();
+      sd.hero[AMINA] = -1;
+    }
+    return n;
+  };
+  const a0 = pickA(0), a1 = pickA(1);
+  check('AI buys Амина for Атаги only', a0 > 0 && a1 === 0, `Атаги ${a0} / Курчалой ${a1} of 300`);
+}
+
 // админ «Курение убивает»
 {
   const s = sandbox();
@@ -369,7 +492,7 @@ function forceContent(sim: Sim) {
   const at = sim.st.pts[0], ku = sim.st.pts[1];
   sim.st.sides[0].money += 5000; sim.st.sides[1].money += 5000;
   const put = (s: Side, t: number, x: number, z: number) => { if (!UNITS[t].hero || sim.st.sides[s].hero[t] === -1) sim.spawnGroup(s, t, x, z, -2); };
-  for (const t of [WOU, ADMIN, ERSNO, BEKHAN, ADAM, MOHMAD, GELIK, SPORTIK]) put(0, t, at.x + 4, at.z + 1);
+  for (const t of [WOU, ADMIN, ERSNO, BEKHAN, ADAM, MOHMAD, GELIK, SPORTIK, AMINA]) put(0, t, at.x + 4, at.z + 1);
   for (const t of [CHIMAEV, WOU, ADMIN, ERSNO, ADAM, MOHMAD, GELIK, SPORTIK]) put(1, t, ku.x - 4, ku.z + 1);
   sim.startEvent('jam');
 }
@@ -416,7 +539,8 @@ const same = hashState(runTo(SEED, 6000).st) === hashState(runTo(SEED, 6000).st)
 // heroes, гелики, спортики forced in at 5:00; rides, chickens, poison, снюс, LOOP, a pack and a lost place at 5:05; snapshot at 5:06
 const b = runTo(SEED, 3060, { 3000: forceContent, 3050: forceLate });
 console.log('content at 5:06', live(b));
-const liveOk = b.st.packs.length > 0 && b.st.units.some(u => u.fr > b.st.tick) && b.st.units.some(u => u.t === GELIK) && b.st.units.some(u => u.t === SPORTIK) && b.st.sides[0].snus > b.st.tick && b.st.sides[1].loop > b.st.tick && b.st.units.some(u => u.t === ERSNO);
+const liveOk = b.st.packs.length > 0 && b.st.units.some(u => u.fr > b.st.tick) && b.st.units.some(u => u.t === GELIK) && b.st.units.some(u => u.t === SPORTIK) && b.st.sides[0].snus > b.st.tick && b.st.sides[1].loop > b.st.tick && b.st.units.some(u => u.t === ERSNO)
+  && b.st.units.some(u => u.t === AMINA);
 if (!liveOk) { console.log('v3 content not alive at the snapshot'); process.exitCode = 1; }
 let ok = twin(b, 600, 'A (heroes, summons, rides, jam, poison, гелики, спортики, пачка, снюс, LOOP)');
 // «Завтра учимся» right now: heroes are away «на парах» in the snapshot and come back after it
@@ -445,7 +569,7 @@ if (!(same && ok)) process.exitCode = 1;
 function migrates(label: string, old: State, n = 1200): boolean {
   const x = new Sim(terrain), y = new Sim(terrain);
   x.load(structuredClone(old)); y.load(JSON.parse(JSON.stringify(old)) as State); x.quiet = y.quiet = true;
-  const shape = x.st.pts.length === PT_COUNT && x.st.sides.every(sd => sd.hero.length === UNITS.length && sd.heroCd.length === UNITS.length && sd.snus === 0 && sd.loop === 0 && (sd.pack === 0 || sd.hero[8] >= 0))
+  const shape = x.st.pts.length === PT_COUNT && x.st.sides.every(sd => sd.hero.length === UNITS.length && sd.heroCd.length === UNITS.length && sd.snus === 0 && sd.loop === 0 && (sd.pack === 0 || sd.hero[8] >= 0) && sd.golem === 0)
     && Array.isArray(x.st.packs) && x.st.units.every(u => u.fr === 0) && x.st.pts.slice(PT_PLACE0).every(p => p.owner === p.side);
   for (let i = 0; i < n; i++) { x.step(undefined); y.step(undefined); }
   const okm = shape && hashState(x.st) === hashState(y.st) && !JSON.stringify(x.st).includes('null');
@@ -460,7 +584,7 @@ const strip = (o: Record<string, unknown>, keys: string[]) => { for (const k of 
   strip(old as unknown as Record<string, unknown>, ['packs']);
   old.pts.length = 9;
   old.units = old.units.filter(u => u.t < GELIK);
-  for (const sd of old.sides) { strip(sd as unknown as Record<string, unknown>, ['snus', 'loop', 'pack']); sd.hero.length = 16; sd.heroCd.length = 16; }
+  for (const sd of old.sides) { strip(sd as unknown as Record<string, unknown>, ['snus', 'loop', 'pack', 'golem']); sd.hero.length = 16; sd.heroCd.length = 16; }
   for (const u of old.units) strip(u as unknown as Record<string, unknown>, ['fr']);
   migrates('d69dd41 format', old);
 }
@@ -470,7 +594,7 @@ const strip = (o: Record<string, unknown>, keys: string[]) => { for (const k of 
   strip(old as unknown as Record<string, unknown>, ['aoe', 'away', 'ev', 'packs']);
   old.pts.length = 8;
   old.units = old.units.filter(u => u.t < 6);
-  for (const sd of old.sides) strip(sd as unknown as Record<string, unknown>, ['hero', 'heroCd', 'hack', 'poor', 'weak', 'sauce', 'sauceM', 'dodge', 'immune', 'skip', 'aiWant', 'aiWantUntil', 'snus', 'loop', 'pack']);
+  for (const sd of old.sides) strip(sd as unknown as Record<string, unknown>, ['hero', 'heroCd', 'hack', 'poor', 'weak', 'sauce', 'sauceM', 'dodge', 'immune', 'skip', 'aiWant', 'aiWantUntil', 'snus', 'loop', 'pack', 'golem']);
   for (const u of old.units) strip(u as unknown as Record<string, unknown>, ['psn', 'tt', 'tn', 'ld', 'f', 'fr']);
   migrates('pre-content format', old);
 }
@@ -486,6 +610,29 @@ const strip = (o: Record<string, unknown>, keys: string[]) => { for (const k of 
   const moved = x.st.pts.every((p, i) => p.x === fresh[i].x && p.z === fresh[i].z && p.name === fresh[i].name && p.key === fresh[i].key) && m.owner === 0 && m.prog === -40;
   for (let i = 0; i < 1200; i++) { x.step(undefined); y.step(undefined); }
   check('bfa230a save: places move to the 2GIS spots, owner and progress kept, replays identically', moved && hashState(x.st) === hashState(y.st));
+}
+
+{ // 8974f64 (before the merge): ersno without a Голем, the old Мохьмад (12) with his, hero arrays for 18 types, no SideState.golem
+  const s = runTo(SEED, 2000, { 1990: sim => {
+    const at = sim.st.pts[0], ku = sim.st.pts[1];
+    for (const u of sim.st.units) if (u.t === ERSNO || u.t === MOHMAD || u.t === AMINA) u.hp = 0;
+    sim.spawn(0, ERSNO, at.x + 4, at.z + 1, -1); sim.spawn(1, MOHMAD, ku.x - 4, ku.z + 1, -1);
+  } });
+  const old = JSON.parse(JSON.stringify(s.st)) as State;
+  const e9 = old.units.find(u => u.t === ERSNO)!;
+  old.units = old.units.filter(u => !(u.t === GOLEM && u.ld === e9.id) && u.t !== AMINA); // ersno never had a Голем
+  e9.ld = -1;
+  for (const sd of old.sides) { strip(sd as unknown as Record<string, unknown>, ['golem']); sd.hero.length = 18; sd.heroCd.length = 18; }
+  const m12 = old.units.find(u => u.t === MOHMAD)!, g12 = old.units.find(u => u.t === GOLEM && u.ld === m12.id);
+  const x = new Sim(terrain), y = new Sim(terrain);
+  x.load(structuredClone(old)); y.load(JSON.parse(JSON.stringify(old)) as State); x.quiet = y.quiet = true;
+  const shapeOk = x.st.sides.every(sd => sd.golem === 0 && sd.hero.length === UNITS.length && sd.heroCd.length === UNITS.length && sd.hero[AMINA] === -1);
+  x.step(undefined); y.step(undefined);
+  const xe = x.unit(e9.id), xm = x.unit(m12.id);
+  const linked = !!xe && xe.ld >= 0 && x.unit(xe.ld)?.t === GOLEM && !!xm && !!g12 && xm.ld === g12.id;
+  for (let i = 0; i < 1200; i++) { x.step(undefined); y.step(undefined); }
+  check('8974f64 save: SideState.golem added, ersno (now Мохьмад) brings a Голем, the old 12 keeps his, replays identically',
+    shapeOk && linked && hashState(x.st) === hashState(y.st) && !JSON.stringify(x.st).includes('null'));
 }
 
 console.log(fails.length ? `v3 checks FAILED: ${fails.join('; ')}` : 'v3 checks OK');
@@ -653,7 +800,7 @@ const doAdm = (s: Sim, body: Record<string, unknown>) => { s.fx.length = 0; s.st
     null, 0, 'x', [], {}, { k: 'adm' }, { k: 'adm', op: 'nope' }, { k: 'adm', op: '__proto__' }, { k: 'adm', op: 'constructor' },
     { k: 'adm', op: 'money', s: 2, v: 1 }, { k: 'adm', op: 'money', s: '0', v: 1 }, { k: 'adm', op: 'money', s: 0, v: 'x' }, { k: 'adm', op: 'money', s: 0, v: NaN },
     { k: 'adm', op: 'money', s: 0, v: Infinity }, { k: 'adm', op: 'moneySet', s: 0 },
-    { k: 'adm', op: 'spawn', s: 0, u: 5 }, { k: 'adm', op: 'spawn', s: 0, u: 18 }, { k: 'adm', op: 'spawn', s: 0, u: -1 }, { k: 'adm', op: 'spawn', s: 0, u: 1.5e300 },
+    { k: 'adm', op: 'spawn', s: 0, u: 5 }, { k: 'adm', op: 'spawn', s: 0, u: UNITS.length }, { k: 'adm', op: 'spawn', s: 0, u: -1 }, { k: 'adm', op: 'spawn', s: 0, u: 1.5e300 },
     { k: 'adm', op: 'spawn', s: 0 }, { k: 'adm', op: 'spawn', s: -1, u: 0 }, { k: 'adm', op: 'boss', s: 7 }, { k: 'adm', op: 'kill', s: 3 },
     { k: 'adm', op: 'freeze', s: 0, v: 2 }, { k: 'adm', op: 'god', s: 0, v: true }, { k: 'adm', op: 'ai', s: 0, v: 3 }, { k: 'adm', op: 'diff', v: -1 },
     { k: 'adm', op: 'floors', s: 0, v: 'many' }, { k: 'adm', op: 'owner', n: 0, s: 1 }, { k: 'adm', op: 'owner', n: 1e9, s: 1 }, { k: 'adm', op: 'owner', n: 3, s: 5 },

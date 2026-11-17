@@ -1,6 +1,6 @@
-// Particles (dust, sparks, dandruff) and thrown things (bullets, dumbbells, slippers…).
+// Particles (dust, sparks, dandruff) and thrown things (bullets, dumbbells, slippers, Ислам's Себозол…).
 import * as THREE from 'three';
-import { Builder, PAL } from './models';
+import { Builder, PAL, sebozol } from './models';
 
 const MAXP = 4000;
 
@@ -101,7 +101,7 @@ function projGeo(k: number): THREE.BufferGeometry {
       b.add(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 8), PAL.black, [-0.17, 0, 0], [0, 0, Math.PI / 2]);
       b.add(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 8), PAL.black, [0.17, 0, 0], [0, 0, Math.PI / 2]);
       break;
-    case 2: b.add(new THREE.IcosahedronGeometry(0.22, 0), PAL.white); break;
+    case 2: sebozol(b, 1.35); break; // Ислам: флакон Себозола (крупнее настоящего, чтобы читался), кувыркается; на земле — пена
     case 3: // тапок
       b.box(new THREE.Color('#2a5c8a'), [0, 0, 0], [0.16, 0.04, 0.38]);
       b.box(new THREE.Color('#d9d2c2'), [0, 0.04, 0.06], [0.17, 0.05, 0.08]);
@@ -129,6 +129,11 @@ function projGeo(k: number): THREE.BufferGeometry {
   return b.build();
 }
 
+/** Foam where a Себозол lands: a puff of bubbles that swells, drifts out and pops (ms). */
+interface Foam { x: number; y: number; z: number; t0: number; seed: number }
+const FOAM_CAP = 48, FOAM_N = 9, FOAM_MS = 950;
+const FOAM_COL = [new THREE.Color('#ffffff'), new THREE.Color('#d9f5f1'), new THREE.Color('#9fe3da')];
+
 export class Shots {
   group = new THREE.Group();
   private meshes: THREE.InstancedMesh[] = [];
@@ -136,6 +141,9 @@ export class Shots {
   private counts = new Int32Array(SHOT_KINDS);
   private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private e = new THREE.Euler();
   private v = new THREE.Vector3(); private s = new THREE.Vector3(1, 1, 1);
+  private foams: Foam[] = [];
+  private foam: THREE.InstancedMesh;
+  private sc = new THREE.Vector3(); private q0 = new THREE.Quaternion();
   constructor() {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     const basic = new THREE.MeshBasicMaterial({ vertexColors: true });
@@ -144,6 +152,40 @@ export class Shots {
       im.count = 0; im.frustumCulled = false; im.visible = false;
       this.meshes.push(im); this.group.add(im);
     }
+    this.foam = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.5, 1), new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#4a5a58' }), FOAM_CAP * FOAM_N);
+    this.foam.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(FOAM_CAP * FOAM_N * 3).fill(1), 3);
+    this.foam.count = 0; this.foam.frustumCulled = false; this.foam.visible = false; this.foam.renderOrder = 4;
+    this.group.add(this.foam);
+  }
+  /** A foamy splash of shampoo at x, y, z (Себозол landing). `now` in ms, like update(). */
+  splash(x: number, y: number, z: number, now: number) {
+    if (this.foams.length >= FOAM_CAP) this.foams.shift();
+    this.foams.push({ x, y, z, t0: now, seed: Math.random() * 6.283 });
+  }
+  private drawFoam(now: number) {
+    const fs = this.foams;
+    let keep = 0, n = 0;
+    for (let i = 0; i < fs.length; i++) {
+      const f = fs[i], t = (now - f.t0) / FOAM_MS;
+      if (t >= 1) continue;
+      fs[keep++] = f;
+      if (t < 0) continue;
+      const out = 1 - (1 - t) * (1 - t), pop = t < 0.18 ? t / 0.18 : 1 - (t - 0.18) / 0.82;
+      for (let k = 0; k < FOAM_N; k++) {
+        const c = k === 0, a = f.seed + (k * 6.283) / (FOAM_N - 1), w = 0.75 + ((k * 7) % 4) * 0.12;
+        const r = c ? 0 : (0.18 + 0.75 * out) * w;
+        this.v.set(f.x + Math.cos(a) * r, f.y + 0.12 + (c ? 0.1 : 0.05 + 0.32 * Math.sin(Math.PI * t) * w), f.z + Math.sin(a) * r);
+        const sz = (c ? 0.62 : 0.3 * w) * Math.max(0.05, pop);
+        this.sc.set(sz, sz * (c ? 0.7 : 1), sz);
+        this.m.compose(this.v, this.q0, this.sc);
+        this.foam.setMatrixAt(n, this.m);
+        this.foam.setColorAt(n, FOAM_COL[c ? 0 : k % 3]);
+        n++;
+      }
+    }
+    fs.length = keep;
+    this.foam.count = n; this.foam.visible = n > 0;
+    if (n) { this.foam.instanceMatrix.needsUpdate = true; this.foam.instanceColor!.needsUpdate = true; }
   }
   add(k: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, t0: number, t1: number) {
     if (this.live.length > 1200) return;
@@ -157,7 +199,7 @@ export class Shots {
     for (let n = 0; n < live.length; n++) {
       const s = live[n];
       const f = (now - s.t0) / Math.max(1, s.t1 - s.t0);
-      if (f >= 1) { onLand(s); continue; }
+      if (f >= 1) { if (s.k === 2) this.splash(s.x1, s.y1 - 0.35, s.z1, now); onLand(s); continue; } // shots land 0.6 above the ground
       live[keep++] = s;
       if (f < 0) continue;
       const im = this.meshes[s.k];
@@ -182,6 +224,7 @@ export class Shots {
       im.count = n; im.visible = n > 0;
       if (n) im.instanceMatrix.needsUpdate = true;
     }
+    if (this.foams.length || this.foam.visible) this.drawFoam(now);
   }
 }
 export type { Shot };

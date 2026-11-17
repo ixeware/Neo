@@ -7,7 +7,10 @@
 //   girlGeometry('a1' | 'ryzhulka' | 'altushka' | 'operator')  the named four
 //   girlGeometry('g1'..'g14')                                   random girls (look keyed by the number)
 //   girlGeometry('random', n) / any other id                    a stable random look (hash of id + n)
+//   girlGeometry('amina') / aminaGeometry(side)                  Амина, the Атаги tank (unit type 18)
 //   vainagGeometry(side)                                         Вайнаг, team armband by side
+//
+// Амина and Оператор (best friends) are big girls: bigGirl() below, Оператор at OPERATOR_K × Амина.
 import * as THREE from 'three';
 import { Builder, PAL } from './models';
 import { body, type BodyOut, type Limb } from './props';
@@ -308,24 +311,121 @@ function altushka(b: Builder) {
   for (const s of [-1, 1]) b.box(pink, [0.118 * s, f.headY - 0.03, 0.128], [0.036, 0.2, 0.024]);
 }
 
-/** Оператор: худи, пучок, телефон поднят как камера, вспышка горит — снимает с заднего ряда. */
+// ---- big girls: Амина (unit 18) and her friend Оператор, who is even bigger ----------------------
+// Chibi like everyone else, just big and round: short thick legs, wide hips, a barrel torso with a
+// rounded belly and shoulders, a big round-cheeked head with a smile and blush. Cute, not a joke:
+// the silhouette says «tank». Coordinates are for Амина (k = 1: 1.47 tall, 1.0 wide at the waist
+// before the ×1.7 unit scale, the biggest infantry on the field); Оператор is the same body ×OPERATOR_K.
+const CYL10 = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
+const ICO1 = new THREE.IcosahedronGeometry(0.5, 1);
+/** Оператор is bigger than Амина by this factor (whole model). */
+export const OPERATOR_K = 1.14;
+
+interface BigOpts { top: Col; legs: Col; shoe: Col; sole: Col; skin: Col; stripe?: Col; brow: Col }
+interface BigGirl { shL: V3; shR: V3; headY: number; faceZ: number; collarY: number; skin: Col }
+
+function bigGirl(b: Builder, o: BigOpts): BigGirl {
+  const { top, legs, skin } = o;
+  for (const s of [-1, 1]) {
+    b.box(o.shoe, [0.17 * s, 0.055, 0.045], [0.21, 0.09, 0.31]); // chunky sneakers
+    b.box(o.sole, [0.17 * s, 0.014, 0.045], [0.22, 0.028, 0.32]);
+    b.box(legs, [0.165 * s, 0.22, 0], [0.22, 0.27, 0.25]); // thick legs
+    if (o.stripe) b.box(o.stripe, [(0.165 + 0.111) * s, 0.22, 0], [0.012, 0.25, 0.05]);
+  }
+  b.add(CYL10, legs, [0, 0.41, 0], [0, 0, 0], [0.88, 0.2, 0.62]); // wide hips
+  b.add(CYL10, top, [0, 0.69, 0], [0, 0, 0], [1.0, 0.42, 0.68]); // barrel torso
+  b.add(ICO1, top, [0, 0.64, 0.05], [0, 0, 0], [0.94, 0.52, 0.74]); // round belly
+  b.add(ICO1, top, [0, 0.88, -0.01], [0, 0, 0], [0.92, 0.27, 0.62]); // round shoulders
+  const collarY = 1.0;
+  b.box(skin, [0, collarY + 0.02, -0.01], [0.2, 0.06, 0.18]); // neck
+  // head: big, round cheeks
+  const headY = 1.24, faceZ = 0.2;
+  b.box(skin, [0, headY, 0], [0.46, 0.4, 0.4]);
+  b.box(skin, [0, headY - 0.115, 0.008], [0.5, 0.17, 0.41]); // chubby cheeks and chin
+  const ink = C.lash;
+  for (const s of [-1, 1]) {
+    b.box(col('#f4f0e8'), [0.092 * s, headY + 0.03, faceZ + 0.002], [0.088, 0.062, 0.006]);
+    b.box(col('#5a3519'), [0.086 * s, headY + 0.028, faceZ + 0.005], [0.05, 0.056, 0.004]);
+    b.box(col('#1a0f08'), [0.086 * s, headY + 0.028, faceZ + 0.0075], [0.024, 0.032, 0.002]);
+    b.box(col('#ffffff'), [0.076 * s, headY + 0.042, faceZ + 0.0085], [0.012, 0.012, 0.002]); // eye shine
+    b.box(ink, [0.092 * s, headY + 0.067, faceZ + 0.004], [0.09, 0.014, 0.006]);
+    b.box(ink, [0.138 * s, headY + 0.072, faceZ + 0.004], [0.028, 0.012, 0.006], [0, 0, 0.55 * s]);
+    b.box(o.brow, [0.092 * s, headY + 0.112, faceZ + 0.004], [0.085, 0.018, 0.006], [0, 0, -0.12 * s]); // friendly brows
+    b.box(col('#ea9d93'), [0.165 * s, headY - 0.07, faceZ + 0.021], [0.075, 0.042, 0.004]); // blush
+  }
+  b.box(lift(skin, 0.9), [0, headY - 0.025, faceZ + 0.012], [0.04, 0.035, 0.024]); // nose
+  // smile: a little upturned line
+  b.box(C.lips, [0, headY - 0.088, faceZ + 0.021], [0.075, 0.018, 0.006]);
+  for (const s of [-1, 1]) b.box(C.lips, [0.045 * s, headY - 0.08, faceZ + 0.021], [0.028, 0.016, 0.006], [0, 0, 0.55 * s]);
+  return { shL: [0.46, 0.86, 0], shR: [-0.46, 0.86, 0], headY, faceZ, collarY, skin };
+}
+
+/** A thick arm from the shoulder: upper and fore sleeve, a fist; returns the fist centre. */
+function bigArm(b: Builder, g: BigGirl, sh: V3, up: V3, lo: V3, sleeve: Col, stripe?: Col, side = 1): V3 {
+  seg(b, sleeve, sh, up, [0, -0.11, 0], [0.18, 0.25, 0.19]);
+  if (stripe) seg(b, stripe, sh, up, [0.093 * side, -0.11, 0], [0.012, 0.22, 0.05]);
+  const el = along(sh, up, [0, -0.215, 0]);
+  seg(b, sleeve, el, lo, [0, -0.085, 0], [0.165, 0.19, 0.175]);
+  if (stripe) seg(b, stripe, el, lo, [0.086 * side, -0.08, 0], [0.012, 0.17, 0.05]);
+  return seg(b, g.skin, el, lo, [0, -0.205, 0], [0.15, 0.12, 0.16]);
+}
+
+/** Long dark hair around the big head; `tail`: a high ponytail with a scrunchie, else a bun on top. */
+function bigHair(b: Builder, g: BigGirl, c: Col, tie: Col, tail: boolean) {
+  const hy = g.headY, fz = g.faceZ;
+  b.box(c, [0, hy + 0.215, -0.01], [0.48, 0.09, 0.43]);
+  b.box(c, [0, hy + 0.268, -0.04], [0.4, 0.04, 0.3]);
+  b.box(c, [0, hy + (tail ? 0.02 : 0.05), -0.208], [0.48, tail ? 0.38 : 0.32, 0.06]);
+  for (const s of [-1, 1]) b.box(c, [0.243 * s, hy + 0.08, -0.04], [0.04, 0.26, 0.32]);
+  // side-swept fringe
+  b.box(c, [0.06, hy + 0.158, fz + 0.012], [0.3, 0.07, 0.035], [0, 0, -0.2]);
+  b.box(c, [-0.155, hy + 0.178, fz + 0.012], [0.15, 0.06, 0.035]);
+  if (tail) {
+    const piv: V3 = [0, hy + 0.21, -0.25];
+    b.box(tie, piv, [0.13, 0.075, 0.09]);
+    seg(b, c, piv, [0.45, 0, 0], [0, -0.2, -0.025], [0.15, 0.4, 0.12]);
+    seg(b, c, piv, [0.3, 0, 0], [0, -0.42, -0.05], [0.1, 0.1, 0.08]);
+  } else {
+    b.add(ICO, c, [0, hy + 0.33, -0.08], [0.3, 0.4, 0], [0.24, 0.2, 0.24]);
+    b.box(tie, [0, hy + 0.27, -0.07], [0.13, 0.03, 0.13]);
+  }
+}
+
+/** Амина: синий спортивный костюм с белыми полосками, высокий хвост, руки в боки — танк Атагов. */
+function amina(b: Builder, team: Col) {
+  const white = col('#f4f2ec'), dark = lift(team, 0.72);
+  const g = bigGirl(b, { top: team, legs: dark, shoe: white, sole: col('#c9c6bf'), skin: col('#e2b291'), stripe: white, brow: col('#2a1a12') });
+  // tracksuit: white collar, zip, a small round badge, hem band
+  b.box(white, [0, g.collarY - 0.005, 0], [0.36, 0.05, 0.32]);
+  b.box(white, [0, 0.86, 0.343], [0.018, 0.2, 0.008]);
+  b.box(white, [0, 0.755, 0.348], [0.03, 0.04, 0.008]); // zip pull
+  b.box(white, [0.2, 0.87, 0.33], [0.06, 0.06, 0.008]);
+  b.box(team, [0.2, 0.87, 0.335], [0.03, 0.03, 0.004]);
+  b.add(CYL10, dark, [0, 0.5, 0], [0, 0, 0], [1.02, 0.05, 0.7]);
+  // hands on hips
+  for (const s of [-1, 1]) bigArm(b, g, s > 0 ? g.shL : g.shR, [0, 0, 0.75 * s], [0, 0, -0.55 * s], team, white, s);
+  bigHair(b, g, col('#2a1a12'), lift(team, 1.25), true);
+}
+
+/** Оператор: подруга Амины и ещё больше её. Оливковое худи, пучок, телефон поднят как камера, вспышка горит. */
 function operator(b: Builder) {
-  const hood = col('#6d7a5a'), jeans = col('#3a4a6a'), hairC = col('#4a2e1c');
-  const skin = col('#dcae8c');
-  const f = girlBody(b, {
-    top: hood, legs: jeans, shoe: col('#efece4'), sole: col('#c9c6bf'), skin, eyes: 'brown', cuff: lift(hood, 0.8),
-    armL: { up: [-0.5, 0, -0.1], lo: [-1.4, 0, -0.9] },
-    armR: { up: [-2.75, 0, 0.12] },
-  });
-  hoodie(b, f, hood);
-  hair(b, f, { style: 'bun', c: hairC, fringe: 'part' });
-  // рука поднята над головами, телефон вертикально: экран к ней, камера и вспышка — вперёд
-  const hr = f.handR;
-  const pc: V3 = [hr[0] + 0.005, hr[1] + 0.075, hr[2] + 0.02], pr: V3 = [-0.2, 0, 0.05];
-  slab(b, col('#2b2d33'), C.phone, pc, pr, [0.095, 0.17, 0.02], -1);
-  seg(b, C.lens, pc, pr, [0.022, 0.055, 0.012], [0.032, 0.032, 0.006]);
-  seg(b, C.flash, pc, pr, [-0.02, 0.055, 0.012], [0.034, 0.034, 0.01]);
-  seg(b, f.skin, pc, pr, [0, -0.045, 0.004], [0.095, 0.05, 0.03]); // пальцы держат
+  const hood = col('#6d7a5a'), hoodD = lift(hood, 0.78), jeans = col('#3a4a6a');
+  const g = bigGirl(b, { top: hood, legs: jeans, shoe: col('#efece4'), sole: col('#c9c6bf'), skin: col('#dcae8c'), brow: col('#3a2416') });
+  // hoodie: hood behind the neck, hem band, kangaroo pocket, drawstrings
+  b.box(hood, [0, g.collarY + 0.02, -0.2], [0.4, 0.15, 0.16]);
+  b.box(hoodD, [0, g.collarY + 0.06, -0.17], [0.26, 0.05, 0.1]);
+  b.add(CYL10, hoodD, [0, 0.5, 0], [0, 0, 0], [1.02, 0.06, 0.7]);
+  b.box(hoodD, [0, 0.58, 0.408], [0.44, 0.14, 0.01]);
+  for (const s of [-1, 1]) b.box(C.white, [0.055 * s, 0.93, 0.342], [0.014, 0.13, 0.006]);
+  // left hand rests on the belly, right arm up: the phone filming over everybody's heads
+  bigArm(b, g, g.shL, [0.25, 0, 0.42], [-0.9, 0, 0.12], hood);
+  const hr = bigArm(b, g, g.shR, [-2.85, 0, -0.16], [-3.0, 0, -0.06], hood);
+  const pc: V3 = [hr[0] + 0.005, hr[1] + 0.12, hr[2] + 0.03], pr: V3 = [-0.12, 0, 0.05];
+  slab(b, col('#2b2d33'), C.phone, pc, pr, [0.13, 0.22, 0.026], -1);
+  seg(b, C.lens, pc, pr, [0.03, 0.075, 0.016], [0.042, 0.042, 0.008]);
+  seg(b, C.flash, pc, pr, [-0.03, 0.075, 0.016], [0.044, 0.044, 0.012]);
+  seg(b, g.skin, pc, pr, [0, -0.07, 0.006], [0.13, 0.065, 0.04]); // fingers
+  bigHair(b, g, col('#4a2e1c'), col('#2a2d33'), false);
 }
 
 // ---- random girls ---------------------------------------------------------------------------
@@ -574,8 +674,18 @@ export function girlGeometry(id: string, variant = 0): THREE.BufferGeometry {
     case 'ryzhulka': ryzhulka(b); break;
     case 'altushka': altushka(b); break;
     case 'operator': operator(b); break;
+    case 'amina': amina(b, PAL.side[0]); break;
     default: randomGirl(b, lookNumber(id, variant));
   }
+  const g = b.build();
+  if (id === 'operator') g.scale(OPERATOR_K, OPERATOR_K, OPERATOR_K); // она больше Амины
+  return grounded(g);
+}
+
+/** Амина (unit type 18): tracksuit in the side colour, merged, grounded, facing +z, unit scale. Used by heroGeometry. */
+export function aminaGeometry(side: 0 | 1): THREE.BufferGeometry {
+  const b = new Builder();
+  amina(b, PAL.side[side]);
   return grounded(b.build());
 }
 

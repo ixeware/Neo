@@ -25,7 +25,7 @@ for (const [k, f, v] of JSON.parse(process.env.TUNE || '[]') as [string, string,
 const terrain = await loadTerrain();
 const wins = [0, 0]; const caps = [0, 0]; const firsts: number[] = []; const firstWin = [0, 0]; const byWar: number[][] = [[0, 0], [0, 0], [0, 0]]; const warLen: number[] = [];
 const heroes = [0, 0], rides = [0, 0], donerMin = [0, 0];
-// v3: гелики / спортики bought, ₽ stolen by ersno, packs, minutes the enemy held a side's places, enemy captures of them
+// v3: гелики / спортики bought, ₽ stolen by Мохьмад (ersno), packs, minutes the enemy held a side's places, enemy captures of them
 const geliks = [0, 0], sportiki = [0, 0], stolen = [0, 0], packs = [0, 0], placeLost = [0, 0], placeTaken = [0, 0];
 let maxBytes = 0, errors = 0;
 const ev: Record<string, number> = {};
@@ -68,6 +68,6 @@ firsts.sort((a, b) => a - b);
 console.log('wins by war #1 / #2 / #3+:', byWar.map(w => w.join('-')).join(' / '), ' all war lengths median', [...warLen].sort((a, b) => a - b)[warLen.length >> 1]?.toFixed(1));
 console.log('first war length (min): median', firsts[firsts.length >> 1]?.toFixed(1), 'range', firsts[0]?.toFixed(1), '–', firsts[firsts.length - 1]?.toFixed(1));
 console.log('AI bought heroes', heroes, 'rides', rides, 'events', JSON.stringify(ev));
-console.log('гелики', geliks, 'спортики', sportiki, '₽ stolen by ersno', stolen, 'packs', packs, 'places held by the enemy (min) [Атаги, Курчалой]', placeLost, 'enemy captures', placeTaken);
+console.log('гелики', geliks, 'спортики', sportiki, '₽ stolen by Мохьмад (ersno)', stolen, 'packs', packs, 'places held by the enemy (min) [Атаги, Курчалой]', placeLost, 'enemy captures', placeTaken);
 console.log(`state JSON peak ${(maxBytes / 1024).toFixed(1)} KB; exceptions ${errors}; ${(SEEDS * MIN * 600 / ms * 1000).toFixed(0)} ticks/s overall`);
 if (errors) process.exitCode = 1;

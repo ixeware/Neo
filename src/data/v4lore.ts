@@ -15,8 +15,8 @@ import type { CityKey, HackId, DailyBonus, Rarity } from './season';
 
 export type V4UnitId = 'ipit' | 'operator' | 'snitch' | 'drone' | 'bmw';
 
-/** Тип юнита в UNITS по общему контракту (V4.types в season.ts). */
-export const V4_UNIT_T: Record<V4UnitId, number> = { ipit: 18, operator: 19, snitch: 20, drone: 21, bmw: 22 };
+/** Тип юнита в UNITS по общему контракту (V4.types в season.ts). 18 — Амина, поэтому v4 начинается с 19. */
+export const V4_UNIT_T: Record<V4UnitId, number> = { ipit: 19, operator: 20, snitch: 21, drone: 22, bmw: 23 };
 
 export interface V4UnitLines {
   spawn: Line[];
@@ -258,7 +258,7 @@ function pick(pool: readonly Line[] | undefined, spicy: boolean, rnd: () => numb
   return ok.length ? ok[Math.floor(rnd() * ok.length) % ok.length] : null;
 }
 
-/** Реплика v4-юнита по типу (18..22). null — нет такого типа или корзины. Только UI. */
+/** Реплика v4-юнита по типу (19..23). null — нет такого типа или корзины. Только UI. */
 export function v4UnitLine(t: number, bucket: V4Bucket, spicy: boolean, rnd: () => number = Math.random): Line | null {
   const id = (Object.keys(V4_UNIT_T) as V4UnitId[]).find(k => V4_UNIT_T[k] === t);
   if (!id) return null;
@@ -267,9 +267,9 @@ export function v4UnitLine(t: number, bucket: V4Bucket, spicy: boolean, rnd: () 
   return pick(pool, spicy, rnd);
 }
 
-/** Карточка «кто это» для типов 18..22 (долгое нажатие, «Кто есть кто»). */
+/** Карточка «кто это» для типов 19..23 (долгое нажатие, «Кто есть кто»). */
 export const V4_UNIT_TEXT: Record<number, UnitText> = {
-  18: {
+  19: {
     name: 'ИПИТовцы',
     tag: 'наёмники, ГГНТУ',
     title: 'двое с ноутбуками',
@@ -277,7 +277,7 @@ export const V4_UNIT_TEXT: Record<number, UnitText> = {
     blurb: 'Двое из ИПИТа: худи, ноутбуки, пароль admin123. Иф-элс пишут быстрее, чем ты читаешь.',
     quote: { t: 'Ипитовцы помогут', who: 'Амин' },
   },
-  19: {
+  20: {
     name: 'Оператор',
     tag: 'разведка',
     title: 'капюшон и телефон',
@@ -285,7 +285,7 @@ export const V4_UNIT_TEXT: Record<number, UnitText> = {
     blurb: 'Кто-то с последнего ряда фотографирует чужой экран. Кто — неизвестно. Квадрики и стукач его замечают.',
     quote: { t: 'Оппа, чесском-аккаунт', who: 'Ислам' },
   },
-  20: {
+  21: {
     name: 'Стукач с комиссионки',
     tag: 'наёмник',
     title: 'сдаёт всех',
@@ -293,7 +293,7 @@ export const V4_UNIT_TEXT: Record<number, UnitText> = {
     blurb: 'Появляется к комиссионке. Знает, кто не пришёл, кто списал и кто сдал. Себя не сдаёт.',
     quote: { t: 'Сдал всех. Себя — нет', who: 'Стукач' },
   },
-  21: {
+  22: {
     name: 'Квадрик',
     tag: 'хобби-квадрокоптер',
     title: 'камера, шаурма, конспекты',
@@ -301,7 +301,7 @@ export const V4_UNIT_TEXT: Record<number, UnitText> = {
     blurb: 'Квадрик с камерой для красивых кадров. По дороге развозит шаурму и чужие конспекты.',
     quote: { t: 'Свет и ракурс идеальный', who: 'Амин' },
   },
-  22: {
+  23: {
     name: 'Синяя бэха',
     tag: 'техника',
     title: 'BMW 380i, синяя',
@@ -312,7 +312,7 @@ export const V4_UNIT_TEXT: Record<number, UnitText> = {
 };
 
 /** Порядок v4-карточек в «Кто есть кто» (после существующих). */
-export const V4_ROSTER_ORDER: number[] = [18, 19, 20, 21, 22];
+export const V4_ROSTER_ORDER: number[] = [19, 20, 21, 22, 23];
 
 // ---- админ «Дроп» ----------------------------------------------------------------------------------------
 
@@ -810,9 +810,9 @@ export const V4_ACHIEVEMENTS: Achievement[] = [
   { id: 'nick', title: 'Ник спалили', desc: 'Твой Оператор спалил ник вражеского Амина', quote: { t: 'Оппа, чесском-аккаунт', who: 'Ислам' } },
   // FxEv 'dropEnd' with e.s === player side and e.n >= 1000
   { id: 'drop1000', title: 'Всё на мою карту', desc: 'Один «Дроп» админа принял 1000 урона', quote: { t: 'Наши деньги в безопасности?', who: 'Ислам' } },
-  // own Синяя бэха (type 22): 5 enemy deaths while it was the attacker, within one life
+  // own Синяя бэха (type 23): 5 enemy deaths while it was the attacker, within one life
   { id: 'gears5', title: 'Скидывает передачи', desc: 'Твоя синяя бэха сбила 5 врагов за одну жизнь', quote: { t: 'БМВ надо сначала разогнать, чтобы скидывать передачи', who: 'Амин' } },
-  // FxEv 'heroBack'-like return of type 22 from the СТО (FxEv 'sto' back reached), then a kill by it within 600 ticks
+  // FxEv 'heroBack'-like return of type 23 from the СТО (FxEv 'sto' back reached), then a kill by it within 600 ticks
   { id: 'stoBack', title: 'Как с СТО выедет', desc: 'Синяя бэха вернулась с СТО и в ту же минуту кого-то сбила', quote: { t: 'Напишите, как с СТО выедет ваша БМВ', who: 'Ислам' } },
   // pts[14] (ЧГУ) owner === player side for 3000 ticks in a row
   { id: 'tall', title: 'Средний рост 180', desc: 'Держи ЧГУ 5 минут подряд', quote: { t: 'Чел реально ростом с первый этаж Шайбы', who: 'Ислам' } },
@@ -843,10 +843,11 @@ export const ONLINE_LINES: Record<string, Line[]> = {
   'Чимаев': [{ t: 'Чимаев зашёл. Курчалоер ☝🏿' }, { t: 'Мейн хог в сети' }],
   'Амин': [{ t: 'Амин в сети. Телефон не берёт, а сюда зашёл' }, { t: 'Амин витамин онлайн' }],
   'админ': [{ t: 'админ в сети. Перекличка' }, { t: 'Кто на паре? админ уже тут' }],
-  'ersno': [{ t: 'ersno зашёл. Йоу' }, { t: 'ersno в сети. Держите карты крепче' }],
+  // ersno — ник Мохьмада в беседе: оба ключа ведут к нему
+  'ersno': [{ t: 'Мохьмад зашёл. Йоу' }, { t: 'Мохьмад в сети. Держите карты крепче' }, { t: 'Мохьмад в сети. Голем тоже' }],
   'Бекхан': [{ t: 'Бекхан в сети. Давайте 1 на 1' }, { t: 'Бекхан зашёл. Дисциплина' }],
   'Адам': [{ t: 'Адам проснулся. Два часа как' }, { t: 'Адам в сети. Уже убегает' }],
-  'Мохьмад': [{ t: 'Мохьмад в сети. Голем тоже' }, { t: 'Буквально никто зашёл' }],
+  'Мохьмад': [{ t: 'Мохьмад в сети. Голем тоже' }, { t: 'Буквально никто зашёл' }, { t: 'Мохьмад зашёл. Йоу' }, { t: 'Мохьмад в сети. Держите карты крепче' }],
   '*': [{ t: '{name} зашёл. Чу вала' }, { t: '{name} в сети. Газ' }],
 };
 export const OFFLINE_LINES: Line[] = [

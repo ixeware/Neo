@@ -70,7 +70,8 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 .lbl-hero.s0 { color: var(--pen-a-deep); } .lbl-hero.s1 { color: var(--pen-k-deep); }
 .lbl-hero.me { background: #fff6b8; }
 .lbl-doner .nm { font-family: var(--f-display); font-weight: 800; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; background: var(--marker); }
-.lbl.far .sub, .lbl.far .fl { display: none; }
+/* far (zoomed out past 150): names only; nosub: decluttered down to the name line (labels.ts) */
+.lbl.far .sub, .lbl.far .fl, .lbl.nosub .sub, .lbl.nosub .fl { display: none; }
 .lbl.vfar { display: none; }
 /* v3 capture places: a handwritten name with the perk icon, the perk underneath */
 .lbl-place .nm { display: inline-flex; align-items: center; gap: 4px; font-family: var(--f-hand); font-weight: 700; font-size: 19px; line-height: 1; padding: 1px 7px 3px 5px; }

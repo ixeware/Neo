@@ -1,6 +1,9 @@
 // Map labels (villages, high-rises, bosses, heroes, Донер Бей, capture places, the real 2GIS places
 // up close, the Донер Бей signpost on the north edge) as DOM pinned to 3D points.
-// One read pass (projection) and one write pass per frame, so the DOM never thrashes layout.
+// One read pass (projection) and one write pass per frame, so the DOM never thrashes layout (sizes are measured
+// once per text / zoom state and cached). Then a screen-space pass declutters them by priority:
+// high-rise > village > capture place / Донер Бей > boss > 2GIS landmark > the Донер Бей signpost > hero.
+// A lower label that would overlap a higher one first drops its second line, then hides.
 import * as THREE from 'three';
 import { heightY, type Terrain } from '../world/terrain';
 import { SIDE_TAG, VILLAGE_NOTE } from '../data/lore';
@@ -29,7 +32,19 @@ const LM_DIST = 46, LM_DIST_PHONE = 36;
 /** A real place's name tag up close (with a tiny «2ГИС» tick when it is a 2GIS point). */
 interface LmL { el: HTMLElement; l: LmSpot; y: number; w: number; h: number; sx: number; sy: number; on: boolean; d2: number }
 
-interface L { el: HTMLElement; x: number; y: number; z: number; kind: 'v' | 'hq' | 'boss' | 'note' | 'doner'; idx: number; nm?: HTMLElement; sub?: HTMLElement; key?: string; sx?: number; sy?: number; shown?: boolean }
+interface L {
+  el: HTMLElement; x: number; y: number; z: number; kind: 'v' | 'hq' | 'boss' | 'note' | 'doner'; idx: number; nm?: HTMLElement; sub?: HTMLElement; key?: string; sx?: number; sy?: number; shown?: boolean;
+  /** a capture place (perk) rather than a village */
+  place?: boolean;
+  /** cached sizes: the whole label and the name line alone, valid while mkey holds */
+  w?: number; h?: number; nw?: number; nh?: number; mkey?: string;
+  /** 0 whole, 1 name only, 2 hidden (decluttered) */
+  dc?: number;
+}
+type Rect = { x0: number; y0: number; x1: number; y1: number };
+const hits = (r: Rect, list: Rect[]) => list.some(q => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0);
+/** Screen priority of a map label (lower first). */
+const PRIO = (l: L) => (l.kind === 'hq' ? 0 : l.kind === 'v' ? (l.place ? 2 : 1) : l.kind === 'doner' ? 2 : 3);
 /** Hero name tag. x/z are smoothed toward the unit's tick position. */
 interface H { el: HTMLElement; id: number; t: number; s: 0 | 1; x: number; z: number; w: number; h: number; sx: number; sy: number; on: boolean; seen: number; flee: boolean }
 
@@ -38,7 +53,7 @@ const MAX_HERO_DIST = 135;
 export class Labels {
   private list: L[] = [];
   private lms: LmL[] = [];
-  private edge: { el: HTMLElement; x: number; y: number; z: number } | null = null;
+  private edge: { el: HTMLElement; x: number; y: number; z: number; w?: number; h?: number } | null = null;
   private phone = Math.min(innerWidth, innerHeight) < 600;
   private heroes = new Map<number, H>();
   private root: HTMLElement;
@@ -56,7 +71,7 @@ export class Labels {
         el.className = `lbl lbl-hq s${p.side}`;
         el.innerHTML = `<div class="nm">${SIDE_TAG[p.side as 0 | 1].hq}</div><div class="fl"></div>`;
         root.append(el);
-        this.list.push({ el, x: p.x, y: 0, z: p.z, kind: 'hq', idx: i, sub: el.querySelector('.fl') as HTMLElement });
+        this.list.push({ el, x: p.x, y: 0, z: p.z, kind: 'hq', idx: i, nm: el.querySelector('.nm') as HTMLElement, sub: el.querySelector('.fl') as HTMLElement });
       } else {
         const doner = p.kind === 2;
         // v3 capture places (stadium, car wash, gym, market) carry a perk: show what it gives
@@ -75,7 +90,7 @@ export class Labels {
         sub.textContent = doner ? DONER.note : perkText || (VILLAGE_NOTE[p.key] ?? '');
         if (perkText) el.title = `${p.name}: ${perkText}`;
         root.append(el);
-        this.list.push({ el, x: p.x, y: heightY(t, p.x, p.z) + (doner ? 4.2 : 3.4), z: p.z, kind: doner ? 'doner' : 'v', idx: i, nm, key: '' });
+        this.list.push({ el, x: p.x, y: heightY(t, p.x, p.z) + (doner ? 4.2 : 3.4), z: p.z, kind: doner ? 'doner' : 'v', idx: i, nm, sub, key: '', place: !!perkText });
       }
     });
     for (const s of [0, 1]) {
@@ -83,7 +98,7 @@ export class Labels {
       el.className = 'lbl lbl-boss';
       el.innerHTML = `<div class="nm">${SIDE_TAG[s].boss}</div>`;
       root.append(el);
-      this.list.push({ el, x: 0, y: 0, z: 0, kind: 'boss', idx: s });
+      this.list.push({ el, x: 0, y: 0, z: 0, kind: 'boss', idx: s, nm: el.querySelector('.nm') as HTMLElement });
     }
     // the real 2GIS places (capture places have their own label above)
     for (const l of landmarkPlan(t)) {
@@ -118,7 +133,7 @@ export class Labels {
 
   /** «Донер Гей» only with the 18+ layer on. */
   setSpicy(on: boolean) {
-    for (const l of this.list) if (l.kind === 'doner') l.nm!.textContent = on ? DONER.spicy : DONER.clean;
+    for (const l of this.list) if (l.kind === 'doner') { l.nm!.textContent = on ? DONER.spicy : DONER.clean; l.mkey = ''; }
   }
 
   /** Drop all hero tags (new war, new session). */
@@ -172,22 +187,68 @@ export class Labels {
       l.el.classList.toggle('far', d > 150);
       l.el.classList.toggle('vfar', (l.kind === 'v' && d > 330) || (l.kind === 'doner' && d > 260));
     });
+    this.root.classList.toggle('near', d < (this.phone ? LM_DIST_PHONE : LM_DIST));
+    const placed = this.declutter();
+    this.updateLandmarks(d, placed);
+    if (this.edge) {
+      const e = this.edge, p = this.project(e.x, e.y, e.z);
+      let on = p.vis && d > 28 && d < 230;
+      if (on) {
+        if (!e.w) { e.el.style.display = ''; e.w = e.el.offsetWidth || 200; e.h = e.el.offsetHeight || 22; }
+        const r = { x0: p.x - e.w / 2 - 2, y0: p.y - e.h! - 2, x1: p.x + e.w / 2 + 2, y1: p.y + 2 };
+        if (hits(r, placed)) on = false; else placed.push(r);
+      }
+      if (!on) { if (e.el.style.display !== 'none') e.el.style.display = 'none'; }
+      else { e.el.style.display = ''; e.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`; }
+    }
+    // hero tags come last: one over a place or a village name steps aside
     for (const h of this.heroes.values()) {
+      if (h.on && hits({ x0: h.sx - h.w / 2, y0: h.sy - h.h, x1: h.sx + h.w / 2, y1: h.sy }, placed)) h.on = false;
       if (!h.on) { if (h.el.style.display !== 'none') h.el.style.display = 'none'; continue; }
       h.el.style.display = '';
       h.el.style.transform = `translate(${h.sx.toFixed(1)}px, ${h.sy.toFixed(1)}px) translate(-50%, -100%)`;
     }
-    this.root.classList.toggle('near', d < (this.phone ? LM_DIST_PHONE : LM_DIST));
-    this.updateLandmarks(d);
-    if (this.edge) {
-      const e = this.edge, p = this.project(e.x, e.y, e.z), on = p.vis && d > 28 && d < 230;
-      if (!on) { if (e.el.style.display !== 'none') e.el.style.display = 'none'; }
-      else { e.el.style.display = ''; e.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`; }
-    }
   }
 
-  /** Names of the real places up close: nearest to the view centre first, never on top of each other. */
-  private updateLandmarks(d: number) {
+  /**
+   * Screen-space pass over the high-rise, village, place, Донер Бей and boss labels shown this frame, by priority:
+   * a label that would overlap one already placed drops its second line, and if it still overlaps, hides.
+   * Returns the rects taken, for the smaller names placed after these.
+   */
+  private declutter(): Rect[] {
+    const placed: Rect[] = [];
+    const shown = this.list.filter(l => l.shown && l.kind !== 'note' && !l.el.classList.contains('vfar'));
+    shown.sort((a, b) => PRIO(a) - PRIO(b) || b.sy! - a.sy!); // equal rank: the nearer (lower on screen) first
+    for (const l of shown) {
+      // sizes: measured once per text and zoom state (the second line hides when far)
+      const far = l.el.classList.contains('far');
+      const mk = `${far ? 1 : 0}|${l.nm?.textContent ?? ''}|${l.sub?.textContent ?? ''}`;
+      if (l.mkey !== mk) {
+        l.el.classList.remove('nosub'); l.el.style.visibility = '';
+        l.w = l.el.offsetWidth; l.h = l.el.offsetHeight;
+        l.nw = l.nm ? l.nm.offsetWidth : l.w; l.nh = l.nm ? l.nm.offsetHeight : l.h;
+        l.mkey = mk; l.dc = 0;
+      }
+      const x = l.sx!, y = l.sy!;
+      const full = { x0: x - l.w! / 2 - 2, y0: y - l.h! - 2, x1: x + l.w! / 2 + 2, y1: y + 2 };
+      // the name line alone sits on top (the label hangs from its anchor: translate(-50%, -100%))
+      const name = { x0: x - l.nw! / 2 - 2, y0: y - l.h! - 2, x1: x + l.nw! / 2 + 2, y1: y - l.h! + l.nh! + 2 };
+      let dc = 2, r: Rect | null = null;
+      if (!hits(full, placed)) { dc = 0; r = full; }
+      else if (l.nh! < l.h! - 1 && !hits(name, placed)) { dc = 1; r = name; }
+      if (r) placed.push(r);
+      if (l.dc !== dc) {
+        l.dc = dc;
+        l.el.classList.toggle('nosub', dc === 1);
+        l.el.style.visibility = dc === 2 ? 'hidden' : '';
+      }
+    }
+    for (const l of this.list) if (!l.shown && l.dc) { l.dc = 0; l.el.classList.remove('nosub'); l.el.style.visibility = ''; }
+    return placed;
+  }
+
+  /** Names of the real places up close: nearest to the view centre first, never on top of each other or of the labels placed above. */
+  private updateLandmarks(d: number, placed: Rect[]) {
     const max = this.phone ? 6 : 12, near = d < (this.phone ? LM_DIST_PHONE : LM_DIST);
     if (!near) { for (const m of this.lms) if (m.on) { m.on = false; m.el.style.display = 'none'; } return; }
     if (this.stage.lowPower && this.frame & 1) return;
@@ -203,12 +264,7 @@ export class Labels {
       if (m.on) cand.push(m);
     }
     cand.sort((a, b) => a.d2 - b.d2);
-    // the village, high-rise and place labels are drawn already: keep the small names off them
-    const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
-    for (const l of this.list) {
-      if (l.kind === 'boss' || l.kind === 'note' || !l.shown) continue;
-      placed.push({ x0: l.sx! - 70, y0: l.sy! - 46, x1: l.sx! + 70, y1: l.sy! + 2 });
-    }
+    // the village, high-rise and place labels are placed already (declutter): keep the small names off them
     let n = 0;
     for (const m of cand) {
       if (n >= max) { m.on = false; continue; }

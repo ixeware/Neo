@@ -98,6 +98,12 @@ function cleanClock(v: Any): ClockDoc | null {
 const sameClock = (a: ClockDoc | null, b: ClockDoc | null) => !!a && !!b && a.tick0 === b.tick0 && a.wall0 === b.wall0 && a.gen === b.gen;
 const clockKey = (c: ClockDoc) => `${c.gen}:${c.tick0}:${c.wall0}`;
 const wins2 = (v: Any): [number, number] => (Array.isArray(v) && Number.isInteger(v[0]) && Number.isInteger(v[1]) && v[0] >= 0 && v[1] >= 0 ? [v[0], v[1]] : [0, 0]);
+/** How much a world hands its sides beyond the game: admin toggles first, then money (a forger gives itself more, not less). */
+function privilege(st: State): number {
+  const a = st.adm;
+  const on = a ? [...a.frz, ...a.god].filter(x => x).length + a.ai.filter(x => x).length : 0;
+  return on * 1e12 + Math.max(0, st.sides[0].money) + Math.max(0, st.sides[1].money);
+}
 function cleanCp(v: Any): CpDoc | null {
   if (!v || typeof v !== 'object') return null;
   if (!Number.isInteger(v.tick) || v.tick < 0 || !Number.isInteger(v.hash) || typeof v.st !== 'string' || v.st.length > MAX_STATE_CHARS) return null;
@@ -174,33 +180,11 @@ class SharedWar implements Shared {
     this.unsubs.push(db.doc('w/cp').onSnapshot((s: Any) => { this.gotCp = true; this.legacyCp = s.exists ? cleanCp(s.data()) : null; }, () => { this.gotCp = true; }));
     this.unsubs.push(db.collection('ev').onSnapshot((q: Any) => {
       this.gotEv = true;
-      for (const ch of q.docChanges()) {
-        if (ch.type === 'removed') continue;
-        const id = ch.doc.id as string, d = ch.doc.data() as Any;
-        if (!okPid(id)) continue;
-        const raw: Any[] = Array.isArray(d?.cmds) ? d.cmds : [];
-        const list = raw.filter(c => validCmd(c) && bound(c, id));
-        if (list.length !== raw.length) this.stats.unbound += raw.length - list.length;
-        this.ev.set(id, list);
-        this.evW.set(id, this.writerOf(id, false, d));
-        if (this.session && id !== this.uid) for (const c of list) this.session.receive(c);
-      }
+      for (const ch of q.docChanges()) if (ch.type !== 'removed') this.onEvDoc(ch.doc.id, ch.doc.data());
     }, () => { this.gotEv = true; /* store unreachable: room still carries commands */ }));
     this.unsubs.push(db.collection('adm').onSnapshot((q: Any) => {
       this.gotAdm = true;
-      for (const ch of q.docChanges()) {
-        if (ch.type === 'removed') continue;
-        const id = ch.doc.id as string, d = ch.doc.data() as Any;
-        if (!okPid(id)) continue;
-        const raw: Any[] = Array.isArray(d?.cmds) ? d.cmds : [];
-        const list = raw.filter(c => validAdmCmd(c) && bound(c, id)).slice(-400);
-        this.adm.set(id, list);
-        this.admW.set(id, this.writerOf(id, true, d));
-        if (!this.session) continue;
-        if (id !== this.uid) { for (const c of list) this.session.receive(c); continue; }
-        // our own list from another tab or an earlier visit: keep it, so the next write does not drop it
-        for (const c of list) if (!this.myAdm.some(x => x.id === c.id)) { this.myAdm.push(c); this.admOk.add(c.id); this.session.receive(c); }
-      }
+      for (const ch of q.docChanges()) if (ch.type !== 'removed') this.onAdmDoc(ch.doc.id, ch.doc.data());
     }, () => { this.gotAdm = true; /* store unreachable */ }));
     if (room) {
       // `by` is the platform's stamp of who sent it: a command speaks only for its sender
@@ -223,9 +207,44 @@ class SharedWar implements Shared {
     }
   }
 
+  /** ev/{id}: the writer's own commands (bound to it) and its attestations. */
+  private onEvDoc(id: unknown, d: Any) {
+    if (!okPid(id)) return;
+    const raw: Any[] = Array.isArray(d?.cmds) ? d.cmds : [];
+    const list = raw.filter(c => validCmd(c) && bound(c, id));
+    if (list.length !== raw.length) this.stats.unbound += raw.length - list.length;
+    this.ev.set(id, list);
+    this.evW.set(id, this.writerOf(id, false, d));
+    if (this.session && id !== this.uid) for (const c of list) this.session.receive(c);
+  }
+
+  /** adm/{id} (editors only): admin commands (bound to the editor) and the editor's attestations. */
+  private onAdmDoc(id: unknown, d: Any) {
+    if (!okPid(id)) return;
+    const raw: Any[] = Array.isArray(d?.cmds) ? d.cmds : [];
+    const list = raw.filter(c => validAdmCmd(c) && bound(c, id)).slice(-400);
+    this.adm.set(id, list);
+    if (d && Array.isArray(d.hv)) this.admW.set(id, this.writerOf(id, true, d)); else this.admW.delete(id);
+    if (!this.session) return;
+    if (id !== this.uid) { for (const c of list) this.session.receive(c); return; }
+    // our own list from another tab or an earlier visit: keep it, so the next write does not drop it
+    for (const c of list) if (!this.myAdm.some(x => x.id === c.id)) { this.myAdm.push(c); this.admOk.add(c.id); this.session.receive(c); }
+  }
+
+  /** Read the most recent writers' docs again (a joiner's first view may be a stale cache). */
+  private async refreshWriters() {
+    const recs = this.writers().sort((a, b) => b.at - a.at).slice(0, 8);
+    await Promise.all(recs.map(async w => {
+      try {
+        const s = await timeout(this.db.doc((w.editor ? 'adm/' : 'ev/') + w.uid).get() as Promise<Any>, 4000);
+        if (s && s.exists) { if (w.editor) this.onAdmDoc(w.uid, s.data()); else this.onEvDoc(w.uid, s.data()); }
+      } catch { /* the listener's copy stays */ }
+    }));
+  }
+
   private writerOf(uid: string, editor: boolean, d: Any): WriterRec {
     return {
-      uid, editor, hv: cleanHv(d?.hv, HV_KEEP * 2), ck: cleanClock(d?.ck),
+      uid, editor, hv: cleanHv(d?.hv, HV_KEEP * 2).filter(a => a.t % CP_STEP === 0), ck: cleanClock(d?.ck),
       at: typeof d?.at === 'number' && Number.isFinite(d.at) ? d.at : 0,
       era: Number.isInteger(d?.era) && d.era >= 1 ? d.era : 1, wins: wins2(d?.wins),
     };
@@ -302,13 +321,18 @@ class SharedWar implements Shared {
 
   /**
    * The world a joiner (or a tab back from away) starts from: the best-supported checkpoint it can
-   * fetch. Ranked: a writer behind it is fresh; editor > majority > a lone writer; newest tick. An
-   * undecided tick (a tie) is skipped: an older tick where they agreed comes up instead. Last, the
-   * legacy w/cp of a world from before attestations (only while nobody attests).
+   * fetch. Ranked: recent (at most one step older than the newest tick fresh writers decided on) and
+   * fresh first; editor > majority > a lone writer (only while at most one writer is fresh); newest
+   * tick. An undecided tick (a tie) is skipped: an older tick where they agreed comes up instead.
+   * When none of those can be fetched: the claims at the newest tick two fresh writers attested,
+   * each verified, and the least privileged world wins (no admin toggles, least money: a forger
+   * hands itself more, not less). Last, the legacy w/cp of a world from before attestations.
    */
   private async pickBase(sim: Sim): Promise<Base | null> {
     const ws = this.writers(); // my own docs too: an earlier visit of mine is a claim like any other
     const now = Date.now();
+    const isFresh = (w: WriterRec) => now - w.at < FRESH_MS;
+    const freshN = new Set(ws.filter(isFresh).map(w => w.uid)).size;
     const rank = { editor: 3, majority: 2, alone: 1 } as const;
     // claims grouped per clock generation, so two timelines never vote together
     const byGen = new Map<number, WriterRec[]>();
@@ -318,7 +342,9 @@ class SharedWar implements Shared {
       for (const { t, v } of verdicts(list)) {
         if (!v) continue;
         const sup = list.filter(w => w.hv.some(a => a.t === t && a.h === v.h));
-        cands.push({ t, v, gen, sup, fresh: sup.some(w => now - w.at < FRESH_MS) });
+        const fresh = sup.some(isFresh);
+        if (v.why === 'alone' && fresh && freshN > 1) continue; // two players here: one voice alone proves nothing
+        cands.push({ t, v, gen, sup, fresh });
       }
     }
     // the newest tick fresh writers decided on (editor or majority): an older verdict than one step
@@ -329,13 +355,23 @@ class SharedWar implements Shared {
     cands.sort((a, b) => Number(recent(b)) - Number(recent(a)) || Number(b.fresh) - Number(a.fresh) || rank[b.v.why] - rank[a.v.why] || b.t - a.t);
     for (const c of cands.slice(0, 6)) {
       const got = await this.fetchCp(c.t, c.v.h, c.sup.map(w => w.uid), sim);
-      if (!got) continue;
-      // the clock most of its writers state
-      const cks = new Map<string, { c: ClockDoc; n: number }>();
-      for (const w of c.sup) if (w.ck) { const k = clockKey(w.ck), e = cks.get(k); if (e) e.n++; else cks.set(k, { c: w.ck, n: 1 }); }
-      const clock = [...cks.values()].sort((a, b) => b.n - a.n)[0]?.c ?? null;
-      const awake = c.sup.some(w => now - w.at < SLEEP_MS);
-      return { st: got.st, tick: c.t, hash: c.v.h, clock: awake ? clock : null, fresh: c.fresh, gen: Math.max(c.gen, clock?.gen ?? 0), why: `${c.v.why} ${c.v.n}/${c.v.of} from ${got.from === 'w/cp' ? 'w/cp' : 'ev'}` };
+      if (got) return this.baseOf(got.st, c.t, c.v.h, c.sup, c.gen, `${c.v.why} ${c.v.n}/${c.v.of} from ${got.from === 'w/cp' ? 'w/cp' : 'ev'}`);
+    }
+    // a tie at every tick still stored: the least privileged of the claims two fresh writers made
+    const fw = ws.filter(isFresh);
+    for (const { t, claims } of verdicts(fw)) {
+      if (new Set(claims.map(c => c.uid)).size < 2) continue;
+      const got: { h: number; st: State; sup: WriterRec[] }[] = [];
+      for (const h of [...new Set(claims.map(c => c.h))].slice(0, 3)) {
+        const sup = fw.filter(w => w.hv.some(a => a.t === t && a.h === h));
+        const g = await this.fetchCp(t, h, sup.map(w => w.uid), sim);
+        if (g) got.push({ h, st: g.st, sup });
+      }
+      if (!got.length) continue;
+      got.sort((a, b) => privilege(a.st) - privilege(b.st) || a.h - b.h);
+      const g = got[0];
+      this.refuse(`tie at ${t}: took the least privileged of ${got.length}`);
+      return this.baseOf(g.st, t, g.h, g.sup, Math.max(0, ...g.sup.map(w => w.ck?.gen ?? 0)), 'tie');
     }
     if (!ws.some(w => w.hv.length) && this.legacyCp) {
       const L = this.legacyCp, raw = parseState(L.st);
@@ -348,14 +384,26 @@ class SharedWar implements Shared {
     return null;
   }
 
+  /** A base from a verified checkpoint: the clock most of its writers state, unless they all sleep. */
+  private baseOf(st: State, t: number, h: number, sup: WriterRec[], gen: number, why: string): Base {
+    const now = Date.now();
+    const cks = new Map<string, { c: ClockDoc; n: number }>();
+    for (const w of sup) if (w.ck) { const k = clockKey(w.ck), e = cks.get(k); if (e) e.n++; else cks.set(k, { c: w.ck, n: 1 }); }
+    const clock = [...cks.values()].sort((a, b) => b.n - a.n)[0]?.c ?? null;
+    const awake = sup.some(w => now - w.at < SLEEP_MS);
+    return { st, tick: t, hash: h, clock: awake ? clock : null, fresh: sup.some(w => now - w.at < FRESH_MS), gen: Math.max(gen, clock?.gen ?? 0), why };
+  }
+
   // ---- joining ------------------------------------------------------------------------------------
   async join(sim: Sim, side: 0 | 1, attempt = 0): Promise<Session | null> {
     if (!this.uid) return null;
     this.side = side;
     for (let i = 0; i < 40 && !(this.gotClock && this.gotCp && this.gotEv && this.gotAdm); i++) await sleep(250);
     this.editor = await this.admin.canEdit();
+    await this.refreshWriters();
+    let base = await this.pickBase(sim);
+    if (!base && this.writers().some(w => w.hv.length)) { await sleep(2000); await this.refreshWriters(); base = await this.pickBase(sim); }
     const now = Date.now();
-    const base = await this.pickBase(sim);
     let st: State, clock: ClockDoc, made = false;
     const maxGen = Math.max(0, base?.gen ?? 0, ...this.writers().map(w => w.ck?.gen ?? 0));
     if (!base) {

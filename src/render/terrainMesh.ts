@@ -3,6 +3,8 @@
 import * as THREE from 'three';
 import { LC, type Terrain } from '../world/terrain';
 import type { Tin } from './lowpoly';
+import { TOON, HEX, ground, native } from './style';
+import { toonWater, toonWaterShore } from './toon/water';
 
 export { hash2 } from './lowpoly';
 
@@ -36,13 +38,13 @@ function faceGeometry(tin: Tin, keep: (cls: number) => boolean, lift = 0): THREE
 
 export function terrainMesh(t: Terrain, tin: Tin): THREE.Group {
   const group = new THREE.Group();
-  const land = new THREE.Mesh(faceGeometry(tin, c => c !== LC.WATER), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  const land = new THREE.Mesh(faceGeometry(tin, c => c !== LC.WATER), ground(native(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }))));
   land.receiveShadow = true;
   land.name = 'terrain';
   group.add(land);
 
   // skirt: the map sits on a table like a printed relief model
-  const skirtMat = new THREE.MeshLambertMaterial({ color: '#3b3128', side: THREE.DoubleSide });
+  const skirtMat = native(new THREE.MeshLambertMaterial({ color: TOON ? HEX.skirt : '#3b3128', side: THREE.DoubleSide }));
   const base = -2.2;
   for (const side of tin.border) {
     const n = side.length;
@@ -65,8 +67,8 @@ export function terrainMesh(t: Terrain, tin: Tin): THREE.Group {
 /** The Argun and ponds: the water faces of the same TIN, faceted and shiny. */
 export function waterMesh(t: Terrain, tin: Tin): THREE.Mesh {
   const m = new THREE.Mesh(
-    faceGeometry(tin, c => c === LC.WATER),
-    new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true, specular: '#9fcfdf', shininess: 55 }),
+    TOON ? toonWaterShore(faceGeometry(tin, c => c === LC.WATER), tin) : faceGeometry(tin, c => c === LC.WATER),
+    TOON ? toonWater() : new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true, specular: '#9fcfdf', shininess: 55 }),
   );
   m.receiveShadow = true;
   m.name = 'water';

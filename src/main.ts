@@ -805,7 +805,7 @@ async function boot() {
     });
     if (playing) { labels.update(dt); minimap.draw(now); hud.update(sim, prefs.pid, now); }
     else labels.update(dt);
-    stage.renderer.render(scene, stage.camera);
+    stage.render();
     requestAnimationFrame(frame);
   };
   $('boot').classList.add('done');

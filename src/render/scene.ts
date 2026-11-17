@@ -1,6 +1,7 @@
 // Scene, lights, RTS camera rig and ground picking.
 import * as THREE from 'three';
 import { heightY, type Terrain } from '../world/terrain';
+import { styleStage, type ToonStage } from './style';
 
 /** Phones, small screens and `?lq`: fewer trees, no shadows, lighter effects. */
 export function isLowPower(): boolean {
@@ -20,6 +21,8 @@ export class Stage {
   private shakeAmt = 0;
   private shakeT = 0;
   private calm = false; // prefers-reduced-motion: no camera shake at all
+  /** The new graphics style (src/render/style.ts): null in classic. */
+  toon: ToonStage | null = null;
 
   /**
    * Camera shake. `stage.shake(0.4)` adds a small decaying kick (quakes, bursts);
@@ -54,6 +57,7 @@ export class Stage {
     sh.camera.near = 1; sh.camera.far = 160;
     sh.bias = -0.0008; sh.normalBias = 0.04;
     this.scene.add(this.sun, this.sun.target);
+    this.toon = styleStage(this.renderer, this.scene, hemi, this.sun, this.lowPower, !mobile || devicePixelRatio < 2);
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -138,6 +142,12 @@ export class Stage {
     const fogNear = Math.max(120, this.dist * 1.6);
     (this.scene.fog as THREE.Fog).near = fogNear;
     (this.scene.fog as THREE.Fog).far = fogNear + 380;
+    this.toon?.haze(this.scene.fog as THREE.Fog, this.dist);
+  }
+
+  /** Draw the frame (classic: straight to the canvas; toon: through the outline pass). */
+  render() {
+    if (this.toon) this.toon.render(this.scene, this.camera); else this.renderer.render(this.scene, this.camera);
   }
 
   /** Ray-march the heightfield (fast, no triangle tests). */

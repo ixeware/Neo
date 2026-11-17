@@ -1,8 +1,8 @@
 // HUD: notebook slips around the map. DOM is refreshed ~10×/s, not every frame.
 import { UNITS, HQ, CARDS, VOTERS, SIDE_FULL, SHOP, EVENTS, EVENT_EVERY, BUFF, ADMIN, canBuy, type Side } from '../sim/defs';
 import { cardTitle, type Sim } from '../sim/sim';
-import { SIDE_TAG, uiName } from '../data/lore';
-import { HEROES, UNIT_TEXT, heroForUnit, cardLore } from '../data/heroes';
+import { SIDE_TAG, uiName, clean18 } from '../data/lore';
+import { HEROES, UNIT_TEXT, heroForUnit, cardLore, heroBio } from '../data/heroes';
 import type { Portraits } from './portraits';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') => {
@@ -24,6 +24,10 @@ const INITIALS: Record<number, [string, string]> = {
   6: ['Чим', 'Чим'], 7: ['Ам', 'Ам'], 8: ['адм', 'адм'], 9: ['ers', 'ers'], 10: ['Бх', 'Бх'], 11: ['Ад', 'Ад'],
   12: ['Мх', 'Мх'], 13: ['Гл', 'Гл'], 14: ['Тк', 'Мр'], 15: ['Кр', 'Кр'], 16: ['Гел', 'Гел'], 17: ['Сп', 'Сп'],
 };
+/** Card names that do not fit two short lines on a phone card (the full name stays in the info card). */
+const SHORT: Record<string, string> = { 'Маршрутка 150 ₽': 'Маршрутка', 'Ислам #1 ranked chad': 'Ислам' };
+export const shortLabel = (name: string) => SHORT[name] ?? name;
+
 /** <img> of the unit portrait, or a side-coloured tile with initials when there is none. */
 export function portraitHtml(p: Portraits, s: Side, t: number, cls = 'pimg', tone: number = s): string {
   const src = t === 5 ? p.bosses?.[s] : p.units?.[s]?.[t];
@@ -43,8 +47,8 @@ export function unitLabel(t: number, s: Side): string {
   return d ? uiName(d.name[s]) : UNIT_TEXT[t]?.name ?? '';
 }
 
-/** One line on what the unit does (for the info card). */
-export function unitRole(t: number, s: Side): string {
+/** One line on what the unit does (for the info card); spicy = the 18+ layer (the admin's pack). */
+export function unitRole(t: number, s: Side, spicy = false): string {
   const d = UNITS[t];
   if (!d) return UNIT_TEXT[t]?.role ?? '';
   switch (d.key) {
@@ -56,7 +60,7 @@ export function unitRole(t: number, s: Side): string {
     case 'ride': return `Транспорт: везёт ${d.carry![s]} пацанов к селу и уезжает. Сам не дерётся`;
     case 'chimaev': return 'Бежит только к вражеской высотке и бьёт её втрое. «Землетряс» достаёт и её';
     case 'wou': return 'Враги рядом бьют только его. Пока жив, +2 ₽/с. «Взломать Пентагон»: турель и доход соседей — ноль';
-    case 'admin': return '«Н»: враги рядом стоят 3 секунды, свои ходят быстрее. «Курение убивает»: пачка с его фото — толпа врагов разбегается и не дерётся';
+    case 'admin': return `«Н»: враги рядом стоят 3 секунды, свои ходят быстрее. «${spicy ? 'Курение' : 'Прогул'} убивает»: пачка с его фото — толпа врагов разбегается и не дерётся`;
     case 'ersno': return 'Вор с Големом: каждый удар уводит пару рублей из соседской кассы, «Списание с карты» — до 10% их кассы (не больше 150 ₽). Рядом всегда Голем: упал — через 40 с новый';
     case 'bekhan': return 'Свои рядом получают на 15% меньше урона. Раз за жизнь ест лагман: +50% здоровья';
     case 'adam': return 'Не дерётся, от драки убегает. Село берёт за четверых';
@@ -97,6 +101,8 @@ export class Hud {
   private scoreEl: HTMLElement; private warEl: HTMLElement; private clockEl: HTMLElement;
   private moneyEl: HTMLElement; private incEl: HTMLElement;
   private bankEl: HTMLElement;
+  private miniEl: HTMLElement;
+  private layoutKey = '';
   /** card buffs (снюс / LOOP / «отходняк»): ours under the clock, the neighbours' under their side slip */
   private buffEls: HTMLElement[] = [];
   private buffKey = ['', ''];
@@ -176,6 +182,7 @@ export class Hud {
     document.addEventListener('pointerdown', e => { if (!this.info.hidden && !(e.target as HTMLElement).closest?.('.card')) this.hideInfo(); }, true);
 
     const mini = h('div', 'mini paper');
+    this.miniEl = mini;
     this.miniCanvas = h('canvas') as HTMLCanvasElement;
     this.miniCanvas.width = 456; this.miniCanvas.height = 312;
     mini.append(this.miniCanvas);
@@ -201,6 +208,50 @@ export class Hud {
 
     this.hintEl = h('div', 'hint');
     root.append(top, bank, this.deck, mini, this.vote, this.feed, tools, this.hintEl, this.info);
+    // the bottom cluster stacks on measured sizes (CSS variables on #hud, see style.css)
+    for (const r of this.rows) r.addEventListener('scroll', () => this.paintMore(), { passive: true });
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => this.layout());
+      for (const e of [this.deck, ...this.rows, bank, mini]) ro.observe(e);
+    }
+    addEventListener('resize', () => this.layout());
+  }
+
+  /**
+   * Measures the deck, the visible card row, the bank and the minimap and hands them to CSS
+   * (--deck-h, --cards-h, --bank-h, --bank-w, --mini-w, --mini-h): the bank, the minimap on phones, the command
+   * bar, the chat, the hint and the сход sheet stack on them, so nothing hides under the deck when its cards grow.
+   */
+  layout() {
+    if (this.root.hidden) return;
+    const row = this.rows[this.tab];
+    const v = [this.deck.offsetHeight, row.offsetHeight, this.bankEl.offsetHeight, this.bankEl.offsetWidth, this.miniEl.offsetWidth, this.miniEl.offsetHeight];
+    if (!v[0] || !v[4]) return;
+    const key = v.join(',');
+    if (key !== this.layoutKey) {
+      this.layoutKey = key;
+      ['--deck-h', '--cards-h', '--bank-h', '--bank-w', '--mini-w', '--mini-h'].forEach((n, i) => this.root.style.setProperty(n, `${v[i]}px`));
+    }
+    this.paintMore();
+  }
+
+  /** A card row that scrolls fades out on the side where more cards wait. */
+  private paintMore() {
+    for (const r of this.rows) {
+      if (r.hidden) continue;
+      const max = r.scrollWidth - r.clientWidth;
+      r.classList.toggle('more-l', max > 2 && r.scrollLeft > 2);
+      r.classList.toggle('more-r', max > 2 && r.scrollLeft < max - 2);
+    }
+  }
+
+  /** Scrolls the card row so this card is fully in view (a key picked a card off screen). */
+  private reveal(b: HTMLElement) {
+    const row = b.parentElement;
+    if (!row || row.scrollWidth <= row.clientWidth + 1) return;
+    const rr = row.getBoundingClientRect(), cr = b.getBoundingClientRect();
+    const dx = cr.left < rr.left + 2 ? cr.left - rr.left - 6 : cr.right > rr.right - 2 ? cr.right - rr.right + 6 : 0;
+    if (dx) row.scrollBy({ left: dx, behavior: 'smooth' });
   }
 
   private myBuffs: HTMLElement;
@@ -223,9 +274,9 @@ export class Hud {
         const d = UNITS[t], i = this.order.indexOf(t);
         const b = h('button', `card paper${d.hero ? ' hero' : ''}`) as HTMLButtonElement;
         b.type = 'button';
-        const nm = unitLabel(t, s);
-        b.innerHTML = `<span class="key">${DECK_KEYS[i] ?? ''}</span>${portraitHtml(this.o.portraits, s, t)}<span class="cn">${esc(nm)}</span><span class="cc"></span><span class="st"></span><span class="cdbar"></span>`;
-        b.setAttribute('aria-label', `${nm}: ${unitRole(t, s)}`);
+        const nm = unitLabel(t, s), sh = shortLabel(nm);
+        b.innerHTML = `<span class="key">${DECK_KEYS[i] ?? ''}</span>${portraitHtml(this.o.portraits, s, t)}<span class="cn"><span class="fl">${esc(nm)}</span><span class="sh">${esc(sh)}</span></span><span class="cc"></span><span class="st"></span><span class="cdbar"></span>`;
+        b.setAttribute('aria-label', `${nm}: ${unitRole(t, s, this.spicy)}`);
         this.bindCard(b, t);
         this.cards.set(t, b);
         row.append(b);
@@ -234,6 +285,9 @@ export class Hud {
     this.blocked.clear();
     this.setTab(0);
     this.select(-1);
+    this.rows.forEach(r => { r.scrollLeft = 0; });
+    this.layoutKey = '';
+    requestAnimationFrame(() => this.layout());
   }
 
   /** Tap selects; long-press (touch) or hover (mouse) opens the info card. */
@@ -264,6 +318,7 @@ export class Hud {
     this.tabBtns.forEach((b, i) => { b.classList.toggle('on', i === k); b.setAttribute('aria-selected', String(i === k)); });
     this.rows.forEach((r, i) => { r.hidden = i !== k; });
     this.hideInfo();
+    this.layout();
   }
 
   /** Unit type behind keyboard slot i (0-based), or -1. */
@@ -278,6 +333,8 @@ export class Hud {
     if (t >= 0) {
       const k = UNITS[t].hero ? 1 : 0;
       if (k !== this.tab) this.setTab(k);
+      const b = this.cards.get(t);
+      if (b) this.reveal(b);
     }
     this.hint(this.blurb(t));
   }
@@ -298,9 +355,9 @@ export class Hud {
     this.info.className = `cardinfo paper s${s}`;
     this.info.innerHTML = `<div class="ci-h"><b class="ci-n">${esc(unitLabel(t, s))}</b><span class="ci-tag">${esc(tag)}</span></div>
       ${lore ? `<div class="ci-t">${esc(lore.title)}</div>` : ''}
-      <div class="ci-r">${esc(unitRole(t, s))}</div>
-      <div class="ci-b">${esc(lore ? lore.bio : ut ? ut.blurb : uiName(d.blurb[s]))}</div>
-      ${q ? `<div class="ci-q">«${esc(q.t)}»${q.who ? ` <span>— ${esc(q.who)}</span>` : ''}</div>` : ''}
+      <div class="ci-r">${esc(unitRole(t, s, this.spicy))}</div>
+      <div class="ci-b">${esc(hid ? heroBio(hid, this.spicy) : ut ? ut.blurb : clean18(uiName(d.blurb[s]), this.spicy))}</div>
+      ${q && (this.spicy || !q.spicy) ? `<div class="ci-q">«${esc(q.t)}»${q.who ? ` <span>— ${esc(q.who)}</span>` : ''}</div>` : ''}
       <div class="ci-s">${esc(stats)}</div>`;
     this.info.hidden = false;
     const r = card.getBoundingClientRect(), W = innerWidth;
@@ -314,7 +371,7 @@ export class Hud {
   hideInfo() { if (!this.info.hidden) this.info.hidden = true; }
 
   hint(text: string) { clearTimeout(this.tipT); this.hintEl.classList.remove('rot'); this.hintEl.textContent = text; }
-  private blurb(t: number) { return t >= 0 ? `${uiName(UNITS[t].blurb[this.side])}. Тапни по кругу у своего села` : ''; }
+  private blurb(t: number) { return t >= 0 ? `${clean18(uiName(UNITS[t].blurb[this.side]), this.spicy)}. Тапни по кругу у своего села` : ''; }
   /** A short note on the hint line (why a card can't be used); then the line returns to the selected card. */
   note(text: string, ms = 3200) {
     this.hint(text);
@@ -561,11 +618,12 @@ export class Hud {
   showOver(sim: Sim, win: boolean, taunt: string) {
     this.hideOver();
     const st = sim.st, w = st.winner as Side;
+    const pen = this.side ? 'k' : 'a'; // the player's own pen, win or lose
     const el = h('div', 'over');
     const row = (label: string, a: number | string, k: number | string) => `<span>${label}</span><span class="num a">${a}</span><span class="num k">${k}</span>`;
     el.innerHTML = `<div class="sheet paper">
-      <div class="who ${w ? 'k' : 'a'}">${win ? 'Победа' : 'Поражение'}: ${SIDE_FULL[w]}</div>
-      <div class="taunt hand ${w ? 'k' : 'a'}">«${esc(taunt)}»</div>
+      <div class="who ${pen}">${win ? `Победа: ${SIDE_FULL[w]}` : `Поражение. ${w === 0 ? 'Победили' : 'Победил'} ${SIDE_FULL[w]}`}</div>
+      <div class="taunt hand ${pen}">«${esc(taunt)}»</div>
       <div class="tbl"><span></span><span class="a">Атаги</span><span class="k">Курчалой</span>
         ${row('Войн выиграно', st.sides[0].wins, st.sides[1].wins)}
         ${row('Убито', st.sides[0].kills, st.sides[1].kills)}

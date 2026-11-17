@@ -2,7 +2,7 @@
    Same notebook paper as the rest of the HUD; our ink for what is ours, red pen for attacks. */
 
 /* ---------- command bar (only while something is selected) ---------- */
-.cmdbar { position: absolute; left: 50%; bottom: calc(var(--edge-b) + 190px); transform: translateX(-50%); display: flex; align-items: stretch; gap: 6px; z-index: 1; pointer-events: none; }
+.cmdbar { position: absolute; left: 50%; bottom: calc(var(--edge-b) + var(--deck-h) + 8px); transform: translateX(-50%); display: flex; align-items: stretch; gap: 6px; z-index: 1; pointer-events: none; }
 .cmdbar > * { pointer-events: auto; }
 .cb-n { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: 44px; font-weight: 600; font-size: 13px; white-space: nowrap; transform: rotate(-1deg); }
 .cb-n .num { font-size: 20px; font-weight: 900; color: var(--pen-a); }
@@ -19,7 +19,7 @@
 .cb-g { min-width: 44px; position: relative; }
 .cb-g .num { font-size: 18px; font-weight: 900; }
 .cb-g i { position: absolute; right: 3px; top: 1px; font-style: normal; font-family: var(--f-hand); font-weight: 700; font-size: 15px; color: var(--pen-a); }
-#hud.has-sel .hint { bottom: calc(var(--edge-b) + 252px); }
+/* the hint and the chat step over the bar: see .hint / .feed in style.css (--cb-h is the bar's height) */
 
 /* the box being dragged */
 .selbox { position: fixed; left: 0; top: 0; border: 2px dashed var(--graphite); background: rgba(242, 217, 74, .16); box-shadow: 0 0 0 1px rgba(255,255,255,.7) inset; pointer-events: none; z-index: 20; }
@@ -35,11 +35,13 @@
 
 /* ---------- roster ---------- */
 .tb-roster.on { background: var(--marker); }
-.roster { position: absolute; left: var(--edge-l); top: calc(var(--edge-t) + 142px); width: min(300px, calc(100vw - 24px)); padding: 9px 11px 10px; display: grid; gap: 7px; z-index: 6; transform: rotate(-.5deg); }
+.roster { position: absolute; left: var(--edge-l); top: calc(var(--edge-t) + 142px); width: min(300px, calc(100vw - 24px)); box-sizing: border-box; max-height: calc(100% - var(--edge-t) - 142px - var(--edge-b) - var(--deck-h) - var(--bank-h) - 16px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 9px 11px 10px; display: grid; align-content: start; gap: 7px; z-index: 6; transform: rotate(-.5deg); }
+/* the roster card is open: the chat under it steps aside */
+#hud:has(> .roster:not([hidden])) .feed { visibility: hidden; }
 .ro-h { display: flex; align-items: baseline; gap: 8px; }
 .ro-h b { font-family: var(--f-display); font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: .03em; }
 .ro-n { font-family: var(--f-hand); font-weight: 700; font-size: 18px; color: var(--graphite-2); flex: 1; }
-.ro-x { border: 0; background: transparent; font-size: 24px; line-height: 1; width: 44px; height: 32px; margin: -6px -8px -6px 0; color: var(--graphite-2); }
+.ro-x { border: 0; background: transparent; font-size: 24px; line-height: 1; width: 44px; height: 44px; margin: -12px -10px -12px 0; color: var(--graphite-2); }
 .ro-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 46vh; overflow-y: auto; }
 .ro-row { display: grid; grid-template-columns: 12px auto auto 1fr; align-items: baseline; gap: 6px; padding: 3px 0 4px; border-bottom: 1px dashed var(--grid); }
 .ro-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--graphite-2); align-self: center; }
@@ -51,7 +53,7 @@
 .ro-ai .ro-name { font-family: var(--f-display); font-size: 12px; }
 .ro-ai .ro-st { color: var(--graphite-2); }
 .ro-nick { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--graphite-2); }
-.ro-nick input { font: 600 15px var(--f-ui); color: var(--graphite); height: 36px; padding: 0 8px; border: 1.5px solid var(--graphite); background: #fff; min-width: 0; user-select: text; -webkit-user-select: text; }
+.ro-nick input { font: 600 16px var(--f-ui); color: var(--graphite); height: 44px; box-sizing: border-box; padding: 0 8px; border: 1.5px solid var(--graphite); background: #fff; min-width: 0; user-select: text; -webkit-user-select: text; }
 
 /* ---------- first person ---------- */
 .fp-hud { position: absolute; inset: 0; pointer-events: none; }
@@ -85,10 +87,16 @@
 #hud.fp .deck, #hud.fp .bank, #hud.fp .mini, #hud.fp .toolbar, #hud.fp .hint, #hud.fp .cmdbar, #hud.fp .cardinfo, #hud.fp .roster { display: none !important; }
 body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-edge, body.fp-on #labels .lbl-note { display: none !important; }
 
+/* ---------- tablets upright: the bar goes above the bank and the minimap ---------- */
+@media (min-width: 761px) and (max-width: 1023px) and (min-height: 501px) {
+  .cmdbar { bottom: calc(var(--edge-b) + var(--deck-h) + max(var(--bank-h), var(--mini-h)) + 16px); }
+}
 /* ---------- phones upright: the bar is a 3×3 block at the right edge, under the side slip ---------- */
-@media (max-width: 760px) and (orientation: portrait) {
-  /* 3 rows of 46 px under the side slip, clear of the сход card that opens above the bank; the count sits in [×] */
+@media (max-width: 760px) and (min-height: 501px) {
+  /* 3 rows of 46 px under the side slip (below the world-event sticker when there is one); the сход sheet opens
+     above the bank, lower down; the count sits in [×] */
   .cmdbar { left: auto; right: var(--edge-r); bottom: auto; top: calc(var(--edge-t) + 124px); transform: none; flex-direction: column; align-items: stretch; gap: 4px; width: 166px; }
+  #hud:has(.evchip:not([hidden])) .cmdbar { top: calc(var(--edge-t) + 170px); }
   .cb-n { display: none; }
   .cb-x .cb-cnt { display: block; font-size: 17px; font-weight: 900; line-height: 1; color: var(--pen-a); }
   #hud.s1 .cb-x .cb-cnt { color: var(--pen-k); }
@@ -98,19 +106,23 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
   .cb svg { width: 18px; height: 18px; }
   .cb span { white-space: normal; }
   .cb-amove { order: 0; } .cb-hold { order: 1; } .cb-auto { order: 2; } .cb-all { order: 3; } .cb-fp { order: 4; } .cb-x { order: 5; min-width: 0; } .cb-g { order: 6; min-width: 0; }
-  .roster { top: calc(var(--edge-t) + 112px); left: var(--edge-l); right: var(--edge-r); width: auto; }
+  /* a сход is on: the group buttons step back so the bar stays clear of the sheet */
+  #hud:has(> .vote:not([hidden])) .cb-g { display: none; }
+  .roster { top: calc(var(--edge-t) + 116px); left: var(--edge-l); right: var(--edge-r); width: auto; max-height: calc(100% - var(--edge-t) - 116px - var(--edge-b) - max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) - 8px); }
+  /* the roster card is open: the bar waits behind it (it comes back when the card closes) */
+  #hud:has(> .roster:not([hidden])) .cmdbar { visibility: hidden; }
   .fp-top { top: calc(var(--edge-t) + 64px); }
   #hud.fp .feed { top: calc(var(--edge-t) + 134px); }
   .fp-name { font-size: 12.5px; }
   .lbl-drive { font-size: 16px; }
 }
-/* ---------- phones sideways: one row above the cards, between the bank and the minimap ---------- */
+/* ---------- phones sideways: one row on top of the cards, between the bank and the minimap ---------- */
 @media (max-height: 500px) and (min-width: 600px) {
   /* right-aligned against the minimap, so the bank (whose width follows its text) keeps the left */
-  .cmdbar { left: calc(var(--edge-l) + 150px); right: calc(var(--edge-r) + 162px); bottom: calc(var(--edge-b) + 100px); transform: none; gap: 3px; justify-content: flex-end; }
+  .cmdbar { left: calc(var(--edge-l) + var(--bank-w) + 8px); right: calc(var(--edge-r) + var(--mini-w) + 8px); bottom: calc(var(--edge-b) + var(--deck-h) + 6px); transform: none; gap: 3px; justify-content: flex-end; }
   .cmdbar > *, .cb { flex-shrink: 0; }
   /* a сход card open while something is selected stops above the bar (it scrolls) */
-  #hud.has-sel .vote { max-height: calc(100vh - var(--edge-t) - var(--edge-b) - 54px - 174px); }
+  #hud.has-sel .vote { max-height: calc(100% - var(--edge-t) - 54px - var(--edge-b) - var(--deck-h) - 6px - 44px - 8px); }
   .cb-n { min-height: 44px; min-width: 44px; justify-content: center; padding: 0 6px; font-size: 0; gap: 0; }
   .cb-n .num { font-size: 17px; }
   .cb-grid { gap: 2px; }
@@ -119,8 +131,9 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
   .cb-x { display: none; }
   .cb-n { cursor: pointer; }
   #hud.has-sel .hint { display: none; }
-  .roster { top: calc(var(--edge-t) + 54px); left: calc(var(--edge-l) + 180px); max-height: calc(100vh - 80px); }
-  .ro-list { max-height: calc(100vh - 170px); }
+  /* the roster card: under the toolbar on the left, down to the bank row */
+  .roster { top: calc(var(--edge-t) + 102px); left: var(--edge-l); width: min(300px, 44vw); max-height: calc(100% - var(--edge-t) - 102px - var(--edge-b) - var(--deck-h) - 6px - max(var(--bank-h), 44px) - 8px); }
+  .ro-list { max-height: none; }
   .fp-top { top: calc(var(--edge-t) + 54px); }
   /* riding sideways: the chat keeps to the left of the name card, last message only (the joystick is below) */
   #hud.fp .feed { width: min(230px, 30vw); }

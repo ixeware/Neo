@@ -4,6 +4,7 @@ import { LC, BRIDGES, heightY, passable, lcAt, type Terrain } from '../world/ter
 import { hash2 } from './terrainMesh';
 import type { Tin } from './lowpoly';
 import { treeGeometries, treeSpots } from './trees';
+import { roadNet, roadClearance, ROAD_HALF, RC, ALL_MASK, type KeepOut } from './roads';
 import { Builder, PAL, houseGeometries, facadeTexture } from './models';
 import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
@@ -120,6 +121,74 @@ export function decorSpots(t: Terrain): DecorSpot[] {
 /** Spots buildVillages kept clear last time (decor + Донер Бей), for buildTrees. */
 let clearSpots: { x: number; z: number; r: number }[] = [];
 
+/** High-rise footprints, len × dep per side (as HqBuilding builds them), for the road cut-outs. */
+const HQ_FOOT = [[4.8, 3.0], [7.8, 2.2]];
+
+/**
+ * Where roads.ts must not lay a ribbon: under the high-rises (their entrance canopies included), the
+ * mosques, the village decor and Донер Бей. Village streets and tracks also stop short of the capture
+ * places so their landmarks have room.
+ */
+export function keepOut(t: Terrain, pts: Pt[]): KeepOut[] {
+  const k: KeepOut[] = [];
+  for (const p of pts.slice(0, 2)) {
+    const s = p.side === 1 ? 1 : 0;
+    k.push({ x: p.x, z: p.z, r: 0, hx: HQ_FOOT[s][0] / 2 + 0.45, hz: HQ_FOOT[s][1] / 2 + 0.6, ry: HQ_ROT[s] });
+    k.push({ x: p.x + (s === 0 ? -6 : 7), z: p.z + 4, r: 1.6 }); // mosque
+  }
+  const shali = pts.find(p => p.key === 'shali');
+  if (shali) k.push({ x: shali.x, z: shali.z, r: 3.0 }); // the big mosque
+  for (const d of decorSpots(t)) k.push({ x: d.x, z: d.z, r: d.r });
+  const doner = pts.find(p => p.key === 'doner');
+  if (doner) k.push({ x: doner.x, z: doner.z, r: DONER_CLEAR - 0.3 });
+  for (const p of pts) if (p.kind === 3) k.push({ x: p.x, z: p.z, r: 3, cls: [RC.STREET, RC.TRACK] });
+  return k;
+}
+
+/** Oriented house footprints placed so far (1-unit spatial hash), for the overlap test. */
+class Lots {
+  private x: number[] = []; private z: number[] = []; private c: number[] = []; private s: number[] = [];
+  private hx: number[] = []; private hz: number[] = []; private next: number[] = [];
+  private head: Int32Array;
+  constructor(private gw: number, private gh: number) { this.head = new Int32Array(gw * gh).fill(-1); }
+  /** True when the rectangle (centre, cos/sin of rotation.y, half sizes) keeps `gap` from every placed one. */
+  fits(x: number, z: number, c: number, s: number, hx: number, hz: number, gap: number): boolean {
+    const i0 = Math.max(0, Math.floor(x - 0.8)), i1 = Math.min(this.gw - 1, Math.floor(x + 0.8));
+    const j0 = Math.max(0, Math.floor(z - 0.8)), j1 = Math.min(this.gh - 1, Math.floor(z + 0.8));
+    // local x and z axes in world (x, z): (c, −s) and (s, c)
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      for (let p = this.head[j * this.gw + i]; p >= 0; p = this.next[p]) {
+        const dx = this.x[p] - x, dz = this.z[p] - z, c2 = this.c[p], s2 = this.s[p];
+        if (!apart(dx, dz, c, s, hx, hz, c2, s2, this.hx[p], this.hz[p], gap)) return false;
+      }
+    }
+    return true;
+  }
+  add(x: number, z: number, c: number, s: number, hx: number, hz: number) {
+    const id = this.x.length, k = Math.min(this.gh - 1, Math.max(0, Math.floor(z))) * this.gw + Math.min(this.gw - 1, Math.max(0, Math.floor(x)));
+    this.x.push(x); this.z.push(z); this.c.push(c); this.s.push(s); this.hx.push(hx); this.hz.push(hz);
+    this.next.push(this.head[k]); this.head[k] = id;
+  }
+}
+
+/** Separating-axis test for two oriented rectangles (B at offset dx, dz from A), with a gap. */
+function apart(dx: number, dz: number, c: number, s: number, hx: number, hz: number, c2: number, s2: number, hx2: number, hz2: number, gap: number) {
+  for (let a = 0; a < 4; a++) {
+    const ax = a === 0 ? c : a === 1 ? s : a === 2 ? c2 : s2, az = a === 0 ? -s : a === 1 ? c : a === 2 ? -s2 : c2;
+    const ra = hx * Math.abs(c * ax - s * az) + hz * Math.abs(s * ax + c * az);
+    const rb = hx2 * Math.abs(c2 * ax - s2 * az) + hz2 * Math.abs(s2 * ax + c2 * az);
+    if (Math.abs(dx * ax + dz * az) > ra + rb + gap) return true;
+  }
+  return false;
+}
+
+/**
+ * Village houses. Real OSM house footprints first (Старые Атаги, Курчалой), then plots along every real
+ * street and road inside the built-up mask: set back from the ribbon edge, facing it (local +z towards
+ * the street), yaw along it, a gap between plots, a few house sizes. Built-up cells with no street
+ * mapped nearby keep the old scatter. Nothing lands on a ribbon, a bridge, the decor, a high-rise, a
+ * mosque or a capture ring centre.
+ */
 export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq = true) {
   const items: Item[] = [];
   const cw = t.lcCell / 100;
@@ -128,27 +197,119 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   avoid.push({ x: shali.x, z: shali.z, r: 3.6 });
   for (const p of pts.slice(0, 2)) avoid.push({ x: p.x + (p.side === 0 ? -6 : 7), z: p.z + 4, r: 2 });
   for (const p of pts.slice(0, 2)) avoid.push({ x: p.x + (p.side === 0 ? -4.6 : 5.6), z: p.z - 3.4, r: 2.5 });
+  // village flags and the capture places (their landmark needs the middle of the ring)
+  for (const p of pts) if (p.kind === 1) avoid.push({ x: p.x, z: p.z, r: 0.9 }); else if (p.kind === 3) avoid.push({ x: p.x, z: p.z, r: 3.5 });
   // Донер Бей and the village decor (decor.ts builds them on these spots)
   clearSpots = decorSpots(t).map(d => ({ x: d.x, z: d.z, r: d.r + 0.5 }));
   const doner = pts.find(p => p.key === 'doner');
   if (doner) clearSpots.push({ x: doner.x, z: doner.z, r: DONER_CLEAR });
   avoid.push(...clearSpots);
+
+  const net = roadNet();
+  const lots = new Lots(Math.ceil(t.W), Math.ceil(t.H));
+  const builtAt = (x: number, z: number) => {
+    const i = Math.max(0, Math.min(t.lcw - 1, Math.floor(x / cw))), j = Math.max(0, Math.min(t.lch - 1, Math.floor(z / cw)));
+    return t.built[j * t.lcw + i];
+  };
+  const CORNERS = [[1, 1], [-1, 1], [1, -1], [-1, -1], [0, 1], [0, -1], [1, 0], [-1, 0]];
+  let lo = 0;
+  /** Can a 2hx × 2hz house (rotation.y = ry) stand at (x, z)? Leaves the lowest corner height in `lo`. */
+  const site = (x: number, z: number, ry: number, hx: number, hz: number): boolean => {
+    if (x < 1 || z < 1 || x > t.W - 1 || z > t.H - 1) return false;
+    if (!passable(t, x, z) || lcAt(t, x, z) === LC.WATER) return false;
+    const R = Math.max(hx, hz);
+    for (const a of avoid) if ((a.x - x) ** 2 + (a.z - z) ** 2 < (a.r + R * 0.5) ** 2) return false;
+    for (const br of BRIDGES) if (segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.2) return false;
+    const c = Math.cos(ry), s = Math.sin(ry);
+    // clear of every ribbon: the centre first; when the nearest edge is further than the corners, done
+    const cc = roadClearance(x, z, ALL_MASK);
+    if (cc < 0.04) return false;
+    if (cc < Math.hypot(hx, hz) + 0.04) {
+      for (let k = 0; k < 8; k++) {
+        const lx = CORNERS[k][0] * hx, lz = CORNERS[k][1] * hz;
+        if (roadClearance(x + lx * c + lz * s, z - lx * s + lz * c, ALL_MASK) < 0.04) return false;
+      }
+    }
+    if (!lots.fits(x, z, c, s, hx, hz, 0.05)) return false;
+    lo = heightY(t, x, z);
+    for (let k = 0; k < 4; k++) { const lx = CORNERS[k][0] * hx, lz = CORNERS[k][1] * hz; lo = Math.min(lo, heightY(t, x + lx * c + lz * s, z - lx * s + lz * c)); }
+    return true;
+  };
+  const place = (x: number, z: number, ry: number, w: number, d: number, sy: number, h: number) => {
+    lots.add(x, z, Math.cos(ry), Math.sin(ry), w / 2, d / 2);
+    items.push({
+      x, z, y: lo - 0.02, ry, sx: w, sy, sz: d,
+      c: WALLS[Math.floor(hash2(Math.floor(h * 9973), 9) * WALLS.length)], c2: ROOFS[Math.floor(hash2(Math.floor(h * 7919), 3) * ROOFS.length)],
+    });
+  };
+  const dens = hq ? 0.92 : 0.46; // about as many houses as the old scatter (lowPower: fewer, to pay for the roads)
+  const STREETS = (1 << RC.MAIN) | (1 << RC.ROAD) | (1 << RC.STREET);
+  const probe = { seg: -1 };
+
+  // 1. real footprints, scaled up to the map's house size and turned to face the nearest street
+  for (let i = 0; i < net.houses.length; i++) {
+    const hs = net.houses[i];
+    if (builtAt(hs.x, hs.z) < 40 || hash2(i, 71) > dens) continue;
+    let w = Math.max(0.26, Math.min(0.44, hs.w * 1.5)), d = Math.max(0.22, Math.min(0.38, hs.d * 1.5)), ry = hs.ry;
+    if (roadClearance(hs.x, hs.z, STREETS, 9, probe) < 9 && probe.seg >= 0) {
+      const sg = probe.seg, ex = net.sx1[sg] - net.sx0[sg], ez = net.sz1[sg] - net.sz0[sg], el = ex * ex + ez * ez;
+      const f = el > 0 ? Math.max(0, Math.min(1, ((hs.x - net.sx0[sg]) * ex + (hs.z - net.sz0[sg]) * ez) / el)) : 0;
+      const tx = net.sx0[sg] + ex * f - hs.x, tz = net.sz0[sg] + ez * f - hs.z;
+      let bk = 0, bd = -Infinity;
+      for (let k = 0; k < 4; k++) { const a = ry + (k * Math.PI) / 2, dd = Math.sin(a) * tx + Math.cos(a) * tz; if (dd > bd) { bd = dd; bk = k; } }
+      ry += (bk * Math.PI) / 2;
+      if (bk % 2) { const q = w; w = d; d = q; }
+    }
+    if (!site(hs.x, hs.z, ry, w / 2, d / 2)) continue;
+    const h = hash2(i, 5);
+    place(hs.x, hs.z, ry, w, d, h > 0.8 ? 0.42 : 0.24 + h * 0.07, h);
+  }
+
+  // 2. plots along the real streets (main roads first: the bake sorts lines by class)
+  for (let li = 0; li < net.lines.length; li++) {
+    const l = net.lines[li];
+    if (l.c > RC.STREET) continue;
+    const n = l.x.length, hw = ROAD_HALF[l.c];
+    let total = 0;
+    for (let k = 0; k + 1 < n; k++) total += Math.hypot(l.x[k + 1] - l.x[k], l.z[k + 1] - l.z[k]);
+    if (total < 0.6) continue;
+    for (const side of [1, -1]) {
+      let seg = 0, segS = 0, segL = Math.hypot(l.x[1] - l.x[0], l.z[1] - l.z[0]);
+      let s = 0.22 + hash2(li, side + 5) * 0.3;
+      for (let k = 0; s < total - 0.2; k++) {
+        const h1 = hash2(li * 7 + k, side + 101), h2 = hash2(li * 13 + k, side + 202), h3 = hash2(li + k * 17, side + 303);
+        const w = 0.27 + h1 * 0.13, d = 0.24 + h2 * 0.1;
+        const at = s + w / 2;
+        s += w + 0.08 + h3 * 0.16; // the plot and a gap
+        while (seg < n - 2 && at > segS + segL) { segS += segL; seg++; segL = Math.hypot(l.x[seg + 1] - l.x[seg], l.z[seg + 1] - l.z[seg]); }
+        if (segL < 1e-4) continue;
+        const dx = (l.x[seg + 1] - l.x[seg]) / segL, dz = (l.z[seg + 1] - l.z[seg]) / segL, f = Math.min(segL, at - segS);
+        const nx = -dz * side, nz = dx * side;
+        const off = hw + 0.05 + h3 * 0.05 + d / 2;
+        const x = l.x[seg] + dx * f + nx * off, z = l.z[seg] + dz * f + nz * off;
+        const b = builtAt(x, z);
+        if (b < 95 || hash2(li * 3 + k, side + 404) > Math.min(1, (b - 55) / 140) * dens) continue;
+        const ry = Math.atan2(-nx, -nz); // local +z looks at the street
+        if (!site(x, z, ry, w / 2, d / 2)) continue;
+        const h4 = hash2(li * 5 + k, side + 505);
+        place(x, z, ry, w, d, h4 > 0.82 ? 0.42 : 0.24 + h4 * 0.07, h4);
+      }
+    }
+  }
+
+  // 3. built-up cells with no street mapped within about a unit: the old scatter
   for (let j = 0; j < t.lch; j++) for (let i = 0; i < t.lcw; i++) {
     const b = t.built[j * t.lcw + i];
     if (b < 95) continue;
     const r = hash2(i * 3 + 11, j * 7 + 5);
     if (r > (b / 255) * (hq ? 0.5 : 0.3)) continue;
     const x = (i + 0.2 + hash2(i, j + 99) * 0.6) * cw, z = (j + 0.2 + hash2(i + 77, j) * 0.6) * cw;
-    if (!passable(t, x, z) || t.lc[j * t.lcw + i] === LC.WATER) continue;
-    if (avoid.some(a => (a.x - x) ** 2 + (a.z - z) ** 2 < a.r * a.r)) continue;
-    if (BRIDGES.some(br => segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.2)) continue;
+    if (roadClearance(x, z, STREETS) < 9) continue;
     const blockRot = Math.floor(hash2(Math.floor(i / 10), Math.floor(j / 10)) * 4) * (Math.PI / 2) + hash2(Math.floor(i / 10), 3) * 0.5;
+    const w = 0.3 + hash2(i, j + 1) * 0.14, d = 0.3 + hash2(i + 3, j) * 0.14;
+    if (!site(x, z, blockRot, w / 2, d / 2)) continue;
     const two = hash2(i + 5, j + 13) > 0.78;
-    items.push({
-      x, z, y: heightY(t, x, z) - 0.02, ry: blockRot,
-      sx: 0.3 + hash2(i, j + 1) * 0.14, sy: two ? 0.42 : 0.24 + hash2(i + 2, j) * 0.06, sz: 0.3 + hash2(i + 3, j) * 0.14,
-      c: WALLS[Math.floor(hash2(i + 9, j + 9) * WALLS.length)], c2: ROOFS[Math.floor(hash2(i + 19, j + 3) * ROOFS.length)],
-    });
+    place(x, z, blockRot, w, d, two ? 0.42 : 0.24 + hash2(i + 2, j) * 0.06, hash2(i + 9, j + 9));
   }
   const { body, roof } = houseGeometries();
   const mat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
@@ -163,8 +324,10 @@ export function buildTrees(t: Terrain, parent: THREE.Object3D, hq: boolean, tin:
   // decor and Донер Бей (clearSpots is filled by buildVillages, which runs first)
   for (const d of decorSpots(t)) marks.push({ x: d.x, z: d.z, r2: (d.r + 0.6) ** 2 });
   for (const c of clearSpots) marks.push({ x: c.x, z: c.z, r2: (c.r + 0.4) ** 2 });
+  // ... and every road, rail and stream ribbon
   const clear = (x: number, z: number) =>
-    marks.some(m => (m.x - x) ** 2 + (m.z - z) ** 2 < m.r2) || BRIDGES.some(br => segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.8);
+    marks.some(m => (m.x - x) ** 2 + (m.z - z) ** 2 < m.r2) || BRIDGES.some(br => segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.8) ||
+    roadClearance(x, z, ALL_MASK) < 0.18;
   const spots = treeSpots(t, tin, hq, clear);
   const geo = treeGeometries();
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });

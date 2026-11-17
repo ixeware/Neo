@@ -53,6 +53,8 @@ export class Control {
   fp: Possess;
   private bar: HTMLElement;
   private countEl: HTMLElement;
+  /** The count again, inside [×] (phones upright show it there instead of the count chip). */
+  private countX: HTMLElement;
   private groupBtns: HTMLButtonElement[] = [];
   private boxEl: HTMLElement;
   private lastTap = { t: 0, x: 0, y: 0, id: -1, prev: [] as number[] };
@@ -87,7 +89,9 @@ export class Control {
     btn('auto', ICON.auto, 'Авто', 'Авто (G): сами выбирают, куда идти', () => this.issue('auto'));
     btn('all', ICON.all, 'Все мои', 'Выделить всех своих', () => this.selectAll());
     btn('fp', ICON.fp, 'Вселиться', 'Вселиться (V): управлять от первого лица', () => this.possessSelected());
-    btn('x', ICON.x, 'Снять', 'Снять выделение (Esc)', () => this.clear());
+    const bx = btn('x', ICON.x, 'Снять', 'Снять выделение (Esc)', () => this.clear());
+    this.countX = h('b', 'num cb-cnt');
+    bx.prepend(this.countX);
     for (let g = 1; g <= 3; g++) this.groupBtns.push(this.groupButton(g, grid));
     this.bar.append(this.countEl, grid);
     d.root.append(this.bar);
@@ -238,7 +242,7 @@ export class Control {
    */
   tap(x: number, y: number, m: InputMods): boolean {
     if (!this.d.playing()) return false;
-    const now = performance.now();
+    const now = m.at && m.at > 0 ? m.at : performance.now();
     const own = this.pickAt(x, y, m.touch, 'own');
     const foe = own ? null : this.pickAt(x, y, m.touch, 'enemy');
     if (this.amove) {
@@ -248,7 +252,7 @@ export class Control {
       return true;
     }
     if (own) {
-      const lt = this.lastTap, dbl = lt.id === own.id && now - lt.t < 340 && Math.hypot(x - lt.x, y - lt.y) < 30;
+      const lt = this.lastTap, dbl = lt.id === own.id && now - lt.t < (m.touch ? 450 : 340) && Math.hypot(x - lt.x, y - lt.y) < (m.touch ? 36 : 30);
       if (dbl) {
         this.lastTap = { t: 0, x, y, id: -1, prev: [] };
         if (lt.prev.length === 1 && lt.prev[0] === own.id) { this.possessSelected(own.id); return true; }
@@ -359,7 +363,7 @@ export class Control {
       this.barKey = key;
       this.bar.hidden = n === 0;
       this.d.root.classList.toggle('has-sel', n > 0);
-      if (n) this.countEl.innerHTML = `<b class="num">${n}</b> <span>${n === 1 ? this.oneName() : 'выделено'}</span>`;
+      if (n) { this.countEl.innerHTML = `<b class="num">${n}</b> <span>${n === 1 ? this.oneName() : 'выделено'}</span>`; this.countX.textContent = String(n); }
       this.groupBtns.forEach((b, i) => { (b.querySelector('i') as HTMLElement).textContent = this.groups[i + 1].length ? String(this.groups[i + 1].length) : ''; });
     }
     if (this.sel.size !== this.pubSel && now - this.pubAt > 500) { this.pubSel = this.sel.size; this.pubAt = now; this.d.onPresence?.({ sel: this.sel.size }); }

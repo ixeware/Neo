@@ -179,7 +179,7 @@ export class Stage {
 }
 
 /** Modifier keys and pointer kind of a click / tap. */
-export interface InputMods { shift: boolean; ctrl: boolean; touch: boolean }
+export interface InputMods { shift: boolean; ctrl: boolean; touch: boolean; /** The event's timeStamp (performance.now() time base): double taps go by when they happened, not when a busy frame got to them. */ at?: number }
 
 /** What the game does with pointer and keyboard input beyond moving the camera (src/ui/control.ts). */
 export interface InputHooks {
@@ -283,7 +283,7 @@ export function bindInput(stage: Stage, el: HTMLElement, hooks: InputHooks) {
       return;
     }
     if (p && !moved && pts.size === 0 && performance.now() - p.t < 600) {
-      if (button === 0) hooks.tap(e.clientX, e.clientY, mods);
+      if (button === 0) hooks.tap(e.clientX, e.clientY, { ...mods, at: e.timeStamp });
       else if (button === 2) hooks.order?.(e.clientX, e.clientY, mods);
     }
     if (pts.size < 2) pinch0 = 0;

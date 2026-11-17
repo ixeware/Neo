@@ -15,6 +15,7 @@
 .cb-amove { color: var(--pen-k); }
 .cb-amove.on { background: var(--pen-k); color: #fff; }
 .cb-x { color: var(--graphite-2); min-width: 48px; }
+.cb-cnt { display: none; }
 .cb-g { min-width: 44px; position: relative; }
 .cb-g .num { font-size: 18px; font-weight: 900; }
 .cb-g i { position: absolute; right: 3px; top: 1px; font-style: normal; font-family: var(--f-hand); font-weight: 700; font-size: 15px; color: var(--pen-a); }
@@ -86,9 +87,12 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
 
 /* ---------- phones upright: the bar is a 3×3 block at the right edge, under the side slip ---------- */
 @media (max-width: 760px) and (orientation: portrait) {
-  .cmdbar { left: auto; right: var(--edge-r); bottom: auto; top: calc(var(--edge-t) + 136px); transform: none; flex-direction: column; align-items: stretch; gap: 4px; width: 166px; }
-  .cb-n { min-height: 26px; padding: 0 8px; font-size: 12px; justify-content: center; }
-  .cb-n .num { font-size: 16px; }
+  /* 3 rows of 46 px under the side slip, clear of the сход card that opens above the bank; the count sits in [×] */
+  .cmdbar { left: auto; right: var(--edge-r); bottom: auto; top: calc(var(--edge-t) + 124px); transform: none; flex-direction: column; align-items: stretch; gap: 4px; width: 166px; }
+  .cb-n { display: none; }
+  .cb-x .cb-cnt { display: block; font-size: 17px; font-weight: 900; line-height: 1; color: var(--pen-a); }
+  #hud.s1 .cb-x .cb-cnt { color: var(--pen-k); }
+  .cb-x svg { display: none; }
   .cb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
   .cb { min-width: 0; min-height: 46px; padding: 3px 1px 2px; font-size: 9.5px; letter-spacing: -.02em; }
   .cb svg { width: 18px; height: 18px; }
@@ -102,8 +106,12 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
 }
 /* ---------- phones sideways: one row above the cards, between the bank and the minimap ---------- */
 @media (max-height: 500px) and (min-width: 600px) {
-  .cmdbar { left: calc(var(--edge-l) + 104px); right: calc(var(--edge-r) + 168px); bottom: calc(var(--edge-b) + 100px); transform: none; gap: 3px; justify-content: center; }
-  .cb-n { min-height: 44px; padding: 0 6px; font-size: 0; gap: 0; }
+  /* right-aligned against the minimap, so the bank (whose width follows its text) keeps the left */
+  .cmdbar { left: calc(var(--edge-l) + 150px); right: calc(var(--edge-r) + 162px); bottom: calc(var(--edge-b) + 100px); transform: none; gap: 3px; justify-content: flex-end; }
+  .cmdbar > *, .cb { flex-shrink: 0; }
+  /* a сход card open while something is selected stops above the bar (it scrolls) */
+  #hud.has-sel .vote { max-height: calc(100vh - var(--edge-t) - var(--edge-b) - 54px - 174px); }
+  .cb-n { min-height: 44px; min-width: 44px; justify-content: center; padding: 0 6px; font-size: 0; gap: 0; }
   .cb-n .num { font-size: 17px; }
   .cb-grid { gap: 2px; }
   .cb { min-width: 44px; min-height: 44px; padding: 2px; font-size: 0; }

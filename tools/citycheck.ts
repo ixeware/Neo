@@ -11,6 +11,7 @@ import { loadTerrain, passable, lcAt, navIndex, LC, NAV } from '../src/world/ter
 import { roadClearance, RC, ALL_MASK } from '../src/render/roads';
 import { CITY_SITES, siteRect, rectsOverlap, inRect, cityPlan, cityPlanStats, CITY, type Rect } from '../src/render/city';
 import { CITY_POINTS, CITY_DECOR } from '../src/data/season';
+import { Sim, type Cmd } from '../src/sim/sim';
 
 const t = await loadTerrain();
 
@@ -179,6 +180,37 @@ console.log('  block sites refused / taken:', JSON.stringify(cityPlanStats));
 console.log(`city fill: ${plan.blocks.length} blocks (5/9/12/16 эт.: ${kinds.join(' / ')}) in the ellipse ${CITY.x}, ${CITY.z} ± ${CITY.rx} × ${CITY.rz}; centre on a ribbon ${onRoad}, on water ${wet}, on a landmark ${onSite}`);
 if (onRoad || wet || onSite) bad('city blocks on a ribbon, the water or a landmark');
 console.log(`nav: ${t.nw}×${t.nh} cells of ${NAV}, north edge z0 ${t.z0}`);
+
+// the sim in the city band: an order there arrives, a unit there finds its way south, fights see each other
+{
+  const sim = new Sim(t); sim.init(5); sim.quiet = true;
+  sim.step([{ t: 0, id: 'c0', p: 'x', k: 'cfg', d: 1, hs: -1, mp: 0 } as Cmd]);
+  const st = sim.st;
+  st.nextMilitia = st.nextVote = st.ev.next = 1e9;
+  for (const sd of st.sides) { sd.aiNext = 1e9; sd.black = 1e9; }
+  let n = 0;
+  const C = (b: Record<string, unknown>) => ({ t: st.tick, id: `pa:${String(n++).padStart(6, '0')}`, p: 'pa', ...b }) as unknown as Cmd;
+  sim.step([C({ k: 'join', s: 0 })]);
+  const stopA = CITY_POINTS.find(p => p.key === 'stopA')!, gg = CITY_POINTS.find(p => p.key === 'ggntu')!;
+  const u = sim.spawn(0, 3, stopA.x, stopA.z, -1); // Баран: fast
+  sim.step([C({ k: 'ord', s: 0, ids: [u.id], m: 'move', x: gg.x, z: gg.z })]);
+  for (let i = 0; i < 900 && Math.hypot(u.x - gg.x, u.z - gg.z) > 1.5; i++) sim.step(undefined);
+  const arrived = Math.hypot(u.x - gg.x, u.z - gg.z) <= 1.5;
+  console.log(`  sim: a move order from stopA to ГГНТУ ${arrived ? 'arrives' : 'does NOT arrive'} (${u.x.toFixed(1)}, ${u.z.toFixed(1)}) at tick ${st.tick}`);
+  if (!arrived) bad('an order inside the city band does not arrive');
+  // auto mode: a unit standing in the city walks south towards its goal (the flow fields cover the band)
+  sim.step([C({ k: 'ord', s: 0, ids: [u.id], m: 'auto' })]);
+  const z0 = u.z;
+  for (let i = 0; i < 600; i++) sim.step(undefined);
+  console.log(`  sim: on auto it walks from z ${z0.toFixed(1)} to ${u.z.toFixed(1)}`);
+  if (!(u.z > z0 + 10)) bad('a unit in the city band does not find its way south');
+  // two enemies in the band see each other (the spatial hash covers z < 0)
+  const a = sim.spawn(0, 0, 30, -30, -1), e = sim.spawn(1, 0, 31, -30, -1);
+  const hp0 = a.hp + e.hp;
+  for (let i = 0; i < 60; i++) sim.step(undefined);
+  console.log(`  sim: two enemies at z −30 trade hits: hp ${hp0} → ${a.hp + e.hp}`);
+  if (!(a.hp + e.hp < hp0)) bad('units in the city band do not fight');
+}
 if (process.argv.includes('--json')) console.log(JSON.stringify({ sites: CITY_SITES.map(s => ({ ...s, rect: rects.get(s.key) })), points: CITY_POINTS, blocks: plan.blocks.map(b => [r1(b.x), r1(b.z), +b.ry.toFixed(2), b.kind, b.s]) }));
 console.log(fails.length ? `${fails.length} problem(s)` : 'city layout OK');
 if (fails.length) process.exitCode = 1;

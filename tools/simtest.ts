@@ -1057,7 +1057,7 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
   let spot: { x: number; z: number } | null = null;
   for (let j = 10; j < T.nh - 10 && !spot; j++) for (let i = 10; i < T.nw - 10 && !spot; i++) {
     const c = j * T.nw + i;
-    if (T.navCost[c] && !T.navCost[c + 1] && T.navCost[c - 1] && T.navCost[c - T.nw] && T.navCost[c + T.nw]) spot = { x: (i + 0.5) * 2, z: (j + 0.5) * 2 };
+    if (T.navCost[c] && !T.navCost[c + 1] && T.navCost[c - 1] && T.navCost[c - T.nw] && T.navCost[c + T.nw]) spot = { x: (i + 0.5) * 2, z: (j + 0.5) * 2 + T.z0 }; // nav rows start at the north edge z0
   }
   const s2 = ctlBox();
   const g = s2.spawn(0, 3, spot!.x, spot!.z, -1); // Баран, fast

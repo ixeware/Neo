@@ -20,9 +20,9 @@ const OLD_CHIMAEV = 1.006 * 1.05 * US;
 
 const NAMES: Record<number, [string, string]> = {
   0: ['Пацаны', 'Пацаны'], 1: ['Борец', 'Борец 115 кг'], 2: ['Снайпер', 'Метатель гантелей'], 3: ['Баран', 'Камри без прав'], 4: ['Бежни лор', 'Шаурмист'],
-  6: ['Чимаев', 'Чимаев'], 7: ['Амин', 'Амин'], 8: ['админ', 'админ'], 9: ['ersno', 'ersno'], 10: ['Бекхан', 'Бекхан'],
-  11: ['Адам', 'Адам'], 12: ['Мохьмад', 'Мохьмад'], 13: ['Голем', 'Голем'], 14: ['Такси по 100', 'Маршрутка 150 ₽'], 15: ['Курица', 'Курица'],
-  16: ['Гелик КРА 95', 'Гелик КРА 95'], 17: ['Спортик', 'Спортик'],
+  6: ['Чимаев', 'Чимаев'], 7: ['Амин', 'Амин'], 8: ['админ', 'админ'], 9: ['Мохьмад', 'Мохьмад'], 10: ['Бекхан', 'Бекхан'],
+  11: ['Адам', 'Адам'], 12: ['Мохьмад (старый)', 'Мохьмад (старый)'], 13: ['Голем', 'Голем'], 14: ['Такси по 100', 'Маршрутка 150 ₽'], 15: ['Курица', 'Курица'],
+  16: ['Гелик КРА 95', 'Гелик КРА 95'], 17: ['Спортик', 'Спортик'], 18: ['Амина', 'Амина'],
 };
 const LM_LABEL: Record<string, string> = {
   stadium: 'Стадион', school: 'Школа', shop: 'Продукты', market: 'Рынок', cafe: 'Кафе', busstop: 'Остановка',
@@ -57,8 +57,9 @@ const placed: THREE.Object3D[] = [];
 interface Lbl { text: string; sub: string; at: THREE.Vector3; side: number }
 const labels: Lbl[] = [];
 
-function geoFor(type: number, side: 0 | 1) { return type >= 16 ? propUnitGeometry(type, side) : type < 6 ? unitGeometry(type, side) : heroGeometry(type, side); }
-function scaleFor(type: number, side: 0 | 1) { return US * (type >= 16 ? propUnitScale(type, side) : type < 6 ? unitScale(type, side) : heroScale(type, side)); }
+const isProp = (type: number) => type === 16 || type === 17;
+function geoFor(type: number, side: 0 | 1) { return isProp(type) ? propUnitGeometry(type, side) : type < 6 ? unitGeometry(type, side) : heroGeometry(type, side); }
+function scaleFor(type: number, side: 0 | 1) { return US * (isProp(type) ? propUnitScale(type, side) : type < 6 ? unitScale(type, side) : heroScale(type, side)); }
 
 /** Put one unit on the ground, as the renderer would scale it. */
 function unit(type: number, side: 0 | 1, x: number, z: number, yaw = 0, label = true) {
@@ -163,7 +164,7 @@ function buildings(z: number, x0: number) {
 
 // ---- views ------------------------------------------------------------------------------
 const OLD = [0, 1, 2, 3, 4];
-const HEROES = [...HERO_TYPES];
+const HEROES: number[] = [...HERO_TYPES, 18]; // 18: Амина (girls.ts via heroGeometry)
 const yaw = Number(q.get('yaw') ?? 0);
 let pitch = Number(q.get('pitch') ?? 0.5);
 let tight = 1.0;
@@ -363,10 +364,11 @@ if (view === 'all') {
 // ---- girls + Вайнаг (fictional lore NPCs, src/render/girls.ts) -------------------------------
 //   girls (all looks + Вайнаг both sides, next to Пацаны / админ / Амин) · girlsr (random looks, close)
 //   girls1&id=a1|ryzhulka|altushka|operator|g1..g14|vainag0|vainag1 (four angles)
-//   girlsgame[&dist=38] (in-game camera). One self-contained block: own import, own nav links.
-if (view === 'girls' || view === 'girls1' || view === 'girlsr' || view === 'girlsgame') {
+//   girlsgame[&dist=38] (in-game camera) · friends (Амина and Оператор next to Пацаны, Борец, Голем, Чимаев).
+//   One self-contained block: own import, own nav links.
+if (view === 'girls' || view === 'girls1' || view === 'girlsr' || view === 'girlsgame' || view === 'friends') {
   const G = await import('../src/render/girls');
-  const GNAME: Record<string, string> = { a1: 'A1', ryzhulka: 'Рыжулька', altushka: 'Альтушка', operator: 'Оператор' };
+  const GNAME: Record<string, string> = { a1: 'A1', ryzhulka: 'Рыжулька', altushka: 'Альтушка', operator: 'Оператор', amina: 'Амина' };
   const gname = (id: string) => GNAME[id] ?? `Студентка #${id.slice(1)}`;
   const npc = (g: THREE.BufferGeometry, x: number, z: number, yaw0: number, text: string | null, sub: string, side: number) => {
     const m = new THREE.Mesh(g, unitMat);
@@ -378,7 +380,15 @@ if (view === 'girls' || view === 'girls1' || view === 'girlsr' || view === 'girl
     if (text) labels.push({ text, sub: `${g.attributes.position.count / 3} тр · h ${top.toFixed(2)} ${sub}`, at: new THREE.Vector3(x, top + 0.25, z), side });
     return (g.boundingBox!.max.x - g.boundingBox!.min.x) * US;
   };
-  if (view === 'girls') {
+  if (view === 'friends') {
+    // the two friends: Оператор (bigger) next to Амина (unit 18), for scale among the usual crowd
+    let x = 0;
+    for (const [t, s] of [[0, 0], [1, 0], [6, 1]] as const) { unit(t, s, x, 0.4); x += 1.25; }
+    x += 0.5; unit(18, 0, x, 0.4); x += 2.6;
+    npc(G.girlGeometry('operator'), x, 0.4, 0, 'Оператор', `×${G.OPERATOR_K} Амины`, -1); x += 2.7;
+    unit(13, 0, x, 0.4);
+    pitch = Number(q.get('pitch') ?? 0.3);
+  } else if (view === 'girls') {
     // row 1: the named four + Вайнаг (both sides) next to existing units; row 2: random looks
     let x = 0;
     for (const [t, s] of [[0, 0], [8, 0], [7, 1]] as const) { unit(t, s, x, 1.9); x += 1.05; }
@@ -415,7 +425,7 @@ if (view === 'girls' || view === 'girls1' || view === 'girlsr' || view === 'girl
   }
   queueMicrotask(() => {
     const bar = document.getElementById('bar')!;
-    for (const [v, txt] of [['girls', 'девушки + Вайнаг'], ['girlsr', 'случайные'], ['girlsgame', 'девушки в игре'], ...[...G.NAMED_GIRL_IDS, 'vainag0', 'vainag1', 'g1'].map(id => [`girls1&id=${id}`, id.startsWith('vainag') ? `Вайнаг ${id.slice(-1)}` : gname(id)])]) {
+    for (const [v, txt] of [['girls', 'девушки + Вайнаг'], ['girlsr', 'случайные'], ['girlsgame', 'девушки в игре'], ['friends', 'Амина и Оператор'], ...[...G.NAMED_GIRL_IDS, 'amina', 'vainag0', 'vainag1', 'g1'].map(id => [`girls1&id=${id}`, id.startsWith('vainag') ? `Вайнаг ${id.slice(-1)}` : gname(id)])]) {
       const a = document.createElement('a');
       a.href = `?view=${v}`; a.textContent = txt;
       const lq = new URLSearchParams(`view=${v}`);

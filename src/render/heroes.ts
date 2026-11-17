@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { Builder, PAL } from './models';
 import { body, strokeText, propUnitGeometry, propUnitScale, propUnitHeight } from './props';
+import { aminaGeometry } from './girls';
 
 type V3 = [number, number, number];
 type Col = THREE.Color;
@@ -341,7 +342,7 @@ function admin(b: Builder, team: Col) {
   b.box(C.pen, [hR[0] + 0.02, hR[1] + 0.0, hR[2] + 0.04], [0.02, 0.02, 0.13], [1.2, 0.5, 0]);
 }
 
-/** ersno: чуть ниже Чимаева, оверсайз пуховик и широченные джинсы, веер чужих банковских карт в обеих руках. */
+/** Мохьмад (ersno, тип 9): чуть ниже Чимаева, оверсайз пуховик и широченные джинсы, веер чужих банковских карт в обеих руках. */
 function ersno(b: Builder, team: Col) {
   const puffer = col('#30333a'), puff2 = col('#41454e'), jeans = col('#8796ad');
   const W = 1.34;
@@ -589,9 +590,10 @@ function chicken(b: Builder, team: Col) {
 // ---- public API ---------------------------------------------------------------------------
 export const HERO_TYPES = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 
-/** Merged vertex-coloured geometry for unit types 6..15 (instancing, like unitGeometry). */
+/** Merged vertex-coloured geometry for unit types 6..18 (instancing, like unitGeometry): 16–17 from props.ts, 18 (Амина) from girls.ts. */
 export function heroGeometry(type: number, side: 0 | 1): THREE.BufferGeometry {
   if (type === 16 || type === 17) return propUnitGeometry(type, side);
+  if (type === 18) return aminaGeometry(side);
   const b = new Builder();
   const team = PAL.side[side], dark = PAL.sideDark[side];
   switch (type) {

@@ -183,6 +183,31 @@ export function unitScale(type: number, side: 0 | 1): number {
   return 1.0;
 }
 
+// ---- «Себозол»: what Ислам throws ------------------------------------------------------
+// A small dandruff-shampoo bottle, made up for the game (no real brand or logo): white body, teal
+// label band with a white strip where «СЕБОЗОЛ» would be, orange flip-top cap. Upright along +y,
+// centred on its middle (it tumbles in flight), about 0.47 tall at k = 1. Shared by the projectile
+// (fx.ts Shots kind 2), the «Себозол-душ» ult (abilityFx.ts) and the bottle in Ислам's hand.
+const CYL10T = new THREE.CylinderGeometry(0.32, 0.5, 1, 10);
+export const SEBOZOL = { white: new THREE.Color('#f5f8f7'), teal: new THREE.Color('#1aa597'), cap: new THREE.Color('#f07a1a'), capD: new THREE.Color('#c85e0e') };
+export function sebozol(b: Builder, k = 1, at: V3 = [0, 0, 0]) {
+  const P = (x: number, y: number, z: number): V3 => [at[0] + x * k, at[1] + y * k, at[2] + z * k];
+  b.add(CYL10, SEBOZOL.white, P(0, -0.05, 0), [0, 0, 0], [0.2 * k, 0.3 * k, 0.12 * k]); // flat oval body
+  b.add(CYL10, SEBOZOL.teal, P(0, -0.07, 0), [0, 0, 0], [0.206 * k, 0.13 * k, 0.126 * k]); // label band
+  b.box(SEBOZOL.white, P(0, -0.07, 0.064), [0.11 * k, 0.034 * k, 0.006 * k]); // «СЕБОЗОЛ» strip
+  b.box(SEBOZOL.cap, P(0.035, -0.115, 0.064), [0.03 * k, 0.018 * k, 0.006 * k]);
+  b.add(CYL10T, SEBOZOL.white, P(0, 0.13, 0), [0, 0, 0], [0.2 * k, 0.06 * k, 0.12 * k]); // shoulder
+  b.add(CYL10, SEBOZOL.white, P(0, 0.175, 0), [0, 0, 0], [0.07 * k, 0.04 * k, 0.07 * k]); // neck
+  b.add(CYL10, SEBOZOL.cap, P(0, 0.22, 0), [0, 0, 0], [0.1 * k, 0.07 * k, 0.1 * k]); // cap
+  b.box(SEBOZOL.capD, P(0, 0.262, 0.012), [0.085 * k, 0.018 * k, 0.06 * k]); // flip-top
+}
+/** One merged Себозол bottle (see sebozol()). The caller owns the geometry. */
+export function sebozolGeometry(k = 1): THREE.BufferGeometry {
+  const b = new Builder();
+  sebozol(b, k);
+  return b.build();
+}
+
 // ---- bosses (articulated groups) ----------------------------------------------------
 export interface Rig { root: THREE.Group; body: THREE.Group; armL: THREE.Group; armR: THREE.Group; legL: THREE.Group; legR: THREE.Group; head: THREE.Group; height: number }
 
@@ -211,11 +236,16 @@ export function islamRig(mat: THREE.Material): Rig {
     b.box(new THREE.Color('#c8a24a'), [0.22, 1.3, 0.145], [0.05, 0.02, 0.01]); // замок
     b.box(PAL.skin, [0, 2.0, 0], [0.13, 0.1, 0.13]); // шея
   }));
+  (body.children[body.children.length - 1] as THREE.Mesh).onBeforeRender = () => { bottle.visible = (performance.now() / 1000) % 11 < 6.5; };
   const armL = new THREE.Group(), armR = new THREE.Group();
   armL.position.set(-0.3, 1.92, 0); armR.position.set(0.3, 1.92, 0);
   armL.add(mk(b => { b.box(team, [0, -0.35, 0], [0.13, 0.7, 0.15]); b.box(PAL.skin, [0, -0.76, 0], [0.11, 0.13, 0.12]); }));
   armR.add(mk(b => { b.box(team, [0, -0.35, 0], [0.13, 0.7, 0.15]); b.box(PAL.skin, [0, -0.76, 0], [0.11, 0.13, 0.12]); }));
   body.add(armL, armR);
+  // a Себозол in the left fist now and then (6.5 s of every 11): the torso, always drawn, flips it
+  // before each frame, so the rig needs no extra field and the renderer no extra call
+  const bottle = mk(b => sebozol(b, 0.62, [0, -0.8, 0.075]));
+  armL.add(bottle);
   const head = new THREE.Group();
   head.position.set(0, 2.05, 0);
   head.add(mk(b => {

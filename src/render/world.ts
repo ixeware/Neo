@@ -10,6 +10,7 @@ import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
 import type { Pt } from '../sim/sim';
 import { landmarkSpots, fudziSpot } from './landmarks'; // v3 real places (decor.ts builds them)
+import { cityPlan, cityOccupied, cityQ, cityKeepOut, siteRect, inRect, CITY_SITES, CITY_HOUSES_FROM } from './city'; // v4 Грозный
 
 const WALLS = ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
 const ROOFS = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
@@ -143,6 +144,7 @@ export function keepOut(t: Terrain, pts: Pt[]): KeepOut[] {
   const doner = pts.find(p => p.key === 'doner');
   if (doner) k.push({ x: doner.x, z: doner.z, r: DONER_CLEAR - 0.3 });
   for (const p of pts) if (p.kind === 3) k.push({ x: p.x, z: p.z, r: 3, cls: [RC.STREET, RC.TRACK] });
+  k.push(...cityKeepOut()); // v4: no street ribbons under the Grozny landmarks
   return k;
 }
 
@@ -209,6 +211,8 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
 
   const net = roadNet();
   const lots = new Lots(Math.ceil(t.W), Math.ceil(t.H - t.z0), t.z0);
+  // v4 Грозный: apartment blocks (city.ts) own the city's centre and middle ring; houses keep off them
+  const city = cityPlan(t), siteRects = CITY_SITES.map(s => siteRect(s, 0.3));
   const builtAt = (x: number, z: number) => t.built[lcIndex(t, x, z)];
   const CORNERS = [[1, 1], [-1, 1], [1, -1], [-1, -1], [0, 1], [0, -1], [1, 0], [-1, 0]];
   let lo = 0;
@@ -216,6 +220,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
   const site = (x: number, z: number, ry: number, hx: number, hz: number): boolean => {
     if (x < 1 || z < t.z0 + 1 || x > t.W - 1 || z > t.H - 1) return false;
     if (!passable(t, x, z) || lcAt(t, x, z) === LC.WATER) return false;
+    if (cityQ(x, z) < CITY_HOUSES_FROM || cityOccupied(city, x, z) || siteRects.some(r => inRect(r, x, z, Math.max(hx, hz)))) return false;
     const R = Math.max(hx, hz);
     for (const a of avoid) if ((a.x - x) ** 2 + (a.z - z) ** 2 < (a.r + R * 0.5) ** 2) return false;
     for (const br of BRIDGES) if (segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.2) return false;
@@ -331,9 +336,11 @@ export function buildTrees(t: Terrain, parent: THREE.Object3D, hq: boolean, tin:
   for (const d of decorSpots(t)) marks.push({ x: d.x, z: d.z, r2: (d.r + 0.6) ** 2 });
   for (const c of clearSpots) marks.push({ x: c.x, z: c.z, r2: (c.r + 0.4) ** 2 });
   // ... and every road, rail and stream ribbon
+  // v4 Грозный: off the apartment blocks and the city landmarks
+  const city = cityPlan(t), siteRects = CITY_SITES.map(s => siteRect(s, 0.4));
   const clear = (x: number, z: number) =>
     marks.some(m => (m.x - x) ** 2 + (m.z - z) ** 2 < m.r2) || BRIDGES.some(br => segDist(x, z, br.x0, br.z0, br.x1, br.z1) < 1.8) ||
-    roadClearance(x, z, ALL_MASK) < 0.18;
+    roadClearance(x, z, ALL_MASK) < 0.18 || cityOccupied(city, x, z) || siteRects.some(r => inRect(r, x, z));
   const spots = treeSpots(t, tin, hq, clear);
   const geo = treeGeometries();
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });

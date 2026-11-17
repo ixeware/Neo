@@ -1,7 +1,9 @@
 // Street food and village decor: Донер Бей at pts[8] (with its capture ring and flag), Фудзи and
 // the gym in Курчалой, the taxi stand in Старые Атаги, and a model for every real 2GIS place
 // (landmarks.ts plans the spots). Placement comes from world.ts decorSpots() and landmarkSpots(),
-// which buildVillages also uses to keep houses off these spots. Render-only: reads the sim, never writes.
+// which buildVillages also uses to keep houses off these spots. v4: Грозный (city.ts): the apartment
+// blocks with their LOD, the city landmarks and Донер Бей at its real spot on ул. Мира. Render-only:
+// reads the sim, never writes.
 import * as THREE from 'three';
 import { donerBey, fudzi, gym, taxiStand } from './heroes';
 import { decorSpots, followPoints, mosque, VillageMarker } from './world';
@@ -12,10 +14,11 @@ import { heightY, type Terrain } from '../world/terrain';
 import { PT_DONER, type Sim, type Pt } from '../sim/sim';
 import { DONER } from '../data/heroes';
 import { DONER_REAL } from '../data/places';
+import { cityPlan, CityFill, buildCityLandmarks, type CityLandmarks } from './city';
 
 export { landmarkSpots, landmarkPlan, fudziSpot } from './landmarks';
 
-export interface Decor { update(dt: number): void; setSpicy(on: boolean): void; landmarks: Landmarks }
+export interface Decor { update(dt: number): void; setSpicy(on: boolean): void; landmarks: Landmarks; city: { fill: CityFill; landmarks: CityLandmarks } }
 /** What the decor needs to know about the camera (Stage has it) for its level of detail. */
 export interface DecorView { target: { x: number; z: number }; dist: number }
 
@@ -228,45 +231,6 @@ function buildLandmarks(root: THREE.Object3D, t: Terrain, low: boolean): Landmar
   };
 }
 
-/** Донер Бей's real address is 2.6 km north of the map: a signpost on the north edge points there. */
-function donerSignpost(t: Terrain, x: number): THREE.Group {
-  const g = new THREE.Group();
-  const z = 1.6;
-  const y = heightY(t, x, z);
-  const wood = new THREE.MeshLambertMaterial({ color: '#7a5636' });
-  const pole = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.4, 0.12), wood);
-  pole.position.set(0, 1.2, 0);
-  g.add(pole);
-  // an arrow board pointing north (−z)
-  const c = document.createElement('canvas');
-  c.width = 256; c.height = 128;
-  const ctx = c.getContext('2d')!;
-  const paint = () => {
-    ctx.clearRect(0, 0, 256, 128);
-    ctx.fillStyle = '#f2c12e';
-    ctx.beginPath(); ctx.moveTo(8, 24); ctx.lineTo(196, 24); ctx.lineTo(248, 64); ctx.lineTo(196, 104); ctx.lineTo(8, 104); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#2b2622'; ctx.lineWidth = 5; ctx.stroke();
-    ctx.fillStyle = '#2b2622'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '800 30px Unbounded, "Arial Black", sans-serif';
-    ctx.fillText('ДОНЕР БЕЙ', 112, 52, 180);
-    ctx.font = '700 22px "Golos Text", Arial, sans-serif';
-    ctx.fillText('2,6 км · Грозный', 112, 84, 180);
-    tex.needsUpdate = true;
-  };
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  paint();
-  (document as Document & { fonts?: FontFaceSet }).fonts?.load('800 30px Unbounded').then(paint, () => { /* system font */ });
-  const board = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.9), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, alphaTest: 0.3 }));
-  board.position.set(0, 2.1, 0);
-  board.rotation.y = Math.PI / 2; // arrow tip (canvas right) points to −z, north
-  g.add(board);
-  g.position.set(x, y - 0.05, z);
-  g.rotation.y = 0.35; // turned a little towards the opening camera
-  g.userData.real = DONER_REAL;
-  return g;
-}
-
 export function buildDecor(parent: THREE.Object3D, sim: Sim, view?: DecorView): Decor {
   const t = sim.terrain;
   const root = new THREE.Group();
@@ -277,27 +241,46 @@ export function buildDecor(parent: THREE.Object3D, sim: Sim, view?: DecorView): 
   followPoints(() => sim.st.pts);
 
   // ---- Донер Бей -----------------------------------------------------------------------------
+  // v4: the pavilion stands at its real spot in Grozny (city.ts draws it). Until the v4 sim moves pts[8]
+  // there, the old pavilion stays on the sim's point so the fight around it still has a building.
   const pts = sim.st.pts;
   // the sim always has pts[8]; the fallback only keeps a broken save from taking the decor down
-  const dp: Pt = pts.find(p => p.key === 'doner') ?? pts[PT_DONER] ?? { key: 'doner', name: DONER.clean, x: 30, z: 12, r: 6, kind: 2, side: -1, owner: -1, prog: 0 };
+  const donerPt = (): Pt => sim.st.pts.find(p => p.key === 'doner') ?? sim.st.pts[PT_DONER] ?? { key: 'doner', name: DONER.clean, x: 30, z: 12, r: 6, kind: 2, side: -1, owner: -1, prog: 0 };
+  const dp: Pt = pts.find(p => p.key === 'doner') ?? donerPt();
+  const atReal = (p: Pt) => (p.x - DONER_REAL.x) ** 2 + (p.z - DONER_REAL.z) ** 2 < 9;
   const db = donerBey();
   const dy = groundY(t, dp.x, dp.z, DONER_RY, 2.2, -1.25, 2.3);
   db.group.position.set(dp.x, dy, dp.z);
   db.group.rotation.y = DONER_RY;
+  db.group.visible = !atReal(dp);
   root.add(db.group);
   let spicy: boolean | null = null;
 
-  // capture ring + flag; the pole stands at the back corner so it clears the pavilion
-  const marker = new VillageMarker(t, dp);
-  {
-    const c = Math.cos(DONER_RY), s = Math.sin(DONER_RY);
-    const lx = 2.05, lz = -1.15;
-    const px = dp.x + lx * c + lz * s, pz = dp.z - lx * s + lz * c;
+  // ---- Грозный: blocks with LOD, landmarks, the real Донер Бей --------------------------------------
+  const city = { fill: new CityFill(t, cityPlan(t), low, !low), landmarks: buildCityLandmarks(t, { doner: donerBey, busstop: (name, side) => landmark('busstop', { name, side }) }, !low) };
+  root.add(city.fill.group, city.landmarks.group);
+  city.landmarks.doner?.setSign(DONER.clean.toUpperCase()); // v4 content policy: the real place keeps its real name, 18+ or not
+  for (const sg of city.landmarks.signs) sg.visible = false;
+  console.info(`city: ${city.fill.count} blocks, landmarks ${Math.round(city.landmarks.tris / 1000)}k tris`);
+
+  // capture ring + flag on the sim's point; the pole stands at the back corner so it clears the pavilion
+  // (rebuilt where the point is whenever the sim moves it)
+  let marker = new VillageMarker(t, dp), markerAt = { x: NaN, z: NaN };
+  const placeMarker = (p: Pt) => {
+    marker.group.removeFromParent();
+    marker = new VillageMarker(t, p);
+    markerAt = { x: p.x, z: p.z };
+    const ry = atReal(p) ? (city.landmarks.doner?.group.parent?.rotation.y ?? DONER_RY) : DONER_RY;
+    const k = atReal(p) ? 0.72 : 1;
+    const c = Math.cos(ry), s = Math.sin(ry);
+    const lx = 2.05 * k, lz = -1.15 * k;
+    const px = p.x + lx * c + lz * s, pz = p.z - lx * s + lz * c;
     const py = heightY(t, px, pz);
     marker.pole.position.set(px, py + 1.6, pz);
     marker.flag.position.set(px + 0.6, py + 2.75, pz);
     root.add(marker.group);
-  }
+  };
+  placeMarker(dp);
 
   // grill smoke out of the roof vent (local 1.3, 2.2, -0.6)
   const vent = new THREE.Vector3(1.3, 2.25, -0.6);
@@ -315,6 +298,7 @@ export function buildDecor(parent: THREE.Object3D, sim: Sim, view?: DecorView): 
 
   // ---- village decor ---------------------------------------------------------------------------
   const spins: THREE.Object3D[] = [db.spit];
+  if (city.landmarks.doner) spins.push(city.landmarks.doner.spit);
   for (const d of decorSpots(t)) {
     const g = d.key === 'fudzi' ? fudzi() : d.key === 'gym' ? gym() : taxiStand();
     const [hx, hz0, hz1] = d.key === 'fudzi' ? [1.2, -0.75, 1.25] : d.key === 'gym' ? [1.6, -0.9, 1.6] : [1.2, -0.5, 0.7];
@@ -324,18 +308,37 @@ export function buildDecor(parent: THREE.Object3D, sim: Sim, view?: DecorView): 
     const sp = g.userData.spit as THREE.Object3D | undefined;
     if (sp) spins.push(sp);
   }
-  // the real Донер Бей is in Grozny, off the north edge: a signpost above pts[8]
-  root.add(donerSignpost(t, dp.x));
   if (low) root.traverse(o => { o.castShadow = false; });
   const lm = buildLandmarks(root, t, low);
   console.info(`landmarks ${lm.list.length}, ${Math.round(lm.tris / 1000)}k tris`);
 
-  let time = 0;
+  let time = 0, nextCity = 0;
   return {
-    landmarks: lm,
+    landmarks: lm, city,
     update(dt: number) {
       time += dt;
       lm.update(view);
+      city.fill.update(view);
+      const now = performance.now();
+      if (now > nextCity) {
+        nextCity = now + 250;
+        // the sim's Донер Бей point: follow it if a save or the v4 sim moved it
+        const p = donerPt();
+        if (Math.abs(p.x - markerAt.x) + Math.abs(p.z - markerAt.z) > 0.3) {
+          placeMarker(p);
+          db.group.visible = !atReal(p);
+          if (db.group.visible) db.group.position.set(p.x, groundY(t, p.x, p.z, DONER_RY, 2.2, -1.25, 2.3), p.z);
+        }
+        // city signs: readable only up close
+        if (view) {
+          const tx = view.target.x, tz = view.target.z, R = view.dist < 75 ? 30 + view.dist * 0.5 : -1;
+          for (const sg of city.landmarks.signs) {
+            const at = sg.userData.at as [number, number];
+            const on = R > 0 && (at[0] - tx) ** 2 + (at[1] - tz) ** 2 < R * R;
+            if (sg.visible !== on) sg.visible = on;
+          }
+        }
+      }
       for (const s of spins) s.rotation.y += dt * 1.4;
       marker.update(time);
       for (const p of puffs) {

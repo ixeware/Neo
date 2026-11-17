@@ -152,6 +152,8 @@ class SharedWar implements Shared {
   private base = 0;
   /** Newest tick where this client's hash agreed with a verdict. */
   private agreedAt = -1;
+  /** Tick of the newest command that came too late to roll back (this world misses it), -1 none. */
+  private missedAt = -1;
   private lastLease = 0; private lastCp = 0; private lastPresence = 0; private lastRound = 0; private lastTickCall = 0; private rounds = 0;
   private myCmds: Cmd[] = [];
   private writing = false; private dirty = false;
@@ -215,7 +217,7 @@ class SharedWar implements Shared {
     if (list.length !== raw.length) this.stats.unbound += raw.length - list.length;
     this.ev.set(id, list);
     this.evW.set(id, this.writerOf(id, false, d));
-    if (this.session && id !== this.uid) for (const c of list) this.session.receive(c);
+    if (this.session && id !== this.uid) for (const c of list) if (c.t >= this.base) this.session.receive(c);
   }
 
   /** adm/{id} (editors only): admin commands (bound to the editor) and the editor's attestations. */
@@ -226,7 +228,7 @@ class SharedWar implements Shared {
     this.adm.set(id, list);
     if (d && Array.isArray(d.hv)) this.admW.set(id, this.writerOf(id, true, d)); else this.admW.delete(id);
     if (!this.session) return;
-    if (id !== this.uid) { for (const c of list) this.session.receive(c); return; }
+    if (id !== this.uid) { for (const c of list) if (c.t >= this.base) this.session.receive(c); return; }
     // our own list from another tab or an earlier visit: keep it, so the next write does not drop it
     for (const c of list) if (!this.myAdm.some(x => x.id === c.id)) { this.myAdm.push(c); this.admOk.add(c.id); this.session.receive(c); }
   }
@@ -434,7 +436,9 @@ class SharedWar implements Shared {
     };
     const session = new Session(sim, backend, this.uid);
     session.lead = 6;
+    session.onStale = t => { if (t >= this.base) this.missedAt = Math.max(this.missedAt, t); }; // older ones are in the base already
     if (!safeReset(session, st, clock.tick0, clock.wall0)) return null;
+    this.missedAt = -1;
     this.clock = clock;
     this.session = session;
     this.base = st.tick;
@@ -645,10 +649,13 @@ class SharedWar implements Shared {
       if (!claims.length) continue;
       let v = decide(claims, { uid: this.uid!, h: a.h, editor: this.editor });
       // a tie with exactly one other player: nobody can tell who is right, so both keep their own —
-      // except a newcomer that has not agreed with anyone since it joined (its replay is the likelier
-      // to miss a command); it takes the other's world if the difference is explainable (below)
-      const young = !v && claims.length === 1 && !claims[0].editor && !this.editor && this.agreedAt <= this.base && a.t - this.base <= 4 * CP_STEP;
-      if (young) v = { h: claims[0].h, why: 'majority', n: 1, of: 2 };
+      // except a client that knows it may be the wrong one: a newcomer that has not agreed with anyone
+      // since it joined (its replay is the likelier to miss a command), or one that got a command too
+      // late to roll back since it last agreed. It takes the other's world if the difference is
+      // explainable (below).
+      const young = this.agreedAt <= this.base && a.t - this.base <= 4 * CP_STEP;
+      const missed = this.missedAt >= 0 && this.missedAt <= a.t && this.missedAt >= this.agreedAt - CP_STEP;
+      if (!v && claims.length === 1 && !claims[0].editor && !this.editor && (young || missed)) v = { h: claims[0].h, why: 'majority', n: 1, of: 2 };
       if (!v) return;
       if (v.h === a.h) { this.agreedAt = Math.max(this.agreedAt, a.t); return; }
       if (v.why !== 'editor' && v.why !== 'majority') return;
@@ -670,6 +677,7 @@ class SharedWar implements Shared {
         a.h = v.h;
         this.myHv = this.myHv.filter(x => x.t <= a.t);
         this.agreedAt = a.t;
+        if (this.missedAt <= a.t) this.missedAt = -1;
         this.stats.heals++;
         void this.flush();
         if (this.editor) void this.flushAdm();

@@ -12,6 +12,13 @@ import { buildFlow, flowDir, type Flow } from './flow';
 import { normAdm, ADM_MAX, type Adm } from './admin';
 import { navIndex, passable, lcAt, LC, NAV, cellX, cellZ, type Terrain } from '../world/terrain';
 import { CAPTURE_PLACES } from '../data/places';
+import { BUILDINGS, BKEY } from './bdefs';
+import {
+  newBIdx, bldReindex, bldApply, bldStep, bldCleanup, bldIncome, bldPick, bldFront, bldMove, attackBld, bldProj, bldAoe, bldAi, bldAdmin,
+  bldWarEnd, bldNewWar, bldEff, bldSafe, bldMark, ordBld, canBuild, canUp, canSell, canRep, canFire, bcost, buildZone, baseLevel, bldCaps,
+  bldOn, bldAt, type B, type BIdx,
+} from './bld';
+export type { B } from './bld';
 
 export interface U {
   id: number; s: Side; t: number; x: number; z: number; hp: number; mhp: number;
@@ -95,6 +102,8 @@ export const UF = { LAGMAN: 1, GONE: 2, UNLOADED: 4, FLEE: 8, ADM: 16 } as const
 export interface P {
   x: number; z: number; tx: number; tz: number; tg: number; hq: number; s: Side;
   dmg: number; sp: number; slow: number; at: number; k: number; from: number;
+  /** Aimed at this building id (absent for every other shot). */
+  b?: number;
 }
 /**
  * kind: 0 high-rise (HQ), 1 village, 2 special point (Донер Бей), 3 «место» (capture place of a
@@ -130,12 +139,14 @@ export interface SideState {
   pack: number;
   /** Мохьмад (type 9) may bring a new Голем at this tick (0 = ready); the old summoner 12 keeps using U.ab. */
   golem: number;
+  /** Base buildings: discount until tick (the loser of the last war), ₽ paid for buildings lost this war, the AI's next build tick. */
+  bdisc: number; blost: number; aiB: number;
 }
 export interface Vote {
   open: number; start: number; end: number; opts: number[]; focusPt: number;
   ballots: Record<string, number>; npc: number[]; npcAt: number[]; result: number; resultAt: number;
 }
-export interface Player { s: Side; cd: number; joined: number; last: number; n: number }
+export interface Player { s: Side; cd: number; joined: number; last: number; n: number; /** build cooldown until tick (set by the first 'bld' command) */ bc?: number }
 /** Delayed / pulsing area damage: Землетряс pulses, Голем and Курица death bursts. */
 export interface Aoe { s: Side; x: number; z: number; r: number; dmg: number; hq: number; at: number; n: number; every: number; k: string }
 /** Hero away «на парах» (world event 'classes'); returns at its own HQ. */
@@ -157,6 +168,8 @@ export interface State {
   players: Record<string, Player>; diff: number; humanSide: -1 | 0 | 1; mp: number;
   aoe: Aoe[]; away: Away[]; ev: Ev;
   packs: Pack[];
+  /** Player-placed base buildings, in placement order (src/sim/bld.ts, docs/v5/BASE.md). */
+  bld: B[];
   adm?: AdmState;
 }
 
@@ -174,7 +187,13 @@ export type Cmd =
    * m 'hold': stand and hit what comes in reach. m 'auto': back to picking goals. m 'possessed': the
    * first valid id becomes this player's possessed unit (driven by 'ctl'). Invalid commands do nothing.
    */
-  | { t: number; id: string; p: string; k: 'ord'; s: Side; ids: number[]; m: OrdMode; x?: number; z?: number; tg?: number; fi?: number; fn?: number }
+  | { t: number; id: string; p: string; k: 'ord'; s: Side; ids: number[]; m: OrdMode; x?: number; z?: number; tg?: number; fi?: number; fn?: number; /** m 'attack': an enemy building id instead of tg */ tb?: number }
+  /**
+   * Base buildings (docs/v5/BASE.md §9). op 'put': build type b at x, z (snapped to the nav cell), or a wall
+   * line at `cells` (≤ BASE.line nav cells); 'up' / 'sell' / 'rep': building id n (rep with n 0: every damaged
+   * one); 'fire': superweapon n at x, z. Refused commands emit 'deny' and change nothing.
+   */
+  | { t: number; id: string; p: string; k: 'bld'; s: Side; op: 'put' | 'up' | 'sell' | 'rep' | 'fire'; b?: number; x?: number; z?: number; n?: number; cells?: number[] }
   /**
    * Drive this player's possessed unit u (taking it first if it is free): dx, dz the stick (ints −8..8,
    * normalised; 0 0 stands), atk 0|1 the attack button, fx, fz the facing for «attack in front» (ints
@@ -245,7 +264,14 @@ export type FxEv =
   | { e: 'adm'; op: string; s: number; n: number; v: number }
   // ---- unit control ---------------------------------------------------------------------
   /** Player number n (Player.n) took (on 1) or let go of (on 0) unit id of type t, side s. */
-  | { e: 'possess'; s: Side; id: number; t: number; n: number; on: 0 | 1 };
+  | { e: 'possess'; s: Side; id: number; t: number; n: number; on: 0 | 1 }
+  // ---- base buildings (docs/v5/BASE.md §10) ----------------------------------------------
+  /** k: put | done | up | sell | rep | die | seen | trap | hatch | charge | fire | stun | wave. id, s, t, lv: the building; n: ₽ or a count. */
+  | { e: 'bld'; k: string; id: number; s: Side; t: number; x: number; z: number; lv: number; n: number }
+  /** Building id of side s was hit. */
+  | { e: 'bhit'; id: number; x: number; z: number; s: Side }
+  /** «Тесла» id of side s: lightning through the points pts = [x, z, x, z, …] (the tower first). */
+  | { e: 'zap'; s: Side; id: number; pts: number[] };
 
 /** Unit types players may order and possess: not the boss, the rides or summons (Голем follows Мохьмад, Курицы are a swarm). */
 export function canControl(t: number): boolean { return t !== BOSS && t !== RIDE && !UNITS[t]?.summon; }
@@ -280,13 +306,13 @@ export const PT_PLACES = [9, 10, 11, 12];
 export const PT_COUNT = 13;
 
 // ---- RNG (mulberry32, integer ops) -------------------------------------------
-function rnd(st: State): number {
+export function rnd(st: State): number {
   let a = (st.rng = (st.rng + 0x6d2b79f5) | 0);
   a = Math.imul(a ^ (a >>> 15), a | 1);
   a ^= a + Math.imul(a ^ (a >>> 7), a | 61);
   return ((a ^ (a >>> 14)) >>> 0) / 4294967296;
 }
-function rint(st: State, n: number): number { return Math.floor(rnd(st) * n); }
+export function rint(st: State, n: number): number { return Math.floor(rnd(st) * n); }
 
 const NT = UNITS.length;
 /** Flow fields per terrain (read-only once built; the point layout never changes). */
@@ -316,12 +342,15 @@ export class Sim {
   flowBuilds = 0;
   /** Chase cells (re)picked so far this tick (prepFlows), at most CHASE_PICKS. */
   private picks = 0;
+  /** Index of State.bld (ids, cells, per side and type): derived, rebuilt by reindex() — never state. */
+  bi: BIdx;
 
   constructor(public terrain: Terrain) {
     this.hz = -terrain.z0 / 4;
     this.hw = Math.ceil(terrain.W / 4); this.hh = Math.ceil(terrain.H / 4) + this.hz;
     this.head = new Int32Array(this.hw * this.hh).fill(-1);
     this.donerSpot = this.findDoner();
+    this.bi = newBIdx(terrain);
     // flow fields depend only on the terrain and the fixed point layout: build once per terrain, share read-only
     let flows = FLOWS.get(terrain);
     if (!flows) {
@@ -375,7 +404,7 @@ export class Sim {
       lastHuman: -100000, aiNext: 30 + s * 7, turretCd: 0, found4: 0, kills: 0, deployed: 0, income: 0,
       hero: filled(-1), heroCd: filled(0),
       hack: 0, poor: 0, weak: 0, sauce: 0, sauceM: 1, dodge: 0, immune: 0, skip: 0, aiWant: -1, aiWantUntil: 0,
-      snus: 0, loop: 0, pack: 0, golem: 0,
+      snus: 0, loop: 0, pack: 0, golem: 0, bdisc: 0, blost: 0, aiB: 0,
     };
   }
 
@@ -392,14 +421,14 @@ export class Sim {
       v: 1, tick: 0, era: 1, seed, rng: seed | 0, nextId: 1, units: [], proj: [],
       pts: this.makePoints(), sides: [this.freshSide(0), this.freshSide(1)], votes: [this.freshVote(), this.freshVote()],
       nextVote: FIRST_VOTE, nextMilitia: 60, winner: -1, overAt: 0, players: {}, diff: 1, humanSide: -1, mp: 0,
-      aoe: [], away: [], ev: this.freshEv(0), packs: [],
+      aoe: [], away: [], ev: this.freshEv(0), packs: [], bld: [],
     };
     this.reindex();
   }
 
   load(st: State) { this.st = st; this.migrate(); this.reindex(); }
   snapshot(): State { return structuredClone(this.st); }
-  reindex() { this.byId.clear(); for (const u of this.st.units) this.byId.set(u.id, u); this.head.fill(-1); }
+  reindex() { this.byId.clear(); for (const u of this.st.units) this.byId.set(u.id, u); this.head.fill(-1); bldReindex(this); }
   unit(id: number) { return this.byId.get(id); }
 
   /**
@@ -415,6 +444,7 @@ export class Sim {
     if (!st.away) st.away = [];
     if (!st.ev) st.ev = this.freshEv(st.tick);
     if (!st.packs) st.packs = [];
+    if (!st.bld) st.bld = []; // saves from before the bases
     const full = this.makePoints();
     while (st.pts.length < full.length) st.pts.push(full[st.pts.length]);
     // capture places moved to real 2GIS spots: older saves get the new layout (the flow fields
@@ -495,6 +525,7 @@ export class Sim {
     }
     if (c.k === 'ord') { this.order(c, pl); return; }
     if (c.k === 'ctl') { this.control(c, pl); return; }
+    if (c.k === 'bld') { bldApply(this, c, pl); return; }
     if (c.k === 'dep') {
       const why = this.canDeploy(c.s, c.u, c.x, c.z, pl);
       if (why) { this.emit({ e: 'deny', p: c.p, why }); return; }
@@ -550,6 +581,7 @@ export class Sim {
       case 'reset': {
         st.seed = a.v; st.rng = a.v | 0; st.era = 0;
         delete st.adm;
+        st.bld = []; // a new world: no bases
         this.newWar(); // era → 1, fresh sides, points, timers; tick, ids and players carry on
         st.sides[0].wins = 0; st.sides[1].wins = 0;
         fx(st.era, a.v);
@@ -667,6 +699,7 @@ export class Sim {
         return;
       }
       case 'event': this.startEvent(a.key); fx(0); return;
+      case 'bgive': case 'bkill': case 'bheal': fx(bldAdmin(this, a), a.u); return;
       case 'endEvents': {
         const ev = st.ev;
         ev.jam = ev.black = ev.sale = ev.friday = ev.flood = 0;
@@ -716,6 +749,12 @@ export class Sim {
         for (const u of list) set(u, { m: OM.HOLD, x: u.x, z: u.z, c: -1, tg: -1, k: 0 });
         return;
       case 'attack': {
+        if (c.tb !== undefined) { // an enemy building: the units walk to it along a flow field to its cell and break it
+          const b = ordBld(this, c.tb, c.s);
+          if (!b) return;
+          for (const u of list) { set(u, { m: OM.ATTACK, x: b.x, z: b.z, c: navIndex(T, b.x, b.z), tg: -10 - b.id, k: 0 }); u.tg = -10 - b.id; }
+          return;
+        }
         const t = Number.isInteger(c.tg) ? this.byId.get(c.tg as number) : undefined;
         if (!t || t.hp <= 0 || t.s === c.s) return;
         for (const u of list) {
@@ -826,6 +865,10 @@ export class Sim {
    * then, not one per step. Writes o.c / o.x / o.z (state, from the state alone).
    */
   private chaseCell(u: U, o: Ord): number {
+    if (o.tg <= -10) { // a building never moves: its cell was set with the order
+      const dx = o.x - u.x, dz = o.z - u.z;
+      return dx * dx + dz * dz < CHASE_NEAR * CHASE_NEAR ? -1 : o.c;
+    }
     const t = this.byId.get(o.tg);
     if (!t || t.hp <= 0) return -1;
     const dx = t.x - u.x, dz = t.z - u.z, d2 = dx * dx + dz * dz;
@@ -872,10 +915,11 @@ export class Sim {
       if (w) { u.tg = w.id; return; }
       u.tt = 0; // the taunter is gone (as in acquire())
     }
-    if (d.bldg && o.m === OM.ATTACK) { u.o = o = this.hqRun(u); } // «buildings only» never chases a unit (orders from older saves)
+    if (d.bldg && o.m === OM.ATTACK && o.tg > -10) { u.o = o = this.hqRun(u); } // «buildings only» never chases a unit (orders from older saves)
     switch (o.m) {
       case OM.MOVE: case OM.POSSESS: u.tg = -1; return;
       case OM.ATTACK: {
+        if (o.tg <= -10) { if (ordBld(this, -o.tg - 10, u.s)) u.tg = o.tg; else { this.holdHere(u); u.tg = -1; } return; }
         const t = this.byId.get(o.tg);
         if (t && t.hp > 0 && t.s !== u.s) u.tg = t.id;
         else { this.holdHere(u); u.tg = -1; } // the target is gone: stand here
@@ -886,7 +930,7 @@ export class Sim {
     const r = o.m === OM.AMOVE ? d.aggro : S.range + d.radius + 1.3;
     if (d.bldg) {
       const e = this.st.pts[1 - u.s], dx = e.x - u.x, dz = e.z - u.z, rr = r + HQ.radius[1 - u.s] + (o.m === OM.AMOVE ? 3 : 0);
-      u.tg = dx * dx + dz * dz <= rr * rr ? -2 : -1;
+      u.tg = bldPick(this, u, r, S.range, dx * dx + dz * dz <= rr * rr ? -2 : -1);
       return;
     }
     const tgU = u.tg >= 0 ? this.byId.get(u.tg) : undefined;
@@ -916,6 +960,13 @@ export class Sim {
       tx = e.x; tz = e.z; has = true;
       const dx = e.x - u.x, dz = e.z - u.z, reach = S.range + HQ.radius[1 - u.s] + d.radius;
       if (dx * dx + dz * dz <= reach * reach) { if (u.cd === 0) this.attackHq(u, (1 - u.s) as Side, S.dmg, S.cd); return; }
+    } else if (u.tg <= -10) {
+      const b = this.bi.by.get(-u.tg - 10);
+      if (b && b.hp > 0) {
+        tx = b.x; tz = b.z; has = true;
+        const dx = b.x - u.x, dz = b.z - u.z, reach = S.range + d.radius + BUILDINGS[b.t].r;
+        if (dx * dx + dz * dz <= reach * reach) { if (u.cd === 0) attackBld(this, u, b, S.dmg, S.cd); return; }
+      } else u.tg = -1;
     }
     switch (o.m) {
       case OM.HOLD: { // never chase: drift back to the guarded spot when pushed off it
@@ -977,6 +1028,8 @@ export class Sim {
       bd = e2; best = k;
     });
     if (best >= 0) { const t = us[best]; u.tg = t.id; this.attack(u, t, S.dmg, S.cd); return; }
+    const pb = this.bi.side[1 - u.s].length ? bldFront(this, u, r0, fx, fz, fl) : null;
+    if (pb) { u.tg = -10 - pb.id; attackBld(this, u, pb, S.dmg, S.cd); return; }
     const v = (1 - u.s) as Side, e = st.pts[v], ex = e.x - u.x, ez = e.z - u.z, e2 = ex * ex + ez * ez, r = r0 + HQ.radius[v];
     if (e2 <= r * r && (fl === 0 || ex * fx + ez * fz >= 0.5 * Math.sqrt(e2) * fl)) { u.tg = -2; this.attackHq(u, v, S.dmg, S.cd); }
   }
@@ -994,7 +1047,8 @@ export class Sim {
 
   /** Current price (world event «Пятница: штурм такси» halves the Атаги taxi; the car wash place makes the Гелик −30%). */
   cost(s: Side, t: number): number {
-    const c = UNITS[t].cost[s];
+    let c = UNITS[t].cost[s];
+    if (UNITS[t].kind === Kind.Fast) { const g = bldEff(this, s, BKEY.garazh); if (g) c = Math.floor(c * g); } // «Гараж»
     if (t === GELIK && this.ownsPerk(s, 'gelik')) return Math.floor(c * PLACE.gelikDisc);
     return t === RIDE && s === 0 && this.st.ev.friday > this.st.tick ? Math.floor(c / 2) : c;
   }
@@ -1041,6 +1095,26 @@ export class Sim {
 
   count(s: Side) { let n = 0; for (const u of this.st.units) if (u.s === s) n++; return n; }
 
+  // ---- base buildings: queries for the UI, the AI and tests (src/sim/bld.ts; all pure) -----------------
+  /** null when side s may build type t at (x, z) now, else a clean Russian reason. Never writes: call it every frame for the ghost. */
+  canBuild(s: Side, t: number, x: number, z: number, pl?: Player): string | null { return canBuild(this, s, t, x, z, pl); }
+  canUp(s: Side, id: number, pl?: Player): string | null { return canUp(this, s, id, pl); }
+  canSell(s: Side, id: number, pl?: Player): string | null { return canSell(this, s, id, pl); }
+  canRep(s: Side, id: number, pl?: Player): string | null { return canRep(this, s, id, pl); }
+  canFire(s: Side, id: number, x: number, z: number, pl?: Player): string | null { return canFire(this, s, id, x, z, pl); }
+  /** Current price of level lv (1..3) of building type t. */
+  bcost(s: Side, t: number, lv = 1): number { return bcost(this, s, t, lv); }
+  buildZone(s: Side) { return buildZone(this, s); }
+  baseLevel(s: Side): number { return baseLevel(this, s); }
+  bldCaps(s: Side) { return bldCaps(this, s); }
+  bldCount(s: Side, t: number): number { return this.bi.ty[s][t]?.length ?? 0; }
+  building(id: number): B | undefined { return this.bi.by.get(id); }
+  bldAt(x: number, z: number): B | undefined { return bldAt(this, x, z); }
+  /** The building works right now (finished, powered, not frozen). */
+  bldOn(b: B): boolean { return bldOn(this, b); }
+  /** «Камера»: damage multiplier on u right now (> 1 = marked). */
+  marked(u: U): number { return bldMark(this, u); }
+
   spawnGroup(s: Side, t: number, x: number, z: number, own: number) {
     const d = UNITS[t];
     for (let i = 0; i < d.count; i++) {
@@ -1056,6 +1130,7 @@ export class Sim {
     const d = UNITS[t];
     let hp = t === BOSS ? BOSS_HP[s] : d.hp;
     if ((t === 1 || t === SPORTIK) && this.ownsPerk(s, 'gym')) hp = Math.floor(hp * PLACE.gymHp); // качалка
+    if (t !== BOSS && !d.summon) { const k = bldEff(this, s, BKEY.kachalka); if (k) hp = Math.floor(hp * k); } // «Качалка» on the base
     const u: U = {
       id: st.nextId++, s, t, x, z, hp, mhp: hp, cd: 0, tg: -1, g: -1, rt: 0, slow: 0, stun: 0,
       own, mv: 0, ab: t === MOHMAD ? 1 : 60, hit: 99, born: st.tick, psn: 0, tt: 0, tn: -1, ld: -1, f: 0, fr: 0,
@@ -1104,6 +1179,7 @@ export class Sim {
     this.packs();
     this.projectiles();
     this.turrets();
+    bldStep(this);
     if (st.tick % 5 === 0) this.capture();
     this.cleanup();
     this.bosses();
@@ -1118,6 +1194,7 @@ export class Sim {
     if (st.pts[PT_DONER].owner === s) inc += DONER.income * (st.ev.sale > now ? 2 : 1);
     if (this.ownsPerk(s, 'market')) inc += PLACE.market;
     if (sd.hero[WOU] >= 0) inc += HERO.wouIncome;
+    if (this.bi.side[s].length) inc += bldIncome(this, s);
     if (sd.inc > now) inc *= 1.5;
     if (sd.poor > now) inc *= 0.5;
     if (sd.black > now || sd.hack > now || st.ev.black > now) inc = 0;
@@ -1454,6 +1531,7 @@ export class Sim {
     const st = this.st, sd = st.sides[s];
     if (st.tick < sd.aiNext || !this.aiActive(s)) return;
     sd.aiNext = st.tick + 22 + rint(st, 30);
+    bldAi(this, s); // the base: at most one action now and then, with a reserve, so units still come first
     const mine = this.count(s);
     let t = -1;
     if (sd.aiWant >= 0 && st.tick < sd.aiWantUntil && mine >= 6 && this.heroOk(s, sd.aiWant)
@@ -1580,6 +1658,7 @@ export class Sim {
     if (sd.snus > now) { spd *= BUFF.snusSpd; cd = Math.max(1, Math.floor((cd * 10) / BUFF.snusAtk + 0.5)); }
     else if (sd.snus > 0 && now < sd.snus + BUFF.offFor) spd *= BUFF.offSpd; // отходняк
     if (sd.cars > now && d.kind === Kind.Fast) { spd *= 1.5; dmg *= 1.5; }
+    if (d.kind === Kind.Fast && this.bi.side[u.s].length) { const g = bldEff(this, u.s, BKEY.garazh, true); if (g) spd *= g; } // «Гараж»
     if (sd.immune <= now && !d.kra) {
       if (sd.n > now && sd.loop <= now) spd *= 0.5; // «Н не липнет» under LOOP
       if (u.slow > now) spd *= 0.55;
@@ -1636,7 +1715,7 @@ export class Sim {
       if (u.o) this.ordTarget(u, u.o, S);
       else if (d.bldg) { // хог райдер: только здания
         const e = st.pts[1 - u.s], dx = e.x - u.x, dz = e.z - u.z, r = d.aggro + HQ.radius[1 - u.s] + 3;
-        u.tg = dx * dx + dz * dz <= r * r ? -2 : -1;
+        u.tg = bldPick(this, u, d.aggro + 4, S.range, dx * dx + dz * dz <= r * r ? -2 : -1); // buildings first, then the high-rise
       } else {
         const tgU = u.tg >= 0 ? this.byId.get(u.tg) : undefined;
         if ((u.tg >= 0 && (!tgU || tgU.hp <= 0)) || (now + u.id) % 4 === 0) this.acquire(u, d.aggro);
@@ -1673,6 +1752,14 @@ export class Sim {
         const reach = S.range + HQ.radius[1 - u.s] + d.radius;
         inRange = dx * dx + dz * dz <= reach * reach;
         if (inRange && u.cd === 0) this.attackHq(u, (1 - u.s) as Side, S.dmg, S.cd);
+      } else if (u.tg <= -10) {
+        const b = this.bi.by.get(-u.tg - 10);
+        if (b && b.hp > 0) {
+          tx = b.x; tz = b.z; engage = true;
+          const dx = b.x - u.x, dz = b.z - u.z, reach = S.range + d.radius + BUILDINGS[b.t].r;
+          inRange = dx * dx + dz * dz <= reach * reach;
+          if (inRange && u.cd === 0) attackBld(this, u, b, S.dmg, S.cd);
+        } else u.tg = -1;
       }
       if (inRange) continue;
       if (engage) {
@@ -1733,6 +1820,7 @@ export class Sim {
   }
 
   private moveTo(u: U, x: number, z: number, nudge = false) {
+    if (this.bi.sol[1 - u.s]) { bldMove(this, u, x, z, nudge); return; } // the enemy has walls or buildings in the way
     const T = this.terrain;
     if (passable(T, x, z)) { u.x = x; u.z = z; if (!nudge) u.mv = 1; return; }
     if (passable(T, x, u.z)) { u.x = x; if (!nudge) u.mv = 1; return; }
@@ -1764,7 +1852,7 @@ export class Sim {
     if (best >= 0) { u.tg = us[best].id; return; }
     const e = st.pts[1 - u.s];
     const dx = e.x - u.x, dz = e.z - u.z, r = aggro + HQ.radius[1 - u.s] + 3;
-    u.tg = dx * dx + dz * dz <= r * r ? -2 : -1;
+    u.tg = bldPick(this, u, aggro, this.sc.range, dx * dx + dz * dz <= r * r ? -2 : -1);
   }
 
   private healAround(u: U, amount: number, range: number) {
@@ -1814,7 +1902,7 @@ export class Sim {
   /** ersno «Перевод по номеру карты»: moves up to `want` ₽ from the enemy bank (never below 0). Returns ₽ moved. */
   private steal(u: U, want: number, k: 'hit' | 'card'): number {
     const v = (1 - u.s) as Side, en = this.st.sides[v];
-    const n = Math.floor(Math.min(want, en.money));
+    const n = Math.floor(Math.min(want, en.money - bldSafe(this, v))); // «Сейф» hides part of the bank
     if (n <= 0) return 0;
     en.money -= n; this.st.sides[u.s].money += n;
     this.emit({ e: 'steal', s: u.s, v, id: u.id, x: u.x, z: u.z, n, k });
@@ -2149,6 +2237,7 @@ export class Sim {
     const st = this.st, sd = st.sides[u.s];
     if (st.adm && st.adm.god[u.s]) return false; // admin «бессмертие»
     if (sd.dodge > st.tick && rnd(st) < 0.4) { this.emit({ e: 'dodge', x: u.x, z: u.z, s: u.s }); return false; }
+    dmg *= bldMark(this, u); // «Камера»: marked units take more
     if (sd.hero[BEKHAN] >= 0) { // «Главное не игра, главное дисциплина»
       const b = this.byId.get(sd.hero[BEKHAN]);
       if (b) { const R = UNITS[BEKHAN].aura!, dx = b.x - u.x, dz = b.z - u.z; if (dx * dx + dz * dz < R * R) dmg *= HERO.bekhanArmor; }
@@ -2177,6 +2266,7 @@ export class Sim {
         const v = (1 - a.s) as Side, e = st.pts[v], dx = e.x - a.x, dz = e.z - a.z, hr = a.r + HQ.radius[v];
         if (dx * dx + dz * dz <= hr * hr) this.hurtHq(v, a.dmg * a.hq);
       }
+      bldAoe(this, a);
       this.emit({ e: 'pulse', s: a.s, x: a.x, z: a.z, r: a.r, key: a.k });
       a.n--;
       if (a.n > 0) { a.at = st.tick + a.every; keep.push(a); }
@@ -2190,6 +2280,7 @@ export class Sim {
     for (const p of st.proj) {
       if (p.tg >= 0) { const t = this.byId.get(p.tg); if (t && t.hp > 0) { p.tx = t.x; p.tz = t.z; } }
       if (st.tick < p.at) { keep.push(p); continue; }
+      if (p.b !== undefined) { bldProj(this, p); continue; }
       if (p.hq >= 0) { this.hurtHq(p.hq as Side, p.dmg); this.emit({ e: 'hit', x: p.tx, z: p.tz, s: p.hq as Side, big: 0 }); continue; }
       if (p.sp > 0) {
         this.splash(p.s, p.tx, p.tz, p.sp, p.dmg, p.slow, 0.3);
@@ -2254,6 +2345,7 @@ export class Sim {
 
   private cleanup() {
     const st = this.st, now = st.tick;
+    if (st.bld.length) bldCleanup(this);
     let dead = false;
     for (const u of st.units) if (u.hp <= 0) { dead = true; break; }
     if (dead) {
@@ -2323,6 +2415,7 @@ export class Sim {
   private newWar() {
     const st = this.st;
     const wins: [number, number] = [st.sides[0].wins, st.sides[1].wins];
+    const base = bldWarEnd(this); // before the sides are replaced: the loser and its insurance
     st.era++;
     st.units = []; st.proj = []; st.aoe = []; st.away = []; st.packs = [];
     st.pts = this.makePoints();
@@ -2334,6 +2427,7 @@ export class Sim {
     st.ev = this.freshEv(st.tick);
     st.winner = -1; st.overAt = 0;
     for (const k of Object.keys(st.players)) st.players[k].cd = 0;
+    bldNewWar(this, base); // surviving buildings stay, repaired
     this.reindex();
     this.emit({ e: 'newWar', era: st.era });
   }

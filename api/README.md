@@ -9,7 +9,19 @@ plays alone against the AI (progress in the browser, as before).
 
 Client side: `src/net/vercel.ts` (`connectVercel`, `VercelWar`, `vercelAdminChannel`). `src/main.ts`
 uses the artifact runtime (`src/net/shared.ts`) when it is present, else this backend when
-`/api/health` answers.
+`/api/health` answers. `VercelWar` has the `Shared` surface main.ts uses (`menuInfo / join / tick /
+leave / admin`) plus:
+
+* `onRoster(cb)` → unsubscribe: `cb(list)` soon with the current roster and on every change (the server
+  sends at most 2 a second); `list` = `[{ pid, name, side: 0|1|-1, ctl?: unitId, sel?: count, me? }]`,
+  every connected player (other instances' players within ≤ 5 s). Before joining it is `GET /api/players`.
+* `setPresence({ name?, side?, ctl?, sel? })`: my own line (`ctl`/`sel` `undefined` clears), sent at most
+  twice a second. The session made by `join()` carries both as `session.backend.presence` (the
+  `PresenceSource` of `src/net/presence.ts`), so the roster panel needs nothing Vercel-specific.
+* `vercelAdminChannel(war)`: the `AdminChannel` (`src/net/adminChannel.ts`) of kind `'vercel'`:
+  `check()` (logged in and in the war?), `login(pw)` → `POST /api/admin/login`, token in sessionStorage,
+  `logout()`, `send(cmd)` → `admBody(cmd)` → `session.submit(b, 30)` → `{ type: 'adm', c, tok }`; a refusal
+  takes it back (`session.drop(id)`) and calls `onRefused(reason)`.
 
 ## Settings to make in Vercel
 
@@ -19,8 +31,9 @@ uses the artifact runtime (`src/net/shared.ts`) when it is present, else this ba
 | `ADMIN_PASS_HASH` | hex PBKDF2-SHA256(password, salt `vysotka-admin-v1`, 210 000 iterations, 32 bytes). For the current password it is `313e8dce89c55905201163fdcadb5eeebe0e2b27bc5b2a0f8b4ef31a7e1e7355`. To make a new one without the password landing in shell history: `node -e "process.stdin.once('data',d=>console.log(require('crypto').pbkdf2Sync(String(d).trim(),'vysotka-admin-v1',210000,32,'sha256').toString('hex')))"`, type the password, Enter. |
 | `ADMIN_TOKEN_SECRET` | ≥ 16 random characters, e.g. `openssl rand -hex 32`. Changing it logs every admin out. |
 | `VY_ORIGINS` (optional) | Extra origins allowed to open the WebSocket, comma separated (the site's own host is always allowed). |
+| `VY_POLL_MS` (optional) | How often an instance reads the log while another instance holds sockets and sends commands (default 700 ms). Raise it (e.g. 1500) if Upstash commands run short; foreign commands then arrive later and roll back a little more. |
 | Node.js | 22.x (`engines` in package.json). |
-| Functions | Fluid compute on (default for new projects). `api/ws.ts` lives until the function's max duration (Hobby: up to 300 s); clients reconnect at once and resume from their last log id. Raising the max duration in Project → Settings → Functions only reduces reconnects. |
+| Functions | Fluid compute on (default for new projects). `vercel.json` gives `api/ws.ts` `maxDuration: 300` (the Hobby maximum); a socket ends then and the client reconnects at once, resuming from its last log id. Nothing else to set: `api/*.ts` build with `@vercel/node` as they are (`_lib/` is not a route). |
 
 Without `ADMIN_PASS_HASH`/`ADMIN_TOKEN_SECRET` the login answers 503 and admin commands are refused.
 Env changes need a redeploy.

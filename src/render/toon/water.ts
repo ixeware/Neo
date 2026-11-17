@@ -55,9 +55,9 @@ export function toonWater(): THREE.MeshLambertMaterial {
       .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
 	{
 		float t = toonA.x;
-		vec2 p = vWxz * 1.5;
+		vec2 p = vWxz * vec2( 2.3, 2.0 );
 		float a = sin( p.x * 1.3 + p.y * 0.7 + t * 1.1 ) + sin( p.x * 0.6 - p.y * 1.5 - t * 0.8 ) + 0.6 * sin( p.x * 2.9 + p.y * 2.3 + t * 1.7 );
-		diffuseColor.rgb = mix( diffuseColor.rgb, ${v3(glint)}, smoothstep( 1.75, 1.85, a ) * 0.8 );
+		diffuseColor.rgb = mix( diffuseColor.rgb, ${v3(glint)}, smoothstep( 1.9, 1.98, a ) * 0.75 );
 		float edge = 0.74 + 0.07 * sin( t * 1.6 + vWxz.x * 2.3 + vWxz.y * 1.9 );
 		diffuseColor.rgb = mix( diffuseColor.rgb, ${v3(foam)}, smoothstep( edge, edge + 0.04, vShore ) );
 	}`);

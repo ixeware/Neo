@@ -161,6 +161,49 @@ export const mat = {
   },
 };
 
+// ---- sun and fake ground shadows ---------------------------------------------------------------------------
+/** Unit vector from the ground towards the sun (the same sun as scene.ts: west-south-west, about 49° up). */
+export const SUN_DIR = new THREE.Vector3(-45, 70, 40).normalize();
+
+let shadowMat: THREE.MeshBasicMaterial | null = null;
+/**
+ * Fake ground shadow for the phone tier, where the renderer draws no sun shadows: a dark flat sheet in
+ * the shape a `w` × `d` × `h` box would cast, in the local frame of a building turned by `ry` (rotation.y),
+ * lying at y = 0.03. Add it to the building's group. Returns null when real shadows are on or in classic,
+ * so the call site needs no branch: `const s = groundShadow(w, d, h, ry); if (s) group.add(s);`
+ */
+export function groundShadow(w: number, d: number, h: number, ry = 0): THREE.Mesh | null {
+  if (!TOON || STYLE.shadows) return null;
+  // where the top of the box lands, in world axes, then turned into the building's frame
+  const k = h / SUN_DIR.y, wx = -SUN_DIR.x * k, wz = -SUN_DIR.z * k;
+  const c = Math.cos(ry), s = Math.sin(ry), ox = wx * c - wz * s, oz = wx * s + wz * c;
+  const hw = w / 2, hd = d / 2;
+  const pts: [number, number][] = [];
+  for (const [x, z] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) pts.push([x, z], [x + ox, z + oz]);
+  // convex hull (gift wrapping: eight points)
+  let start = 0;
+  for (let i = 1; i < pts.length; i++) if (pts[i][0] < pts[start][0] || (pts[i][0] === pts[start][0] && pts[i][1] < pts[start][1])) start = i;
+  const hull: number[] = [];
+  let p = start;
+  do {
+    hull.push(p);
+    let q = (p + 1) % pts.length;
+    for (let i = 0; i < pts.length; i++) {
+      const cr = (pts[q][0] - pts[p][0]) * (pts[i][1] - pts[p][1]) - (pts[q][1] - pts[p][1]) * (pts[i][0] - pts[p][0]);
+      if (cr < -1e-9) q = i;
+    }
+    p = q;
+  } while (p !== start && hull.length <= pts.length);
+  const pos: number[] = [];
+  for (let i = 1; i + 1 < hull.length; i++) for (const j of [hull[0], hull[i + 1], hull[i]]) pos.push(pts[j][0], 0.03, pts[j][1]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  shadowMat ??= ground(new THREE.MeshBasicMaterial({ color: TOON_HEX.ink, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  const m = new THREE.Mesh(g, shadowMat);
+  m.renderOrder = 1;
+  return m;
+}
+
 // ---- renderer, lights, stage -----------------------------------------------------------------------------
 /** Any WebGLRenderer that draws game models (the stage, portraits, the model viewer). Classic: untouched. */
 export function styleRenderer(r: THREE.WebGLRenderer) {

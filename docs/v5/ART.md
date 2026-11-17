@@ -1,8 +1,8 @@
 # ВЫСОТКА v5 — art guide and contract for the new graphics style
 
-Status: **v1 (written before the foundation code was finished)**. Sections marked ◇ hold provisional
-numbers; the foundation track replaces them with measured ones in its last commit. Everything else is the
-contract: three art tracks build on it at the same time and must not step on each other.
+Status: **v2 — the foundation is in the code** (`src/render/style.ts`, `src/render/toon/*`), the numbers
+below are measured. This is the contract: three art tracks build on it at the same time and must not step
+on each other.
 
 The user picks the look in the menu: «Графика: Новая / Старая». `toon` is the new default, `classic` is
 the game exactly as it was before v5. **Classic must never change**: every hook you add is behind
@@ -25,8 +25,9 @@ Five things make the style. Break one and the scene stops reading as «нова�
    noise textures, no grey-brown mud. A lit surface shows the palette colour as authored.
 2. **Three tones, not a gradient.** Light is a stepped ramp: lit / half / shade. Shade is never black: it
    is the same colour at about 60% and pushed to blue-violet (the sky fills it).
-3. **A dark outline** around every object and along every hard crease, one colour (`ink`), about 1.3 px at
-   1080p, fading with distance so far villages do not turn into soot.
+3. **A dark outline** around every object and along every hard crease, one colour (`ink`), about 1.3 px on
+   a 900 px tall screen (it scales with the resolution), full strength at play zoom and lighter with
+   distance so far villages do not turn into soot.
 4. **Chunky shapes.** Few big forms, exaggerated roofs and heads, nothing thin. If a part is smaller than
    0.10 world units it must be merged into a bigger form or dropped.
 5. **Alive.** Something moves in every screen: smoke, flags, laundry, birds, chickens, clouds' shadows,
@@ -36,15 +37,16 @@ Five things make the style. Break one and the scene stops reading as «нова�
 
 | Thing | Value |
 |---|---|
-| Sun | warm `#fff1cf`, from the south-west, about 49° up; direct light is a 3-step ramp (shade below N·L 0.10, half up to 0.52, lit above; 0.03 soft edge) |
-| Ambient | hemisphere: sky `#cfe0ff`, ground bounce `#c9b28e`; this is what tints the shade |
-| Shadows | desktop: soft PCF sun shadows at 85% strength, so the ground under a shadow keeps its hue; phone tier: none from the renderer — models bring a fake ground shadow (§5) |
-| Cloud shadows | large soft blobs drifting north-east over the land (shader, no geometry), 12% darker |
-| Tone mapping | none (a soft shoulder above 0.75 only): what you author is what you see. sRGB output |
+| Sun | warm `#fff4d5`, from the west-south-west, about 49° up (`SUN_DIR`); direct light is a 3-step ramp: shade below N·L 0.10, half up to 0.52, lit above, 0.03 soft edge |
+| Ambient | hemisphere: sky `#e8f0ff`, ground `#dad9e2`. Sun 0.42 + sky 0.60–0.74 add up to 1.0 on a lit top face, so **a lit face shows the palette colour exactly**; half tone is about 82%, shade about 62% and cool |
+| Shadows | desktop: PCF sun shadows at 90% strength (the shadowed ground keeps its hue); phone tier: none from the renderer — big models bring a fake ground shadow (`groundShadow()`, §5) |
+| Cloud shadows | soft blobs about 50 units wide drifting over the land (in the shader, no geometry): the sun term drops by 30%, the surface gets about 12% darker |
+| Tone mapping | none (a soft shoulder above 0.78 only): what you author is what you see. sRGB output |
 | Sky | zenith `#2f9be0` → horizon `#9ad8f5`, flat white cartoon clouds with one `#d6e6f5` shade tone (first-person view and the horizon only; the RTS camera looks down) |
-| Haze | distance fog to `#bfe3f2`, starts later than classic so the play field stays crisp |
-| Water | Аргун: flat `#35b8ea` with lighter moving glints and a white foam line along the banks; no specular highlight |
-| Outline | `ink` `#2a2233` (dark aubergine, never pure black) |
+| Backdrop | the map floats in the sky: the same blue gradient above and below the horizon (the old beige table is gone) |
+| Haze | distance fog to `#bfe3f2`, starts at 2.1 × the camera distance (at least 170 units), so the play field stays crisp |
+| Water | Аргун: flat `#35b8ea`, lighter glints drifting over it, a white foam line pulsing along the banks; no specular highlight, no outline |
+| Outline | `ink` `#2a2233` (dark aubergine, never pure black); full strength up to 44 units from the camera, then × (44 / distance)^1.15, never under 12% |
 
 ## 2. Palette (toon)
 
@@ -59,10 +61,11 @@ same role names, so one builder can serve both styles. Hex values are sRGB.
 | `meadow` | `#9ad05a` | high pastures in the foothills |
 | `forest` 1–3 | `#3f9a3c` `#4aa644` `#368c36` | ground under trees |
 | `forestHigh` | `#2f7f4a` `#38885a` | fir belt |
-| `crop` 1–7 | `#f2cf5a` wheat, `#f5e08c` straw, `#e8b24a` ochre, `#b9824f` ploughed, `#b9d94e` sunflower, `#cbd066` olive, `#8fd45c` young | field patches: clear rectangles of different colour, like a quilt |
+| `crop` 1–7 | `#f4d75e` wheat, `#f7e59a` straw, `#eec25a` ochre, `#cfa06c` ploughed, `#a8dc5a` sunflower green, `#c6d868` olive, `#8fd45c` young | field patches: clear shapes of different colour, like a quilt |
 | `yard` 1–3 | `#f0dca6` `#ead29a` `#f5e4b6` | built-up ground, village yards, plazas (the beige of the reference plaza) |
 | `earth` | `#d9b98a` `#cfae7c` | bare ground, tracks, construction sites |
 | `rock` | `#a39aa0` | steep faces, cliffs, boulders |
+| `leaf` 1–6 / `fir` 1–4 / `trunk` | `#3fae46` `#55c24f` `#2f9a3e` `#6fd060` `#47b84a` `#8bd85c` / `#1f8a5a` `#27996a` `#1a7a50` `#2fa878` / `#8a5a3a` | tree crowns (broadleaf, fir) and trunks |
 | `water` 1–3 | `#35b8ea` `#49c4f2` `#2aa9e0` | Аргун and ponds; `foam` `#ffffff` |
 | `wet` | `#5fc0a0` | reeds, flood plain |
 | `asphalt` / `street` / `track` | `#6d6878` / `#8b8594` / `#e4c98f` | roads; `roadLine` `#fff6d8` |
@@ -116,13 +119,17 @@ accents (trim, foam, sneakers, marble).
   flat quads 0.004 above the wall (no insets).
 - **Ground contact.** Every building stands on a `yard` or `concrete` pad or a darker plinth strip, so the
   outline closes at the ground and the model never floats on a slope (walls reach 0.25 below ground).
-- **Outline rule.** The outline is drawn by the renderer (post-process on depth) for everything that writes
-  depth, except materials marked `ground()` (terrain, roads, water, decals). You do not model outlines.
-  Two consequences: (a) two surfaces that should read as separate objects need a real depth step or a
-  crease of 25° or more between them; (b) avoid forests of thin parallel parts closer than 4 px apart at
-  play zoom (railings, picket fences as separate boxes): make them one slab with the gaps painted as
-  `ink`-coloured quads. On the weak tier the outline pass may be off: a model must still read by colour,
-  so give neighbouring parts different palette colours.
+- **Outline rule.** The outline is drawn by the renderer (one post-process pass over the depth buffer, §10)
+  for everything opaque that writes depth, except materials marked `ground()` (terrain, roads, water,
+  decals). You do not model outlines. Consequences: (a) the pass inks depth steps and creases — two parts
+  that should read as separate need a real step (0.02 units or more) or an angle of about 25° or more
+  between their faces; coplanar parts of different colour get **no** line, so a window on a wall is a
+  colour patch (good), and a door that must pop needs a 0.02 frame; (b) avoid forests of thin parallel
+  parts closer than 4 px at play zoom (railings, pickets as separate boxes): make them one slab with the
+  gaps painted as `ink`-coloured quads; (c) transparent things never get a line and hide the lines behind
+  them in proportion to their opacity, so smoke and rings stay clean; (d) on a slow device the pass turns
+  itself off (`STYLE.outline === 'off'`): a model must still read by colour alone, so neighbouring parts
+  get different palette colours and buildings a darker plinth strip.
 
 ## 4. Richness recipe: what makes a place look alive
 
@@ -215,40 +222,54 @@ fade after 6 s.
 **Readability at zoom:** from the default zoom (camera distance 70) the family and the team must still
 read; from the whole-map view only the team-colour roof and the ring matter. No part thinner than 0.08.
 
-**Ground shadow on the phone tier:** every base building, landmark and the high-rises bring a fake shadow:
-a dark `ink` quad at 25% opacity, the footprint sheared 0.35 of the height towards north-east, material
-`ground(mat.unlit(...))`. It is skipped when real shadows are on (`STYLE.shadows`).
+**Ground shadow on the phone tier:** every base building, landmark and the high-rises bring a fake shadow
+from `groundShadow(w, d, h, ry)` (style.ts): a flat `ink` sheet at 20% opacity in the shape the box would
+cast, pointing north-east like the real sun shadows. It returns `null` when real shadows are on
+(`STYLE.shadows`) and in classic, so the call needs no branch. Not for village houses (too many): they get
+a darker `yard` patch baked under them instead.
 
-## 6. Budgets and the rules for instancing, merging and LOD ◇
+## 6. Budgets and the rules for instancing, merging and LOD
 
-Measured at the base commit (classic), 10 fixed camera views, 96 units on the field:
+Measured with `renderer.info` over whole frames (shadow pass included) at 10 fixed camera views with 96
+units on the field, on the base commit (classic) and on the foundation (toon):
 
-| Tier | Draw calls | Triangles |
-|---|---|---|
-| Desktop (1440×900, shadows on) | 198–558 (median 300) | 357k–613k |
-| Phone tier / `?lq` (390×844, no shadows) | 88–186 (median 130) | 220k–324k |
+| Tier | Classic draw calls | Classic triangles | Toon foundation |
+|---|---|---|---|
+| Desktop (1440×900, sun shadows on) | 198–558 (median 300) | 357k–613k | the same scene **+1 draw call, +1 triangle** (the outline composite) |
+| Phone tier / `?lq` (390×844, no shadows) | 88–186 (median 130) | 220k–324k | the same scene **+1 draw call, +1 triangle** |
+
+The foundation costs no geometry: outlines, sky, cloud shadows and water are shader work. So the whole
+triangle and draw-call headroom belongs to the three tracks.
 
 **Hard limits for toon at the end of v5** (any overview: camera distance 70–300 over Атаги, Курчалой,
-Грозный, Шали, the river):
+Грозный, Шали, the river; and the close fight):
 
 | | Phone tier / `?lq` | Desktop |
 |---|---|---|
 | Triangles | **≤ 480k** | **≤ 1.2M** |
-| Draw calls | **≤ 1.3 × classic** in the same view (≤ 240 in the worst view) | ≤ 1.5 × classic (≤ 830) |
+| Draw calls | **≤ 1.3 × classic** in the same view (classic worst view is 186, so never above 240) | ≤ 1.5 × classic in the same view (never above 830) |
 
-What each track may **add** on top of classic in the worst overview (the foundation itself adds 1–2 draw
-calls and no triangles):
+What each track may **add** on top of the foundation in the worst overview (classic worst: Грозный, 324k
+triangles on the phone tier and 613k on desktop):
 
 | Track | Phone triangles | Phone draw calls | Desktop triangles | Desktop draw calls | Bundle bytes (minified JS in `dist/index.html`) |
 |---|---|---|---|---|---|
 | Ground and nature | +55k | +16 | +200k | +60 | 110 KB |
 | Architecture and base buildings | +70k | +20 | +250k | +90 | 170 KB |
 | Characters and vehicles | +30k | +12 | +100k | +50 | 150 KB |
-| Reserve (merger) | +5k | +6 | +30k | +30 | — |
+| Reserve (merger) | +1k | +5 | +37k | +30 | — |
 
-`dist/index.html` is 1.90 MB at the base commit and must end v5 **under 3.2 MB** for all tracks together
-(art, sim, UI, texts). Geometry is code: write builders with loops and shared helpers, not vertex lists.
-No image files, no fonts, no external models.
+A track that replaces old geometry (new house kits instead of the old ones, new trees) counts the
+**difference**. Replacing is the cheap way to get richer: the old village houses alone are 190k–275k
+triangles on desktop.
+
+`dist/index.html` is 1.90 MB at the base commit and 1.92 MB with the foundation (+19 KB); it must end v5
+**under 3.2 MB** for all tracks together (art, sim, UI, texts). Geometry is code: write builders with
+loops and shared helpers, not vertex lists. No image files, no fonts, no external models.
+
+Fill rate is the other budget on phones: the outline pass reads the frame once (6 texture reads per
+pixel in `lite`), and a slow device drops it by itself. Do not add full-screen passes, and keep
+transparent surfaces small (see «Transparency» below).
 
 Rules:
 - **Instance** anything that repeats more than 8 times (props, plants, animals, cars, base walls):
@@ -297,43 +318,72 @@ Rules:
 - **Animation hints:** squash on landing, a head bob when walking, weapons bigger than hands. Idle crowd
   units breathe (scale Y ±2%).
 
-## 8. The style module: API ◇
+## 8. The style module: API
 
-`src/render/style.ts` is the only thing a builder needs to import. It resolves the style once at start
-(URL `?gfx=classic|toon` wins, then the saved preference, default `toon`). Switching in the menu saves the
-preference and reloads the page; the solo war is checkpointed first and resumes with «Продолжить».
+`src/render/style.ts` is the one import a builder needs. The style is resolved once at start: URL
+`?gfx=classic|toon` wins, then the saved preference (`localStorage['vysotka.prefs'].gfx`), default
+`toon`. The menu setting «Графика: Новая / Старая» saves the choice and reloads the page; a running war
+is checkpointed first and entered again right after the reload (solo: the local save; shared war: it
+rejoins the same side).
 
 ```ts
-import { TOON, C, mat, ground, native, restyle, STYLE } from '../style';   // from src/render/toon/**
+import { TOON, STYLE, C, HEX, TEAM, mat, native, ground, restyle, restyleGeometry, SUN_DIR, groundShadow } from '../style'; // from src/render/toon/**
 
 TOON                      // true in the new style; guard every toon-only hook with it
-STYLE.tier                // 'desktop' | 'phone' (phone = lowPower / ?lq)
-STYLE.shadows             // real sun shadows are on (desktop tier)
-STYLE.outline             // 'full' | 'lite' | 'off' (weak devices fall back at run time)
+STYLE.tier                // 'desktop' | 'phone' (phone = lowPower: phones, small screens, ?lq)
+STYLE.shadows             // real sun shadows are drawn (desktop tier)
+STYLE.outline             // 'full' | 'lite' | 'off' right now (a slow device steps down while playing)
 
-C.grass[0], C.roof[2], C.team0, C.ink …      // THREE.Color per palette role (§2), in the current style
+C.grass[0], C.roof[2], C.team0, C.ink …   // THREE.Color per palette role (§2) in the current style
+HEX.roof[2]                                // the same as a hex string (canvas textures)
+TEAM[side].main / .dark / .light           // team colours by side (0 Атаги, 1 Курчалой)
 
-mat.solid()               // shared vertex-coloured flat-shaded Lambert: use for every merged model
-mat.solid({ instanced: true })   // the same for InstancedMesh with instance colours
-mat.tint(C.roof[0])       // one flat colour, no vertex colours
-mat.unlit(C.gold, { transparent: true, opacity: 0.6 })   // MeshBasic: rings, icons, fake shadows
-mat.glow(C.glassLit, 1.6) // emissive accent (lit windows, screens)
+mat.solid()               // shared, vertex-coloured, flat-shaded Lambert: every merged model (Builder)
+mat.plain()               // shared, white, no vertex colours: InstancedMesh with instance colours
+mat.plain(C.roof[0])      // one flat colour
+mat.glow(C.glassLit, 1.6) // lit colour that also glows (lit windows, screens, lamps)
+mat.unlit(C.gold, { opacity: 0.6, ground: true })   // MeshBasic, not shared: rings, icons, decals
+// lit factory materials take { side, ground }: mat.solid({ ground: true }) for flat things on the land
 
 native(material)          // «these colours are already toon palette»: skip the legacy colour remap
-ground(material)          // lies on the ground: no outline (terrain, roads, water, decals, fake shadows)
-restyle(color)            // old classic colour → nearest look in the current style (identity in classic)
+ground(material)          // lies on the ground: no outline on it (terrain, roads, water, decals)
+restyle(color)            // an old classic colour → the current style (identity in classic)
+restyleGeometry(geo)      // the same for a whole `color` attribute, in place (toon only)
+SUN_DIR                   // unit vector towards the sun, for baked details
+groundShadow(w, d, h, ry) // fake shadow sheet for the phone tier, or null (see §5)
 ```
 
-How the global look works (so you know what you get for free):
-- In toon every `MeshLambertMaterial` / `MeshPhongMaterial` in the game gets the stepped ramp, the tinted
-  shade, cloud shadows and the toon output curve through a patch of three's shader chunks. Nothing to do
-  per material.
-- Old models keep their old vertex colours; the shader **remaps** them (more saturation, lifted values) so
-  they sit in the new palette. A model rebuilt with palette colours must opt out with `native()` (the
-  factory materials are native already), otherwise it is saturated twice.
-- Outlines come from the post-process pass over the depth buffer. A material marked `ground()` writes
-  «no outline here».
-- `MeshBasicMaterial` is untouched by the ramp and the remap: canvas signs keep their exact colours.
+For the few places the outline pass does not reach (portraits, your own tool renders):
+
+```ts
+import { hullOutline } from '../render/toon/hull';
+const hulls = hullOutline(object, 1.6);   // ink hull, 1.6 px wide, around every mesh under `object`
+…render…
+for (const h of hulls) { h.removeFromParent(); h.geometry.dispose(); }
+```
+
+A renderer of your own (a tool page) joins the style with `styleRenderer(renderer)` and
+`styleLights(hemi, sun)`, or the whole thing at once: `styleStage(renderer, scene, hemi, sun, lowPower,
+msaa, { clouds: false, pin: true })` returns a `ToonStage` (or `null` in classic) whose
+`render(scene, camera)` draws the frame with outlines — see `tools/lineup.ts`.
+
+URL switches for testing: `?gfx=classic|toon`, `?lq` (phone tier), `?ol=full|lite|off` (pin the outline
+mode; without it a device slower than 25 fps steps down by itself), `?ol=hull` (comparison mode, §10).
+
+**What you get for free** (so you know what not to do by hand):
+- In toon every `MeshLambertMaterial` / `MeshPhongMaterial` in the game — old or new, instanced or not —
+  gets the stepped ramp, the cool shade, cloud shadows and the toon output curve, through a one-time patch
+  of three's shader chunks (`toon/shading.ts`). Nothing to do per material.
+- Old models keep their old vertex colours; the shader **remaps** them: saturated colours get purer and
+  brighter, greys, whites and darks stay. A model rebuilt with palette colours must use a factory material
+  (they are native) or `native()`, otherwise it is saturated twice.
+- Outlines come from the depth buffer. `ground()` is the only flag there is.
+- `MeshBasicMaterial` is neither ramped nor remapped: canvas signs, rings and bars keep their exact
+  colours (they still get outlines if they are opaque and write depth).
+- Never set `renderer.toneMapping`, fog or the scene background yourself, and never write your own
+  `ShaderMaterial` for lit surfaces: it would miss the ramp. If a surface needs custom shader code, start
+  from a factory material and use `onBeforeCompile` (see `toon/water.ts`); the uniform `toonA.x` is the
+  time in seconds.
 
 Example — a toon variant hooked into an existing builder with one line:
 
@@ -346,7 +396,8 @@ const { variants } = TOON ? toonHouseKits() : houseGeometries();
 ```
 
 ```ts
-// src/render/toon/arch/houses.ts (new file)
+// src/render/toon/arch/props.ts (new file)
+import * as THREE from 'three';
 import { Builder } from '../../models';
 import { C, mat } from '../../style';
 export function toonWell(): THREE.Mesh {
@@ -357,20 +408,29 @@ export function toonWell(): THREE.Mesh {
 }
 ```
 
+A model that must exist in both styles (base buildings) is written once against `C` and `mat`: in classic
+`C` holds the old muted colours of the same roles and the materials are the plain Lambert the old
+builders use.
+
 ## 9. File ownership
 
 One file, one owner. If you need a change in a file you do not own, add an exported hook in **your** new
 file and ask the merger for the one-line call — do not edit it.
 
-**Nobody but the merger** (foundation files): `src/render/style.ts`, `src/render/toon/shading.ts`,
-`src/render/toon/post.ts`, `src/render/toon/sky.ts`, `src/render/toon/water.ts`, `src/render/toon/land.ts`,
-`src/render/toon/hud.css`, `src/render/scene.ts`, `src/render/fpcam.ts`, `src/render/selection.ts`,
-`src/render/packFx.ts`, `src/render/coinFx.ts`, `src/main.ts`, `index.html`, `src/ui/*`, `tools/lineup.*`,
-`docs/v5/ART.md`.
+**Nobody but the merger** (foundation files): `src/render/style.ts`, `src/render/toon/palette.ts`,
+`shading.ts`, `post.ts` (outlines and the sky), `stage.ts`, `hull.ts`, `water.ts`, `land.ts`, `hud.css`,
+`src/render/scene.ts`, `fpcam.ts`, `selection.ts`, `packFx.ts`, `coinFx.ts`, `src/main.ts`, `index.html`,
+`src/ui/*` (except `portraits.ts`), `tools/lineup.*`, `docs/v5/ART.md`. A track that needs a new palette
+role keeps it in its own folder (`toon/<track>/colors.ts`) and lists it in its report; the merger moves
+it into `palette.ts`.
+
+The foundation already left one-line hooks in files the tracks own: `lowpoly.ts` (land palette and face
+jitter), `terrainMesh.ts` (`ground(native(…))`, the toon water), `roads.ts` (`ground(…)`),
+`src/ui/portraits.ts` (style + ink hull). Keep them when you edit around them.
 
 | Track | May edit (existing) | Creates (new) |
 |---|---|---|
-| **Ground and nature** | `src/render/lowpoly.ts`, `terrainMesh.ts`, `trees.ts`, `roads.ts` | `src/render/toon/ground/**` (palette tuning via `toon/ground/land2.ts`, field details, river banks, rocks, plants, animals, birds, road furniture) |
+| **Ground and nature** | `src/render/lowpoly.ts`, `terrainMesh.ts`, `trees.ts`, `roads.ts`; and by agreement the foundation's `toon/land.ts` and `toon/water.ts` (land palette values, water look) | `src/render/toon/ground/**` (field details, river banks, rocks, plants, animals, birds, road furniture) |
 | **Architecture and base buildings** | `src/render/world.ts`, `city.ts`, `grozny.ts`, `decor.ts`, `landmarks.ts`, `placeMarks.ts` | `src/render/toon/arch/**` (house kits, fences, village props, mosques, high-rises, city blocks, landmarks), `src/render/toon/base/**` (player-built buildings: geometry per kind and level, construction and damage states, a `BaseView` class the integrator wires to the sim) |
 | **Characters and vehicles** | `src/render/models.ts`, `heroes.ts`, `girls.ts`, `props.ts`, `units.ts`, `fx.ts`, `abilityFx.ts`, `src/ui/portraits.ts` | `src/render/toon/chars/**` (unit, hero, boss and vehicle rebuilds, projectiles, civilian cars and people for the richness recipe) |
 

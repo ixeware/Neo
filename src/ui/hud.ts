@@ -212,25 +212,27 @@ export class Hud {
     for (const r of this.rows) r.addEventListener('scroll', () => this.paintMore(), { passive: true });
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => this.layout());
-      for (const e of [this.deck, ...this.rows, bank, mini]) ro.observe(e);
+      for (const e of [this.deck, ...this.rows, bank, mini, this.vote, this.sides[1]]) ro.observe(e);
     }
     addEventListener('resize', () => this.layout());
   }
 
   /**
    * Measures the deck, the visible card row, the bank and the minimap and hands them to CSS
-   * (--deck-h, --cards-h, --bank-h, --bank-w, --mini-w, --mini-h): the bank, the minimap on phones, the command
+   * (--deck-h, --cards-h, --bank-h, --bank-w, --mini-w, --mini-h, --vote-h of an open сход, --side-h of the right side
+   * slip): the bank, the minimap on phones, the command
    * bar, the chat, the hint and the сход sheet stack on them, so nothing hides under the deck when its cards grow.
    */
   layout() {
     if (this.root.hidden) return;
     const row = this.rows[this.tab];
-    const v = [this.deck.offsetHeight, row.offsetHeight, this.bankEl.offsetHeight, this.bankEl.offsetWidth, this.miniEl.offsetWidth, this.miniEl.offsetHeight];
+    const v = [this.deck.offsetHeight, row.offsetHeight, this.bankEl.offsetHeight, this.bankEl.offsetWidth, this.miniEl.offsetWidth, this.miniEl.offsetHeight,
+      this.vote.hidden ? 0 : this.vote.offsetHeight, this.sides[1].offsetHeight];
     if (!v[0] || !v[4]) return;
     const key = v.join(',');
     if (key !== this.layoutKey) {
       this.layoutKey = key;
-      ['--deck-h', '--cards-h', '--bank-h', '--bank-w', '--mini-w', '--mini-h'].forEach((n, i) => this.root.style.setProperty(n, `${v[i]}px`));
+      ['--deck-h', '--cards-h', '--bank-h', '--bank-w', '--mini-w', '--mini-h', '--vote-h', '--side-h'].forEach((n, i) => this.root.style.setProperty(n, `${v[i]}px`));
     }
     this.paintMore();
   }

@@ -93,7 +93,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 /* Layout variables (px), measured by Hud.layout(): --deck-h, --cards-h (the visible card row), --bank-h, --bank-w,
    --mini-w, --mini-h. The bottom cluster stacks on them: deck at the bottom, bank / minimap / command bar above it,
    the chat and the hint above those — so nothing depends on a guessed offset. */
-#hud { position: absolute; inset: 0; pointer-events: none; --deck-h: 191px; --cards-h: 150px; --bank-h: 72px; --bank-w: 124px; --mini-w: 239px; --mini-h: 167px; }
+#hud { position: absolute; inset: 0; pointer-events: none; --deck-h: 191px; --cards-h: 150px; --bank-h: 72px; --bank-w: 124px; --mini-w: 239px; --mini-h: 167px; --vote-h: 0px; --side-h: 60px; }
 /* Slips take taps; :where() keeps this at zero specificity, so the click-through layers below (.feed, .hint, .banner,
    .tip, .ach-toast and the containers .top, .deck, .cmdbar, .fp-hud) really are click-through. */
 :where(#hud) > * { pointer-events: auto; }
@@ -410,6 +410,8 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
 /* ---------- phones upright: full-width deck (scrolls, ~5 cards in view), minimap beside the tabs, bank on top
    of the deck, the сход sheet above the bank and the minimap ---------- */
 @media (max-width: 760px) and (min-height: 501px) {
+  /* --stack: how high the bottom cluster (deck + bank on the left, minimap beside the tabs on the right) reaches */
+  #hud { --stack: max(calc(var(--deck-h) + 8px + var(--bank-h)), calc(var(--cards-h) + 4px + var(--mini-h))); --feed-top: calc(var(--edge-t) + 116px); }
   .deck { left: var(--edge-l); right: var(--edge-r); grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 4px; }
   .tab { height: 44px; }
   .cards { gap: 5px; padding: 8px 1px 3px; }
@@ -426,38 +428,51 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .card.sel { transform: translateY(-6px); }
   .mini { bottom: calc(var(--edge-b) + var(--cards-h) + 4px); }
   .mini canvas { width: 132px; height: 90px; }
-  .vote { left: var(--edge-l); right: var(--edge-r); width: auto; top: auto; bottom: calc(var(--edge-b) + max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) + 8px); max-height: calc(100% - var(--edge-t) - 116px - var(--edge-b) - max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) - 8px); padding: 8px 10px 10px; gap: 6px; z-index: 2; }
-  #hud.has-sel .vote { max-height: calc(100% - var(--edge-t) - 116px - var(--edge-b) - max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) - 8px); }
-  /* the options stand in one row: a short sheet that clears the bar and the top slips */
-  .vote { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* сход: full width, right above the bank and the minimap; the options stand in one row, so the sheet stays short */
+  .vote, #hud.has-sel .vote { left: var(--edge-l); right: var(--edge-r); width: auto; top: auto; bottom: calc(var(--edge-b) + var(--stack) + 8px); max-height: calc(100% - var(--feed-top) - var(--edge-b) - var(--stack) - 8px); padding: 7px 9px 9px; gap: 5px; z-index: 2; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .vote > :not(.opt) { grid-column: 1 / -1; }
+  .vote h3 { font-size: 13px; }
   .vote .opt { padding: 4px 6px 5px; align-content: center; }
-  .vote .opt .t { font-size: 12.5px; line-height: 1.15; padding-right: 10px; }
+  .vote .opt .t { font-size: 12px; line-height: 1.12; padding-right: 10px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
   .vote .opt .n { right: 4px; top: 3px; font-size: 11px; }
-  .feed, #hud.has-sel .feed { top: calc(var(--edge-t) + 116px); bottom: auto; max-height: calc(100% - var(--edge-t) - 116px - var(--edge-b) - max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) - 16px); align-content: start; width: min(200px, 50vw); gap: 3px; }
+  /* беседа: under the toolbar, last two lines */
+  .feed, #hud.has-sel .feed { top: var(--feed-top); bottom: auto; max-height: calc(100% - var(--feed-top) - var(--edge-b) - var(--stack) - 16px); align-content: start; width: min(200px, 50vw); gap: 3px; }
   .feed .msg:nth-last-child(n+3) { display: none; }
   /* units selected: the command bar is a block at the right edge, so the chat keeps to its left */
   #hud.has-sel .feed { width: min(200px, calc(100vw - var(--edge-l) - var(--edge-r) - 166px - 10px)); }
   .toolbar { top: calc(var(--edge-t) + 64px); }
-  .hint { bottom: calc(var(--edge-b) + max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) + 10px); font-size: 16px; max-width: 78vw; }
-  #hud.has-sel .hint { left: var(--edge-l); transform: none; text-align: left; bottom: calc(var(--edge-b) + max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) + 10px); max-width: calc(100vw - var(--edge-l) - var(--edge-r) - 176px); }
+  .hint { bottom: calc(var(--edge-b) + var(--stack) + 10px); font-size: 16px; max-width: 78vw; }
+  #hud.has-sel .hint { left: var(--edge-l); transform: none; text-align: left; bottom: calc(var(--edge-b) + var(--stack) + 10px); max-width: calc(100vw - var(--edge-l) - var(--edge-r) - 176px); }
+  /* a сход is open: the hint goes above the sheet */
+  #hud:has(> .vote:not([hidden])) .hint { bottom: calc(var(--edge-b) + var(--stack) + 8px + var(--vote-h) + 8px); }
   .hint.rot { font-size: 15px; }
   /* phones upright: the toolbar sits under the clock, so our buffs go to the right edge under the side
      slip, and the world-event sticker moves down past them */
   .center .buffs.mine { position: absolute; right: 0; top: 62px; justify-items: end; }
   .center[data-nb="1"] .evchip { top: 88px; }
   .center[data-nb="2"] .evchip { top: 110px; }
-  /* the сход sheet is open: the chat and the world-event sticker make room on short screens */
+  /* the сход sheet is open: the world-event sticker makes room */
   #hud:has(> .vote:not([hidden])) .evchip { display: none; }
 }
+/* short phones upright (iPhone SE, 390 × 664): a сход leaves the chat its last line, and the sheet drops its extras */
 @media (max-width: 760px) and (min-height: 501px) and (max-height: 700px) {
   .vote .lead { display: none; }
-  #hud:has(> .vote:not([hidden]):not(.done)) .vote .who { display: none; }
+  .vote:not(.done) .who { display: none; }
+  #hud:has(> .vote:not([hidden])) .feed .msg:nth-last-child(n+2) { display: none; }
 }
 /* the narrowest phones: slimmer tabs and minimap, so the minimap still clears the tabs */
 @media (max-width: 359px) and (min-height: 501px) {
   .tab { padding: 0 10px; font-size: 12.5px; }
   .mini canvas { width: 118px; height: 81px; }
+}
+/* narrow phones: the side slips and the clock shrink so the top row never overlaps */
+@media (max-width: 380px) {
+  .top { grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; }
+  .side { padding: 5px 6px; gap: 5px; }
+  .side .vname { font-size: 9.5px; letter-spacing: 0; }
+  .tower { width: 16px; }
+  .score { padding: 4px 7px 5px; }
+  .clock { font-size: 16px; line-height: 1; text-align: center; }
 }
 
 /* ---------- phones held sideways: short screen, so the tabs stand to the left of the cards; the deck ends at the
@@ -498,14 +513,13 @@ button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--marker
   .feed, #hud.has-sel .feed { top: calc(var(--edge-t) + 102px); bottom: auto; max-height: calc(100% - var(--edge-t) - 102px - var(--edge-b) - var(--deck-h) - 6px - var(--bank-h) - 8px); align-content: start; width: min(360px, 46vw); }
   .feed .hd { display: none; }
   .feed .msg:nth-last-child(n+3) { display: none; }
-  .msg { font-size: 12px; line-height: 1.25; padding: 4px 8px 5px; -webkit-line-clamp: 2; line-clamp: 2; }
+  .msg { font-size: 12px; line-height: 1.25; padding: 4px 8px 5px; -webkit-line-clamp: 1; line-clamp: 1; }
   /* сход: right column under the side slip; the options stand in one row so the sheet stays short */
-  .vote { top: calc(var(--edge-t) + 54px); left: auto; right: var(--edge-r); bottom: auto; width: 300px; max-height: calc(100% - var(--edge-t) - 54px - var(--edge-b) - var(--mini-h) - 8px); padding: 6px 9px 8px; gap: 5px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  #hud.has-sel .vote { max-height: calc(100% - var(--edge-t) - 54px - var(--edge-b) - var(--mini-h) - 8px); }
+  .vote { top: calc(var(--edge-t) + var(--side-h) + 6px); left: auto; right: var(--edge-r); bottom: auto; width: 300px; max-height: calc(100% - var(--edge-t) - var(--side-h) - 6px - var(--edge-b) - var(--mini-h) - 8px); padding: 6px 9px 8px; gap: 5px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .vote > :not(.opt) { grid-column: 1 / -1; }
   .vote h3 { font-size: 12.5px; }
   .vote .opt { padding: 4px 6px 5px; align-content: center; }
-  .vote .opt .t { font-size: 12px; line-height: 1.15; padding-right: 10px; }
+  .vote .opt .t { font-size: 11.5px; line-height: 1.12; padding-right: 10px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
   .vote .opt .n { right: 4px; top: 3px; font-size: 11px; }
   .vote .opt .q, .vote .lead { display: none; }
   .vote:not(.done) .who { display: none; }

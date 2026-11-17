@@ -95,8 +95,10 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
 @media (max-width: 760px) and (min-height: 501px) {
   /* 3 rows of 46 px under the side slip (below the world-event sticker when there is one); the сход sheet opens
      above the bank, lower down; the count sits in [×] */
-  .cmdbar { left: auto; right: var(--edge-r); bottom: auto; top: calc(var(--edge-t) + 124px); transform: none; flex-direction: column; align-items: stretch; gap: 4px; width: 166px; }
+  .cmdbar { left: auto; right: var(--edge-r); bottom: auto; top: calc(var(--edge-t) + 118px); transform: none; flex-direction: column; align-items: stretch; gap: 4px; width: 166px; }
   #hud:has(.evchip:not([hidden])) .cmdbar { top: calc(var(--edge-t) + 170px); }
+  /* (a сход hides the sticker, so the bar goes back up) */
+  #hud:has(> .vote:not([hidden])) .cmdbar { top: calc(var(--edge-t) + 118px); }
   .cb-n { display: none; }
   .cb-x .cb-cnt { display: block; font-size: 17px; font-weight: 900; line-height: 1; color: var(--pen-a); }
   #hud.s1 .cb-x .cb-cnt { color: var(--pen-k); }
@@ -109,6 +111,7 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
   /* a сход is on: the group buttons step back so the bar stays clear of the sheet */
   #hud:has(> .vote:not([hidden])) .cb-g { display: none; }
   .roster { top: calc(var(--edge-t) + 116px); left: var(--edge-l); right: var(--edge-r); width: auto; max-height: calc(100% - var(--edge-t) - 116px - var(--edge-b) - max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) - 8px); }
+  #hud:has(> .vote:not([hidden])) .roster { max-height: calc(100% - var(--edge-t) - 116px - var(--edge-b) - max(var(--deck-h) + 8px + var(--bank-h), var(--cards-h) + 4px + var(--mini-h)) - 8px - var(--vote-h) - 8px); }
   /* the roster card is open: the bar waits behind it (it comes back when the card closes) */
   #hud:has(> .roster:not([hidden])) .cmdbar { visibility: hidden; }
   .fp-top { top: calc(var(--edge-t) + 64px); }
@@ -122,7 +125,7 @@ body.fp-on #labels .lbl-v, body.fp-on #labels .lbl-lm, body.fp-on #labels .lbl-e
   .cmdbar { left: calc(var(--edge-l) + var(--bank-w) + 8px); right: calc(var(--edge-r) + var(--mini-w) + 8px); bottom: calc(var(--edge-b) + var(--deck-h) + 6px); transform: none; gap: 3px; justify-content: flex-end; }
   .cmdbar > *, .cb { flex-shrink: 0; }
   /* a сход card open while something is selected stops above the bar (it scrolls) */
-  #hud.has-sel .vote { max-height: calc(100% - var(--edge-t) - 54px - var(--edge-b) - var(--deck-h) - 6px - 44px - 8px); }
+  #hud.has-sel .vote { max-height: calc(100% - var(--edge-t) - var(--side-h) - 6px - var(--edge-b) - var(--deck-h) - 6px - 44px - 8px); }
   .cb-n { min-height: 44px; min-width: 44px; justify-content: center; padding: 0 6px; font-size: 0; gap: 0; }
   .cb-n .num { font-size: 17px; }
   .cb-grid { gap: 2px; }

@@ -83,7 +83,7 @@ export class Hub {
   private wss = new WebSocketServer({ noServer: true, maxPayload: MAX_CP_MSG, perMessageDeflate: false });
   private errAt = 0;
   /** Counters for tests and logs. */
-  stats = { redisCmds: 0, flushes: 0, beats: 0, polls: 0, accepted: 0, rejected: 0 };
+  stats = { redisCmds: 0, flushes: 0, beats: 0, polls: 0, accepted: 0, rejected: 0, msgs: 0, busyMs: 0 };
 
   constructor(private getRedis: () => Redis | null = defaultRedis, inst?: string) {
     this.inst = inst ?? 'n' + randomBytes(5).toString('hex');
@@ -145,6 +145,11 @@ export class Hub {
   }
 
   private onMessage(c: Conn, data: RawData, bin: boolean) {
+    const t0 = performance.now();
+    try { this.handle(c, data, bin); } finally { this.stats.msgs++; this.stats.busyMs += performance.now() - t0; }
+  }
+
+  private handle(c: Conn, data: RawData, bin: boolean) {
     const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
     if (bin) { this.strike(c, 5); return; }
     let m: Record<string, unknown>;
@@ -387,6 +392,7 @@ export class Hub {
   private async step() {
     if (this.busy) { this.wake(); return; }
     this.busy = true;
+    const t0 = performance.now();
     try {
       const r = this.getRedis();
       const now = Date.now();
@@ -402,6 +408,7 @@ export class Hub {
       this.logErr(err);
     } finally {
       this.busy = false;
+      this.stats.busyMs += performance.now() - t0; // wall time: an upper bound of CPU with a fast Redis
     }
     if (this.conns.size || this.pending.length || this.rosterDirty) this.wake();
   }

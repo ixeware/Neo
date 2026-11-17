@@ -53,6 +53,8 @@ const bpm = (s1.redis.bytes - s0.redis.bytes) / min;
 const cp = (dev.mem?.dump().str.get('vy:cp') ?? '') as string;
 console.log(`Redis traffic ${(bpm / 1024).toFixed(0)} KB/min → per month (30 × 2 h) ${(bpm * 120 * 30 / 2 ** 30).toFixed(2)} GB; checkpoint blob ${(cp.length / 1024).toFixed(1)} KB, world tick ${clients[0].sim.st.tick}, units ${clients[0].sim.st.units.length}`);
 console.log('hubs', JSON.stringify(s1.hubs.map(h => ({ size: h.size, flushes: h.flushes, beats: h.beats, polls: h.polls }))));
+const msgs = s1.hubs.reduce((n, h, i) => n + h.msgs - s0.hubs[i].msgs, 0), busy = s1.hubs.reduce((n, h, i) => n + h.busyMs - s0.hubs[i].busyMs, 0);
+console.log(`hub work: ${(msgs / min).toFixed(0)} client messages/min, busy ${(busy / min / 1000).toFixed(2)} s/min (${(busy / (min * 60_000) * 100).toFixed(2)} % of one core) → ${(busy / min * 120 * 30 / 3600_000).toFixed(2)} h of CPU per month (30 × 2 h)`);
 console.log('checkpoints ok', clients.map(c => `${c.war.stats.cpOk}/${c.war.stats.cpBad}`).join(' '));
 for (const c of clients) { clearInterval(c.timer); c.war.leave(); }
 await sleep(800);

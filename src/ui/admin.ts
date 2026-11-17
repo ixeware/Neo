@@ -809,8 +809,9 @@ export function initAdmin(h: AdminHooks): Admin {
       const sg = seg<number>([['Пауза', 0], ['×0.5', 0.5], ['×1', 1], ['×2', 2], ['×4', 4]], rate, v => {
         const s = h.session();
         if (!s || s.backend.kind !== 'local') { status('Скорость — только в одиночной игре', 'err'); return; }
-        if (v === 0) { s.pause(true); status('Пауза', 'ok'); return; }
-        s.pause(false); s.setRate(v); status(`Скорость ×${v}`, 'ok');
+        speedBy = s; // the chip below speaks for this change only (a menu pause is not the admin's)
+        if (v === 0) { s.pause(true); status('Пауза', 'ok'); paintChip(); return; }
+        s.pause(false); s.setRate(v); status(`Скорость ×${v}`, 'ok'); paintChip();
       }, 'Скорость');
       sp.append(sg);
       upd(() => { const local = mode() === 'local'; sg.querySelectorAll('button').forEach(b => { b.disabled = !local; }); });
@@ -1087,14 +1088,20 @@ export function initAdmin(h: AdminHooks): Admin {
   }, true);
 
   // ---- speed chip (visible while the panel is closed too) ------------------------------------------
+  // Only for a pause or a speed set with «Скорость» above (opening the menu pauses a local war too, and that is
+  // nobody's admin business), and never over the menu.
+  let speedBy: Session | null = null;
   function paintChip() {
     const s = h.session();
-    const t = !s || s.backend.kind !== 'local' ? '' : s.paused ? 'Пауза · админ' : s.rate !== 1 ? `Скорость ×${s.rate} · админ` : '';
+    if (speedBy && (s !== speedBy || (!s.paused && s.rate === 1))) speedBy = null; // back to normal, or another game
+    const menu = document.getElementById('menu');
+    const menuOpen = !!menu && !menu.hidden;
+    const t = !s || s !== speedBy || s.backend.kind !== 'local' || menuOpen ? '' : s.paused ? 'Пауза · админ' : `Скорость ×${s.rate} · админ`;
     chip.hidden = !t;
     setText(chip, t);
     if (zonesOn) paintZones();
   }
-  setInterval(() => { if (!open) paintChip(); }, 1000);
+  setInterval(() => { if (!open) paintChip(); }, 500);
 
   // ---- what everyone sees ---------------------------------------------------------------------------
   let sayT = 0;

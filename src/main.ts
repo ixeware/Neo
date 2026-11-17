@@ -25,7 +25,7 @@ import { Sound } from './audio/sound';
 import { Session, LocalBackend, loadLocal, clearLocal } from './net/session';
 import { connectShared, type Shared } from './net/shared';
 import { connectVercel, vercelAdminChannel, type VercelWar } from './net/vercel';
-import { TICKER, HINTS, lore, type Line } from './data/lore';
+import { TICKER, HINTS, lore, clean18, type Line } from './data/lore';
 import {
   HEROES, EVENTS as EVENT_LORE, DONER, FUJI, SUMMON_LINES, PACK_REACT, UNIT_LINES, CARD_TEXT, PERK_TEXT,
   heroForUnit, heroLine, pickLine, unitLine, placeLine, type HeroId, type LineBucket, type ExtraBucket, type EventId, type PerkId,
@@ -434,10 +434,12 @@ async function boot() {
         if (e.x !== undefined && e.z !== undefined && (s === side || near(e.x, e.z, 70))) { sound.packDrop(); if (n > 0) sound.panic(n); }
         if (cool('pack' + s, 8000)) heroSay(ADMIN, s, 'ult', s === side || n >= 6 ? 2 : 1);
         if (n >= 4 && Math.random() < 0.6 && cool('packr', 20000)) sayLine(pickLine(PACK_REACT, prefs.spicy), 1, undefined, 1800);
-        if (n >= 8 && s === side) hud.banner('Курение убивает', `${n} разбежались`, s, 2200);
+        // «Курение убивает» only with the 18+ layer; the clean twin is «Прогул убивает», as on the 3D pack
+        const packWord = prefs.spicy ? 'Курение убивает' : 'Прогул убивает';
+        if (n >= 8 && s === side) hud.banner(packWord, `${n} разбежались`, s, 2200);
         if (e.x !== undefined && e.z !== undefined && near(e.x, e.z, 70)) {
           stage.project(e.x, heightY(terrain, e.x, e.z) + 3, e.z, projTmp);
-          if (projTmp.vis) hud.tip(projTmp.x, projTmp.y, n > 0 ? `КУРЕНИЕ УБИВАЕТ ×${n}` : 'КУРЕНИЕ УБИВАЕТ', 'tip-n');
+          if (projTmp.vis) hud.tip(projTmp.x, projTmp.y, n > 0 ? `${packWord.toUpperCase()} ×${n}` : packWord.toUpperCase(), 'tip-n');
         }
         break;
       }
@@ -767,9 +769,9 @@ async function boot() {
           say(l.who ?? 'беседа', l.t, 0);
         }
       }
-      if (playing && now > nextHint) { nextHint = now + 45000 + Math.random() * 20000; if (!hud.rotateTip(nextTip())) nextHint = now + 8000; }
+      if (playing && now > nextHint) { nextHint = now + 45000 + Math.random() * 20000; if (!hud.rotateTip(clean18(nextTip(), prefs.spicy))) nextHint = now + 8000; }
       if (playing) pumpFeed(now);
-      toasts.update(now, !playing || session.catchingUp);
+      toasts.update(now, !playing || session.catchingUp || hud.voteBlocks); // a phone's open сход: toasts wait
       sound.intensity = Math.min(1, sim.st.units.length / 140);
       // reconcile with state (events are muted while a tab catches up)
       if (sim.st.winner === -1 && hud.overOpen) hud.hideOver();

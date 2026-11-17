@@ -1,7 +1,7 @@
 // Start screen: pick a village, difficulty, 18+ layer; continue the endless war.
 // Two more pages behind the notebook tabs: «Кто есть кто» (heroes) and «Ачивки».
-import { SIDE_TAG, HINTS } from '../data/lore';
-import { HEROES, ROSTER_ORDER, HERO_UNIT, ACHIEVEMENTS, UNIT_TEXT, GELIK_T, SPORTIK_T, type HeroId } from '../data/heroes';
+import { SIDE_TAG, HINTS, clean18 } from '../data/lore';
+import { HEROES, ROSTER_ORDER, HERO_UNIT, ACHIEVEMENTS, UNIT_TEXT, GELIK_T, SPORTIK_T, heroBio, type HeroId } from '../data/heroes';
 import { UNITS } from '../sim/defs';
 import { portraitHtml, unitRole } from './hud';
 import type { Portraits } from './portraits';
@@ -55,7 +55,7 @@ function playPage(p: Portraits, s: MenuState): string {
         <li>Юниты сами идут брать сёла: Шали, Автуры, Цоцин-Юрт, Аргун. Каждое село даёт деньги, Донер Бей у Грозного — ещё и лечит.</li>
         <li>Раз в полторы минуты сход: голосуй за решение, твой голос считается за два.</li>
         <li>Снеси все этажи вражеской высотки. На последнем этаже выходит финальный босс.</li>
-      </ol><p class="m-tip"><b>Совет:</b> ${esc(tip)}</p></div>
+      </ol><p class="m-tip"><b>Совет:</b> ${esc(clean18(tip, s.spicy))}</p></div>
     </div>
     ${sh ? `<div class="m-box paper m-mp">${sh.available
       ? `<h4>Общая война с пацанами</h4><span>Один мир на всех, кто открыл эту ссылку. Война №${sh.era}, счёт <b class="a">${sh.wins[0]}</b>:<b class="k">${sh.wins[1]}</b>. Сейчас в игре: Атаги — ${sh.online[0]}, Курчалой — ${sh.online[1]}.${sh.who ? ` Онлайн: ${esc(sh.who)}.` : ''}</span>
@@ -78,7 +78,7 @@ function rosterCard(p: Portraits, id: HeroId, spicy: boolean): string {
     <div class="who-in">
       <div class="who-h"><b class="who-n">${esc(h.name)}</b><span class="who-tag">${esc(tag)}</span></div>
       <div class="who-t">${esc(h.title)}</div>
-      <p class="who-b">${esc(h.bio)}</p>
+      <p class="who-b">${esc(heroBio(id, spicy))}</p>
       ${q ? `<div class="who-q">«${esc(q.t)}»${q.who ? ` <span>— ${esc(q.who)}</span>` : ''}</div>` : ''}
       <div class="who-m">${esc(meta)}</div>
     </div>

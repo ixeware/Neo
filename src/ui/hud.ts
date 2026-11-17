@@ -285,6 +285,7 @@ export class Hud {
       }
     });
     this.blocked.clear();
+    this.bannerQ.length = 0;
     this.setTab(0);
     this.select(-1);
     this.rows.forEach(r => { r.scrollLeft = 0; });
@@ -453,6 +454,11 @@ export class Hud {
     this.paintEvent(sim);
     this.paintVote(sim, pid);
     this.paintBuffs(sim);
+    // banners held back by an open сход: one by one once it closes
+    if (this.bannerQ.length && !this.voteBlocks && !this.bannerEl?.isConnected) {
+      const [big, small, side, ms] = this.bannerQ.shift()!;
+      this.banner(big, small, side, Math.min(ms, 2200));
+    }
   }
 
   /**
@@ -599,7 +605,20 @@ export class Hud {
 
   private bannerEl: HTMLElement | null = null;
   private bannerT = 0;
+  private bannerQ: [string, string, number, number][] = [];
+  /**
+   * An open сход on a phone: banners and achievement toasts would land on its options, so they wait
+   * (main.ts holds the toasts on this too) and come out once the vote closes.
+   */
+  get voteBlocks(): boolean {
+    return !this.vote.hidden && !this.vote.classList.contains('done') && (innerWidth <= 760 || innerHeight <= 500);
+  }
   banner(big: string, small: string, side: number, ms = 2600) {
+    if (this.voteBlocks) {
+      this.bannerQ.push([big, small, side, ms]);
+      if (this.bannerQ.length > 3) this.bannerQ.shift(); // only the latest few are still news
+      return;
+    }
     this.bannerEl?.remove();
     const b = h('div', 'banner');
     b.innerHTML = `<div class="big ${side === 0 ? 's0' : side === 1 ? 's1' : 'n'}">${esc(big)}</div>${small ? `<div class="small">${esc(small)}</div>` : ''}`;

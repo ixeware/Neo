@@ -3,8 +3,9 @@
    bar, the chat and the сход sheet restack on the measured size (Hud.layout) and nothing is covered. */
 
 /* ---------- «Стройка»: a button at the right end of the bank slip (the slip's measured width moves the rest) ---------- */
-.bank:has(> .bank-build) { grid-template-columns: auto auto; column-gap: 10px; align-items: center; pointer-events: auto; }
-.bank > .bank-build { grid-column: 2; grid-row: 1 / span 2; align-self: stretch; margin: -8px -12px -9px 0; min-width: 62px; min-height: 44px; padding: 3px 7px 2px; border: 0; border-left: 1.5px solid var(--graphite); background: var(--marker); display: grid; justify-items: center; align-content: center; gap: 1px; font-weight: 700; font-size: 10.5px; line-height: 1.05; color: var(--graphite); touch-action: manipulation; }
+.bank:has(> .bank-build) { grid-template-columns: auto auto; align-items: center; pointer-events: auto; }
+.bank > .money { grid-column: 1; grid-row: 1; } .bank > .inc { grid-column: 1; grid-row: 2; }
+.bank > .bank-build { grid-column: 2; grid-row: 1 / span 2; align-self: stretch; margin: -8px -12px -9px 10px; min-width: 62px; min-height: 44px; padding: 3px 7px 2px; border: 0; border-left: 1.5px solid var(--graphite); background: var(--marker); display: grid; justify-items: center; align-content: center; gap: 1px; font-weight: 700; font-size: 10.5px; line-height: 1.05; color: var(--graphite); touch-action: manipulation; }
 .bank-build svg { width: 22px; height: 22px; }
 .bank-build.on { background: var(--graphite); color: var(--paper); }
 .bank-build:active { filter: brightness(.94); }
@@ -89,7 +90,7 @@
 
 /* ---------- phones (both ways): smaller slip button ---------- */
 @media (max-width: 760px) {
-  .bank > .bank-build { margin: -5px -9px -6px 0; min-width: 54px; font-size: 9.5px; }
+  .bank > .bank-build { margin: -5px -9px -6px 8px; min-width: 54px; font-size: 9.5px; }
   .bank-build svg { width: 20px; height: 20px; }
 }
 /* ---------- phones upright: the summary on its own line, five chips across, cards as wide as unit cards ---------- */
@@ -120,7 +121,10 @@
 }
 /* ---------- phones sideways: the palette is one row as high as the deck (close + «next family» on the left) ---------- */
 @media (max-height: 500px) and (min-width: 600px) {
-  .bank > .bank-build { margin: -4px -9px -5px 0; }
+  .bank > .bank-build { margin: -4px -9px -5px 8px; }
+  /* units selected: the command bar needs the whole row between the bank and the minimap, so the button steps
+     back (the count chip lets go of the selection; B and the open palette's own ✗ still work) */
+  #hud.has-sel .bank > .bank-build { display: none; }
   .bld { flex: 1 1 auto; align-self: flex-end; }
   .bpal { display: flex; align-items: flex-end; gap: 6px; }
   .bfams { flex: none; flex-direction: column; }

@@ -24,6 +24,7 @@ import { renderMenu, type MenuState } from './ui/menu';
 import { Sound } from './audio/sound';
 import { Session, LocalBackend, loadLocal, clearLocal } from './net/session';
 import { connectShared, type Shared } from './net/shared';
+import { connectVercel, vercelAdminChannel, type VercelWar } from './net/vercel';
 import { TICKER, HINTS, lore, type Line } from './data/lore';
 import {
   HEROES, EVENTS as EVENT_LORE, DONER, FUJI, SUMMON_LINES, PACK_REACT, UNIT_LINES, CARD_TEXT, PERK_TEXT,
@@ -32,7 +33,7 @@ import {
 import { Achievements, AchToasts, achievedIds } from './ui/achievements';
 import { DECK_KEYS } from './ui/hud';
 import { initAdmin } from './ui/admin';
-import { localChannel, artifactChannel } from './net/adminChannel';
+import { localChannel, artifactChannel, type AdminChannel } from './net/adminChannel';
 import { Control } from './ui/control';
 import { Roster } from './ui/roster';
 import { LocalPresence, cleanNick, type PresenceSource } from './net/presence';
@@ -183,6 +184,7 @@ async function boot() {
   const labels = new Labels($('labels'), terrain, sim, stage, hqs, units);
   // ---- unit control (src/ui/control.ts), first person (src/ui/fp.ts), who is who (src/ui/roster.ts) ----
   let presence: PresenceSource = new LocalPresence(prefs.pid, prefs.nick ?? '');
+  let vercel: VercelWar | null = null; // the Vercel backend, once /api/health answers (set below)
   const control = new Control({
     sim, stage, units, hud, terrain, root: $('hud'), session: () => session, side: () => side, pid: () => session?.pid ?? prefs.pid,
     playing: () => playing && !!session, sound: { click: () => sound.click(), deny: () => sound.deny() },
@@ -287,6 +289,7 @@ async function boot() {
     control.reset();
     presence = sess.backend.presence ?? new LocalPresence(sess.pid, prefs.nick ?? '', s);
     roster.attach(presence);
+    if (!prefs.nick && vercel?.nick) { prefs.nick = vercel.nick; savePrefs(prefs); } // asked on the first Vercel join
     presence.setPresence({ name: prefs.nick ?? '', side: s, sel: 0, ctl: 0 });
     playing = true;
     $('menu').hidden = true;
@@ -722,17 +725,23 @@ async function boot() {
     list.length = 0;
   }
 
-  // ---- shared war (artifact runtime) ------------------------------------------------------------
-  connectShared(prefs.pid).then(s => {
+  // ---- shared war: the artifact runtime (src/net/shared.ts), else the Vercel backend if /api/health answers (src/net/vercel.ts)
+  connectShared(prefs.pid).then(s => s ?? connectVercel(prefs.pid).then(v => {
+    // one nickname for the roster card and the server: the game prefs win, else take the server's
+    if (v && prefs.nick) v.setPresence({ name: prefs.nick });
+    else if (v?.nick) { prefs.nick = v.nick; savePrefs(prefs); }
+    return (vercel = v);
+  })).then(s => {
     shared = s;
     if (!playing && !$('menu').hidden) openMenu();
   }).catch(() => { shared = null; });
 
   // ---- admin panel: #admin or /admin (src/ui/admin.ts); who may command: src/net/adminChannel.ts --------
   const admLocal = localChannel(() => session), admArtifact = artifactChannel(() => shared, () => session);
+  let admVercel: AdminChannel | null = null;
   const admin = initAdmin({
     sim, terrain, stage, hud, prefs, session: () => session, shared: () => shared, side: () => side,
-    channel: () => (session?.backend.kind === 'shared' ? admArtifact : admLocal),
+    channel: () => (session?.backend.kind === 'shared' ? (vercel ? (admVercel ??= vercelAdminChannel(vercel)) : admArtifact) : admLocal),
     setSpicy: on => { prefs.spicy = on; savePrefs(prefs); applySpicy(); },
     setMusic: on => { prefs.music = on; sound.setMusic(on); savePrefs(prefs); },
     newLocal: () => startLocal(side, prefs.diff), resumeLocal: () => resumeLocal(),

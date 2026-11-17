@@ -3,19 +3,28 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p api",
     "preview": "vite preview",
-    "artifact": "vite build && node tools/artifact.mjs"
+    "artifact": "vite build && node tools/artifact.mjs",
+    "gen:api": "node tools/gen-admcheck.mjs",
+    "dev:api": "vite build && tsx tools/devserver.mjs --test",
+    "test:backend": "node tools/gen-admcheck.mjs --check && tsx tools/vbtest.ts"
   },
   "dependencies": {
     "delaunator": "5.1.0",
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "ws": "8.23.0"
   },
   "devDependencies": {
+    "@types/node": "22.20.5",
     "@types/three": "^0.187.0",
+    "@types/ws": "8.18.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^8.3.8",

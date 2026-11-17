@@ -189,8 +189,8 @@ export function cleanPres(raw: unknown, cur: RosterEntry): RosterEntry {
   const m = raw as Record<string, unknown>;
   if (m.name !== undefined) { const n = cleanName(m.name); if (n) out.name = n; }
   if (m.side === -1 || m.side === 0 || m.side === 1) out.side = m.side;
-  if (m.ctl === null || m.ctl === -1) delete out.ctl;
-  else if (int(m.ctl, 0, UNIT_ID)) out.ctl = m.ctl;
+  if (m.ctl === null || m.ctl === -1 || m.ctl === 0) delete out.ctl; // unit ids start at 1
+  else if (int(m.ctl, 1, UNIT_ID)) out.ctl = m.ctl;
   if (m.sel === null || m.sel === 0) delete out.sel;
   else if (int(m.sel, 1, 9999)) out.sel = m.sel;
   return out;

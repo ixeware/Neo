@@ -267,7 +267,7 @@ export class VercelWar implements Shared {
   setPresence(p: Partial<RosterEntry>) {
     if (p.name !== undefined) { const n = cleanNick(p.name); if (n) { this.pres.name = n; this.nick = n; ls.set(NICK_KEY, n); } }
     if (p.side === -1 || p.side === 0 || p.side === 1) this.pres.side = p.side;
-    if ('ctl' in p) this.pres.ctl = Number.isInteger(p.ctl) && (p.ctl as number) >= 0 ? p.ctl : undefined;
+    if ('ctl' in p) this.pres.ctl = Number.isInteger(p.ctl) && (p.ctl as number) > 0 ? p.ctl : undefined; // unit ids start at 1: 0 clears
     if ('sel' in p) this.pres.sel = Number.isInteger(p.sel) && (p.sel as number) > 0 ? Math.min(9999, p.sel as number) : undefined;
     this.presDirty = true;
     this.flushPres();

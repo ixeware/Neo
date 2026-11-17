@@ -703,6 +703,10 @@ function ggntu(g: THREE.Group) {
   mergeInto(b, wb, place([a - 0.15, 0, -a - L / 2 + 0.05], [0, HALF_PI, 0]));
   wb.dispose();
   inner.add(solid(b.build()));
+  // «ГГНТУ» in white letters high on both front faces of the tower: the only lettering that reads from the game camera
+  const top = signTex('ГГНТУ', { bg: '#21426b', fg: '#ffffff' }, 512, 128);
+  addSign(inner, top, 1.72, 0.43, [0, HT - 0.62, a + 0.004]);
+  addSign(inner, top, 1.72, 0.43, [a + 0.004, HT - 0.62, 0], HALF_PI);
   addSign(inner, signTex('ИПИТ', { bg: '#1f4f9a', fg: '#ffffff', sub: 'институт IT', subFg: '#cfe0ff' }, 256, 128), 1.0, 0.42, [-a - L / 2 + 0.05 + (-L / 2 + 1.3), 1.32, a - 0.15 + 0.03]);
 
   // world frame: plaza, entrance on the corner, «ГГНТУ» band

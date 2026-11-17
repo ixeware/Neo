@@ -9,8 +9,16 @@ import { hashState, type Cmd, type Sim, type State } from '../sim/sim';
 import { admBody, type AdminChannel } from './adminChannel';
 import type { Shared, SharedAdmin, SharedDebug } from './shared';
 
-/** One line of the roster (same shape as src/net/presence.ts RosterEntry). */
-export interface RosterEntry { pid: string; name: string; side: 0 | 1 | -1; ctl?: number; sel?: number }
+/**
+ * One line of the roster (the shape of src/net/presence.ts RosterEntry, where the unit-control work
+ * defines PresenceSource): ctl = unit id driven in first person, sel = units selected, me = this browser.
+ */
+export interface RosterEntry { pid: string; name: string; side: 0 | 1 | -1; ctl?: number; sel?: number; me?: boolean }
+/** src/net/presence.ts PresenceSource: what the roster panel and the «<ник> ведёт» tags read. */
+export interface RosterSource {
+  onRoster(cb: (list: RosterEntry[]) => void): () => void;
+  setPresence(p: Partial<RosterEntry>): void;
+}
 
 interface Clock { tick0: number; wall0: number; gen: number; seed: number; from: string; hold?: number }
 interface CpMeta { tick: number; hash: number; gen: number; era: number; wins: [number, number]; at: number; from: string; by: string }
@@ -244,11 +252,14 @@ export class VercelWar implements Shared {
   }
 
   // ---- roster («кто есть кто») ------------------------------------------------------------------------
-  /** Every connected player; called now (when known) and on every change (≤ 2/s). Returns unsubscribe. */
+  /**
+   * Every connected player (server roster, ≤ 2 changes a second); called soon with the current list
+   * and on every change. Returns the unsubscribe. Before joining it is GET /api/players.
+   */
   onRoster(cb: (list: RosterEntry[]) => void): () => void {
     this.subs.add(cb);
-    if (this.roster.length) cb(this.roster);
-    else if (this.info.redis && !this.link) void this.fetchPlayers();
+    queueMicrotask(() => { if (this.subs.has(cb)) cb(this.roster.map(e => ({ ...e }))); });
+    if (this.info.redis && !this.link && Date.now() - this.menu.at > 5000) void this.fetchPlayers();
     return () => { this.subs.delete(cb); };
   }
 
@@ -281,8 +292,9 @@ export class VercelWar implements Shared {
       const o = e as Msg;
       if (!o || typeof o.pid !== 'string' || typeof o.name !== 'string') continue;
       const r: RosterEntry = { pid: o.pid, name: cleanNick(o.name) || 'Пацан', side: o.side === 0 || o.side === 1 ? o.side : -1 };
-      if (Number.isInteger(o.ctl)) r.ctl = o.ctl;
-      if (Number.isInteger(o.sel)) r.sel = o.sel;
+      if (Number.isInteger(o.ctl) && o.ctl > 0) r.ctl = o.ctl;
+      if (Number.isInteger(o.sel) && o.sel > 0) r.sel = Math.min(9999, o.sel);
+      if (o.pid === this.pid) r.me = true;
       out.push(r);
     }
     this.roster = out;
@@ -290,7 +302,7 @@ export class VercelWar implements Shared {
     for (const p of out) if (p.side === 0 || p.side === 1) n[p.side]++;
     this.online = n;
     this.menu.who = out.map(p => p.name).join(', ');
-    for (const cb of this.subs) { try { cb(out); } catch (err) { console.error(err); } }
+    for (const cb of this.subs) { try { cb(out.map(e => ({ ...e }))); } catch (err) { console.error(err); } }
   }
 
   // ---- joining ------------------------------------------------------------------------------------
@@ -300,7 +312,11 @@ export class VercelWar implements Shared {
     this.side = side;
     this.pres.side = side;
     if (!this.nick) { this.nick = (await askNick()) || 'Пацан'; ls.set(NICK_KEY, this.nick); }
-    const backend: Backend = { kind: 'shared', send: c => this.sendCmd(c), checkpoint: () => { /* the keeper uploads */ }, close: () => this.leave() };
+    // presence: the roster for src/net/presence.ts (Backend.presence, from the unit-control work)
+    const backend: Backend & { presence: RosterSource } = {
+      kind: 'shared', send: c => this.sendCmd(c), checkpoint: () => { /* the keeper uploads */ }, close: () => this.leave(),
+      presence: { onRoster: cb => this.onRoster(cb), setPresence: p => this.setPresence(p) },
+    };
     const session = new Session(sim, backend, this.pid);
     session.lead = LEAD;
     this.sim = sim; this.pending = session;

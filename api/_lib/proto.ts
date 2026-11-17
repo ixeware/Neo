@@ -31,9 +31,25 @@ export function cleanName(s: unknown): string {
 const side = (v: unknown): v is 0 | 1 => v === 0 || v === 1;
 const int = (v: unknown, lo: number, hi: number): v is number => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
 const coord = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 10000;
-const optCoord = (v: unknown) => v === undefined || coord(v);
 const UNIT_ID = 2 ** 31 - 1;
-const CTL_UNIT = ['u', 'uid', 'unit'] as const;
+/** src/sim/sim.ts ORD_MAX and OrdMode. */
+export const ORD_MAX = 64;
+const ORD_MODES = new Set(['auto', 'move', 'attack', 'attackMove', 'hold', 'possessed']);
+
+/**
+ * Fields each kind may carry besides t / id / p / k (src/sim/sim.ts Cmd). A command with any other
+ * field is refused, not stripped: the sender applies its own copy at once, so the copy everyone else
+ * gets must be the very same object or the worlds drift apart. A new field in the sim needs a line here.
+ */
+const FIELDS: Record<string, readonly string[]> = {
+  join: ['s'],
+  dep: ['s', 'u', 'x', 'z'],
+  vote: ['s', 'o'],
+  ord: ['s', 'ids', 'm', 'x', 'z', 'tg', 'fi', 'fn'],
+  ctl: ['s', 'u', 'dx', 'dz', 'atk', 'fx', 'fz', 'rel'],
+  adm: ['op', 's', 'v', 'n', 'u', 'x', 'z', 'r', 'key', 'txt'],
+};
+const BASE = new Set(['t', 'id', 'p', 'k']);
 
 export type Checked = { ok: true; c: Cmd } | { ok: false; why: string };
 
@@ -41,6 +57,8 @@ function common(c: Record<string, unknown>, pid: string): string | null {
   if (typeof c.id !== 'string' || c.id.length > 96 || !c.id.startsWith(pid + ':')) return 'id';
   if (c.p !== undefined && c.p !== pid) return 'pid';
   if (!Number.isInteger(c.t) || (c.t as number) < 0) return 'shape';
+  const allow = FIELDS[c.k as string];
+  if (allow) for (const f of Object.keys(c)) if (!BASE.has(f) && !allow.includes(f)) return 'shape';
   return null;
 }
 
@@ -48,13 +66,15 @@ const inWindow = (t: number, now: number) => t >= now - WIN_BACK && t <= now + W
 
 /**
  * Validate one ordinary command from `pid` against the server tick. Kinds: join, dep, vote, and the
- * unit-control commands ord / ctl (src/sim: per-unit orders and first-person control; the sim checks
- * ownership and sides again). 'adm' goes through checkAdm with a token; 'cfg' never comes from the
- * network. Commands outside [now − WIN_BACK, now + WIN_AHEAD] are rejected (the client resyncs).
+ * unit-control commands ord / ctl (src/sim/sim.ts: orders for a side's units, first-person driving;
+ * the sim checks ownership, sides and modes again). 'adm' goes through checkAdm with a token; 'cfg'
+ * never comes from the network. Commands outside [now − WIN_BACK, now + WIN_AHEAD] are rejected (the
+ * client takes them back and resyncs). The accepted command is rebuilt from its own fields only.
  */
 export function checkCmd(raw: unknown, pid: string, now: number): Checked {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, why: 'shape' };
   const c = raw as Record<string, unknown>;
+  if (typeof c.k !== 'string' || !FIELDS[c.k] || c.k === 'adm') return { ok: false, why: 'kind' }; // 'cfg', 'adm' (needs a token), unknown
   const bad = common(c, pid);
   if (bad) return { ok: false, why: bad };
   const t = c.t as number, id = c.id as string;
@@ -73,29 +93,27 @@ export function checkCmd(raw: unknown, pid: string, now: number): Checked {
       out = { t, id, p: pid, k: 'vote', s: c.s, o: c.o };
       break;
     case 'ord': {
-      // { s, ids: unit ids (1..64), m: mode, x?, z?, tg? }
+      // { s, ids: 1..ORD_MAX unit ids, m: OrdMode, x?, z? (move), tg? (attack), fi?, fn? (formation slots) }
       const ids = c.ids;
-      if (!side(c.s) || !Array.isArray(ids) || ids.length < 1 || ids.length > 64 || !ids.every(v => int(v, 0, UNIT_ID))) return { ok: false, why: 'shape' };
-      const m = c.m;
-      if (!(int(m, 0, 15) || (typeof m === 'string' && /^[a-zA-Z]{1,12}$/.test(m)))) return { ok: false, why: 'shape' };
-      if (!optCoord(c.x) || !optCoord(c.z) || (c.tg !== undefined && !int(c.tg, 0, UNIT_ID))) return { ok: false, why: 'shape' };
-      out = { t, id, p: pid, k: 'ord', s: c.s, ids: [...(ids as number[])], m };
-      if (c.x !== undefined) out.x = c.x;
-      if (c.z !== undefined) out.z = c.z;
-      if (c.tg !== undefined) out.tg = c.tg;
+      if (!side(c.s) || !Array.isArray(ids) || ids.length < 1 || ids.length > ORD_MAX || !ids.every(v => int(v, 0, UNIT_ID))) return { ok: false, why: 'shape' };
+      if (typeof c.m !== 'string' || !ORD_MODES.has(c.m)) return { ok: false, why: 'shape' };
+      if ((c.x !== undefined && !coord(c.x)) || (c.z !== undefined && !coord(c.z)) || (c.tg !== undefined && !int(c.tg, 0, UNIT_ID))) return { ok: false, why: 'shape' };
+      if ((c.fi !== undefined && !int(c.fi, 0, 1023)) || (c.fn !== undefined && !int(c.fn, 1, 1024))) return { ok: false, why: 'shape' };
+      out = { t, id, p: pid, k: 'ord', s: c.s, ids: [...(ids as number[])], m: c.m };
+      for (const f of ['x', 'z', 'tg', 'fi', 'fn'] as const) if (c[f] !== undefined) out[f] = c[f];
       break;
     }
     case 'ctl': {
-      // { s, <unit>, dx, dz: −8..8, atk: 0|1, rel?: 1 }. The unit id cannot be called `id` (that is the
-      // command id), so it travels as `u`, `uid` or `unit`; whichever spelling is used is kept.
-      const uf = CTL_UNIT.find(f => c[f] !== undefined);
-      if (!side(c.s) || !uf || !int(c[uf], 0, UNIT_ID) || !int(c.dx, -8, 8) || !int(c.dz, -8, 8) || !(c.atk === 0 || c.atk === 1) || !(c.rel === undefined || c.rel === 1)) return { ok: false, why: 'shape' };
-      out = { t, id, p: pid, k: 'ctl', s: c.s, [uf]: c[uf], dx: c.dx, dz: c.dz, atk: c.atk };
+      // { s, u: unit id, dx, dz: −8..8 (stick), atk: 0|1, fx?, fz?: −8..8 (facing, both or neither), rel?: 1 }
+      if (!side(c.s) || !int(c.u, 0, UNIT_ID) || !int(c.dx, -8, 8) || !int(c.dz, -8, 8) || !(c.atk === 0 || c.atk === 1) || !(c.rel === undefined || c.rel === 1)) return { ok: false, why: 'shape' };
+      if ((c.fx === undefined) !== (c.fz === undefined) || (c.fx !== undefined && (!int(c.fx, -8, 8) || !int(c.fz, -8, 8)))) return { ok: false, why: 'shape' };
+      out = { t, id, p: pid, k: 'ctl', s: c.s, u: c.u, dx: c.dx, dz: c.dz, atk: c.atk };
+      if (c.fx !== undefined) { out.fx = c.fx; out.fz = c.fz; }
       if (c.rel === 1) out.rel = 1;
       break;
     }
     default:
-      return { ok: false, why: 'kind' }; // 'cfg', 'adm' (needs a token) and anything unknown
+      return { ok: false, why: 'kind' };
   }
   if (!inWindow(t, now)) return { ok: false, why: 'tick' };
   return { ok: true, c: out };

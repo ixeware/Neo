@@ -19,8 +19,8 @@ import hashlib, json, os, sys, time, urllib.parse, urllib.request
 W = next((a for a in sys.argv[1:] if not a.startswith('--')), 'roads-work')
 os.makedirs(W, exist_ok=True)
 UA = 'VysotkaGameDev/1.0 (reference research)'
-# play crop + a small margin so ribbons run off the map edge cleanly
-LON0, LON1, LAT0, LAT1 = 45.660, 46.160, 43.050, 43.305
+# play crop + a small margin so ribbons run off the map edge cleanly (v4: north to z = -36, central Grozny)
+LON0, LON1, LAT0, LAT1 = 45.660, 46.160, 43.050, 43.338
 HW = {'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street',
       'service', 'track', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link', 'road'}
 RAIL = {'rail', 'abandoned', 'disused'}

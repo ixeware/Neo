@@ -98,7 +98,7 @@ function sheep(k: Kit, x: number, z: number, ry: number, s = 1, horns?: Col) {
 }
 function melon(k: Kit, x: number, y: number, z: number, d: number, fine = false) {
   k.ball(MELON, x, y, z, d, fine ? 1 : 0, 0.9);
-  for (const ry of fine ? [0.3, 1.35, 2.4] : [0.5, 2.1]) k.cyl(MELON2, x, y, z, d * 0.94, d * 0.17, 8, 0, ry, H, d * 1.04);
+  for (const ry of fine ? [0.3, 1.35, 2.4] : [0.5, 2.1]) k.cyl(MELON2, x, y, z, d * 0.94, d * 0.17, 6, 0, ry, H, d * 1.04);
 }
 function tuft(k: Kit, x: number, z: number, s = 1) {
   k.cone(C.leaf[1], x, 0.14 * s, z, 0.2 * s, 0.3 * s, 4, 0.2, 0.5, 0);
@@ -758,6 +758,7 @@ function build(key: string, level: number, side: 0 | 1): Built | null {
   if (!b) {
     const k = new Kit(), h = new Kit();
     const pivot = fn({ k, h, lv, T: TEAM[side], M: mats(lv), g: 1 + (lv - 1) * 0.13 }) ?? [0, 0, 0];
+    k.dropBottoms();
     const body = k.build(), head = h.empty ? null : h.build();
     b = { body, head, pivot, h: Math.max(body.boundingBox!.max.y, head ? head.boundingBox!.max.y + pivot[1] : 0), tris: k.tris + h.tris };
     built.set(ck, b);

@@ -120,6 +120,16 @@ export class Kit {
     return this.mat(new Float32Array(P), c, this.m.identity());
   }
 
+  /** Drops the faces that look straight down below height `yMax`: nobody sees the underside of a thing that stands on the ground. */
+  dropBottoms(yMax = 0.45): this {
+    const { pos, nor, col } = this, P: number[] = [], N: number[] = [], Cc: number[] = [];
+    for (let i = 0; i < pos.length; i += 9) {
+      if (nor[i + 1] < -0.95 && pos[i + 1] < yMax && pos[i + 4] < yMax && pos[i + 7] < yMax) continue;
+      for (let j = i; j < i + 9; j++) { P.push(pos[j]); N.push(nor[j]); Cc.push(col[j]); }
+    }
+    this.pos = P; this.nor = N; this.col = Cc;
+    return this;
+  }
   get tris() { return this.pos.length / 9; }
   get empty() { return this.pos.length === 0; }
   build(): THREE.BufferGeometry {

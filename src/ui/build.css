@@ -75,6 +75,7 @@
 .bs-bar i.low { background: var(--pen-k); }
 .bs-hp em { font-family: var(--f-hand); font-style: normal; font-weight: 700; font-size: 18px; line-height: .9; color: var(--pen-k); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bs-d { font-size: 12.5px; line-height: 1.25; color: var(--graphite-2); }
+.bs-j { display: block; margin-top: 3px; font-family: var(--f-hand); font-style: normal; font-weight: 700; font-size: 17px; line-height: 1; color: var(--graphite); }
 .bs-stats { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; line-height: 1.25; }
 .bs-st b { font-family: var(--f-display); font-weight: 800; }
 .bs-st i { font-style: normal; color: var(--ok); }

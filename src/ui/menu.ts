@@ -5,6 +5,7 @@ import { HEROES, ROSTER_ORDER, HERO_UNIT, ACHIEVEMENTS, UNIT_TEXT, GELIK_T, SPOR
 import { UNITS } from '../sim/defs';
 import { portraitHtml, unitRole } from './hud';
 import type { Portraits } from './portraits';
+import { v5SoonHtml } from './v5texts';
 
 export type MenuTab = 'play' | 'who' | 'ach';
 export interface MenuState {
@@ -118,6 +119,7 @@ function whoPage(p: Portraits, s: MenuState): string {
     <div class="who-list">${ROSTER_ORDER.map(id => rosterCard(p, id, s.spicy)).join('')}</div>
     ${extra ? `<p class="m-lead">Ещё на районе: техника и пацаны, которых можно позвать из вкладки «Юниты».</p>
     <div class="who-list">${extra}</div>` : ''}
+    ${v5SoonHtml(s.spicy)}
   </div>`;
 }
 

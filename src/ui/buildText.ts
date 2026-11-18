@@ -3,14 +3,14 @@
 // richer ones in with setBuildTexts() (BLD_TEXT / FEED of src/data/v5lore.ts) without touching the UI.
 import { BUILDINGS } from '../sim/defs';
 
-export interface BldText { name: string; blurb: string }
+export interface BldText { name: string; blurb: string; /** The long name for a panel title (falls back to name). */ full?: string; /** A one-line joke under the blurb. */ joke?: string }
 /** What happened to a building, for the feed. */
 export type BldFeedKind = 'built' | 'up' | 'lost' | 'broke' | 'trap' | 'trapped' | 'seen' | 'charged' | 'theirCharged' | 'wave' | 'fire';
 export interface BuildTexts {
   /** Name and blurb of a building by key; a missing field falls back to the sim table. */
   text?: (key: string, spicy: boolean) => Partial<BldText> | null | undefined;
   /** A feed line; null / undefined falls back to the plain default. `name` is the building's name, `n` a count or ₽. */
-  feed?: (kind: BldFeedKind, key: string, spicy: boolean, name: string, n: number) => string | null | undefined;
+  feed?: (kind: BldFeedKind, key: string, spicy: boolean, name: string, n: number, side?: number) => string | null | undefined;
 }
 let src: BuildTexts = {};
 /** Plug richer texts in (the content track: BLD_TEXT and FEED of v5lore.ts). */
@@ -21,13 +21,13 @@ export function bldText(t: number, spicy: boolean): BldText {
   const d = BUILDINGS[t];
   if (!d) return { name: '?', blurb: '' };
   const x = src.text?.(d.key, spicy), s = spicy ? d.spicy18 : undefined;
-  return { name: x?.name ?? s?.name ?? d.name, blurb: x?.blurb ?? s?.blurb ?? d.blurb };
+  return { name: x?.name ?? s?.name ?? d.name, blurb: x?.blurb ?? s?.blurb ?? d.blurb, full: x?.full, joke: x?.joke };
 }
 
 /** A feed line about a building (clean defaults). */
-export function bldFeed(kind: BldFeedKind, t: number, spicy: boolean, n = 0): string {
+export function bldFeed(kind: BldFeedKind, t: number, spicy: boolean, n = 0, side?: number): string {
   const d = BUILDINGS[t], name = bldText(t, spicy).name;
-  const x = d ? src.feed?.(kind, d.key, spicy, name, n) : null;
+  const x = d ? src.feed?.(kind, d.key, spicy, name, n, side) : null;
   if (x) return x;
   switch (kind) {
     case 'built': return `Построили: ${name}`;

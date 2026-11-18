@@ -446,7 +446,7 @@ export class Build {
         const tx = bldText(t, spicy), fi = FAM_OF(t);
         const b = h('button', `bcard paper s${side}`, `<span class="key">${'1234567890'[i] ?? ''}</span><i class="bi bi-${BUILDINGS[t].fam}">${FAMS[fi].icon}</i><span class="bn">${esc(tx.name)}</span><span class="bc"></span><span class="bq"></span><span class="bl"></span>`) as HTMLButtonElement;
         b.type = 'button'; b.dataset.t = String(t);
-        b.title = `${tx.name}. ${tx.blurb}`;
+        b.title = `${tx.full ?? tx.name}. ${tx.blurb}${tx.joke ? ` ${tx.joke}` : ''}`;
         b.addEventListener('click', () => { this.mouse = null; this.pick(t); }); // the mouse is on the card: the ghost waits for it over the map
         this.cardRow.append(b);
         this.cards.set(t, { el: b, key: '' });
@@ -522,9 +522,9 @@ export class Build {
       if (D.key === 'arbuzomet') btns = `<button type="button" class="bs-b bs-fire${sim.canFire(side, b.id, b.x, b.z, me) ? ' off' : ''}" data-a="fire">Огонь!</button>` + btns;
     }
     const hp = Math.max(0, Math.ceil(b.hp)), k = Math.max(0, Math.min(1, b.hp / b.mhp));
-    const html = `<div class="bs-h"><i class="bi bi-${D.fam}">${FAMS[FAM_OF(b.t)].icon}</i><b class="bs-n s${b.s}">${esc(tx.name)}</b><span class="bs-lv">ур. ${b.lv}${own ? '' : ' · чужое'}</span><button type="button" class="bs-x" data-a="x" aria-label="Закрыть">${ICON.x}</button></div>`
+    const html = `<div class="bs-h"><i class="bi bi-${D.fam}">${FAMS[FAM_OF(b.t)].icon}</i><b class="bs-n s${b.s}">${esc(tx.full ?? tx.name)}</b><span class="bs-lv">ур. ${b.lv}${own ? '' : ' · чужое'}</span><button type="button" class="bs-x" data-a="x" aria-label="Закрыть">${ICON.x}</button></div>`
       + `<div class="bs-hp"><span class="bs-bar"><i class="${k < 0.35 ? 'low' : ''}" style="width:${Math.round(k * 100)}%"></i></span><span class="num">${hp}/${b.mhp}</span>${status ? `<em>${esc(status)}</em>` : ''}</div>`
-      + `<div class="bs-d">${esc(tx.blurb)}</div><div class="bs-stats">${stats}</div>`
+      + `<div class="bs-d">${esc(tx.blurb)}${tx.joke ? `<i class="bs-j">${esc(tx.joke)}</i>` : ''}</div><div class="bs-stats">${stats}</div>`
       + (own ? `<div class="bs-btns">${btns}</div>` : `<div class="bs-d bs-foe">Выдели своих и ${this.touch ? 'тапни' : 'кликни правой'} по постройке: пойдут ломать</div>`);
     if (html === this.selKey) return;
     this.selKey = html;
@@ -539,13 +539,14 @@ export class Build {
     if (e.e === 'bld') {
       const D = BUILDINGS[e.t], mine = e.s === side, near = d.near(e.x, e.z, 70), spicy = d.spicy();
       if (!D) return true;
-      const say = (kind: Parameters<typeof bldFeed>[0], prio: 0 | 1 | 2 | 3, n = e.n, gap = 5000) => { if (this.cool(kind + e.t + e.s, gap)) d.say('Прораб', bldFeed(kind, e.t, spicy, n), prio, mine ? side : e.s); };
+      const say = (kind: Parameters<typeof bldFeed>[0], prio: 0 | 1 | 2 | 3, n = e.n, gap = 5000) => { if (this.cool(kind + e.t + e.s, gap)) d.say('Прораб', bldFeed(kind, e.t, spicy, n, side), prio, mine ? side : e.s); };
       switch (e.k) {
         case 'put': if (mine ? now - this.putAt > 800 && near : near && !D.hid) d.sound.deploy(); break; // my own one sounded when sent
         case 'up': if (mine) d.sound.coin(); break;
         case 'done':
           if (!mine) break;
           if (!D.line) { d.sound.floorUp(); if (e.lv > 1) say('up', 1, e.lv); else say('built', 1); }
+          else if (e.lv === 1) say('built', 0, 0, 30000); // a wall line: one word for the whole fence
           break;
         case 'sell': if (mine) { d.sound.coin(); if (near) this.tipAt(e.x, e.z, `+${e.n} ₽`, 'tip-plus'); } break;
         case 'rep': if (mine) d.sound.coin(); break;
@@ -553,6 +554,7 @@ export class Build {
           if (mine || near) d.sound.rumble();
           if (near) d.stage.shake(0.35);
           if (!D.line) { if (mine) say('lost', 2, 0, 2500); else { say('broke', 1, e.n, 2500); if (near && e.n > 0) this.tipAt(e.x, e.z, `+${e.n} ₽`, 'tip-plus'); } }
+          else if (mine) say('lost', 1, 0, 20000); // a breach in our fence
           if (this.selId === e.id) this.close();
           break;
         case 'trap': if (mine || near) d.sound.stamp(); if (mine) say('trap', 1, e.n, 8000); else say('trapped', 1, e.n, 8000); break;

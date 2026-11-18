@@ -141,7 +141,7 @@ export const BLD_TEXT: Record<string, BldLore> = {
     joke: 'Бро каждый раз умирает от высоты.',
   },
   lezhak: {
-    name: 'Лежачий полицейский', g: 'm', acc: 'Лежачего полицейского',
+    name: 'Лежачий', full: 'Лежачий полицейский', g: 'm', acc: 'Лежачего',
     blurb: 'Ловит только машины. Камри без прав — в первую очередь.',
     joke: 'Пока вы заводите свою М5, он уже лежит.',
   },
@@ -277,7 +277,13 @@ export const BLD_UI = {
   soon: 'скоро на стройке',
 };
 
-export interface BldShown { name: string; full: string; acc: string; g: BldG; blurb: string; joke: string; levels?: [string, string, string] }
+export interface BldShown { name: string; /** name with soft hyphens: a narrow card breaks it by syllable */ card: string; full: string; acc: string; g: BldG; blurb: string; joke: string; levels?: [string, string, string] }
+/** Длинные имена с мягким переносом (U+00AD) для узкой карточки на телефоне. */
+const SHY: Record<string, string> = {
+  'Сгущёнкомёт': 'Сгущёнко\u00ADмёт', 'Спермострел': 'Спермо\u00ADстрел', 'Гантелемёт': 'Гантеле\u00ADмёт', 'Шаурмечная': 'Шаурмеч\u00ADная',
+  'Прорабская': 'Прораб\u00ADская', 'Генератор': 'Генера\u00ADтор', 'Арбузомёт': 'Арбузо\u00ADмёт', 'Шлагбаум': 'Шлаг\u00ADбаум',
+  'Антидрон': 'Анти\u00ADдрон', 'Курятник': 'Курят\u00ADник', 'Сабвуфер': 'Саб\u00ADвуфер',
+};
 /** Тексты постройки так, как их видит игрок (чистые или 18+). null — ключа нет. */
 export function bldLore(key: string, spicy: boolean): BldShown | null {
   const b = BLD_TEXT[key];
@@ -285,7 +291,7 @@ export function bldLore(key: string, spicy: boolean): BldShown | null {
   const name = (spicy && b.spicyName) || b.name;
   const full = (spicy && (b.spicyFull ?? b.spicyName)) || b.full || name;
   const acc = spicy && b.spicyName ? b.spicyAcc ?? b.spicyName : b.acc ?? b.name;
-  return { name, full, acc, g: b.g, blurb: (spicy && b.spicyBlurb) || b.blurb, joke: (spicy && b.spicyJoke) || b.joke, levels: b.levels };
+  return { name, card: SHY[name] ?? name, full, acc, g: b.g, blurb: (spicy && b.spicyBlurb) || b.blurb, joke: (spicy && b.spicyJoke) || b.joke, levels: b.levels };
 }
 const END_A = { m: '', f: 'а', n: 'о', p: 'ы' }, END_LA = { m: 'л', f: 'ла', n: 'ло', p: 'ли' };
 /** Значения {b}, {b4}, {a}, {la} (и {lv} для уровня 1..3, если у постройки есть лесенка имён). */

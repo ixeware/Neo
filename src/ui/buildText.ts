@@ -3,7 +3,7 @@
 // richer ones in with setBuildTexts() (BLD_TEXT / FEED of src/data/v5lore.ts) without touching the UI.
 import { BUILDINGS } from '../sim/defs';
 
-export interface BldText { name: string; blurb: string; /** The long name for a panel title (falls back to name). */ full?: string; /** A one-line joke under the blurb. */ joke?: string }
+export interface BldText { name: string; blurb: string; /** The long name for a panel title (falls back to name). */ full?: string; /** The name for a narrow card (soft hyphens). */ card?: string; /** A one-line joke under the blurb. */ joke?: string }
 /** What happened to a building, for the feed. */
 export type BldFeedKind = 'built' | 'up' | 'lost' | 'broke' | 'trap' | 'trapped' | 'seen' | 'charged' | 'theirCharged' | 'wave' | 'fire';
 export interface BuildTexts {
@@ -21,7 +21,7 @@ export function bldText(t: number, spicy: boolean): BldText {
   const d = BUILDINGS[t];
   if (!d) return { name: '?', blurb: '' };
   const x = src.text?.(d.key, spicy), s = spicy ? d.spicy18 : undefined;
-  return { name: x?.name ?? s?.name ?? d.name, blurb: x?.blurb ?? s?.blurb ?? d.blurb, full: x?.full, joke: x?.joke };
+  return { name: x?.name ?? s?.name ?? d.name, blurb: x?.blurb ?? s?.blurb ?? d.blurb, full: x?.full, card: x?.card, joke: x?.joke };
 }
 
 /** A feed line about a building (clean defaults). */

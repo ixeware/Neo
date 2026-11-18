@@ -49,7 +49,7 @@ export function installV5Texts() {
   done = true;
   seed = Math.floor(Date.now() / 1000) % 89;
   setBuildTexts({
-    text: (key, spicy) => { const b = bldLore(key, spicy); return b ? { name: b.name, blurb: b.blurb, full: b.full, joke: b.joke } : null; },
+    text: (key, spicy) => { const b = bldLore(key, spicy); return b ? { name: b.name, card: b.card, blurb: b.blurb, full: b.full, joke: b.joke } : null; },
     feed: buildFeed,
   });
   addLines(TICKER, V5_TICKER);

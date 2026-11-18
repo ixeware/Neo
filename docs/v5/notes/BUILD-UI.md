@@ -31,9 +31,14 @@ Track: the build mode and the base on screen, on top of SIM-BASE (docs/v5/BASE.m
     a short bar (one finger away from the ghost still pans; no rubber band while placing); walls — desktop:
     press, drag, release; phone: drag from the fence, then ✓; one `bld put` with `cells`;
   - a tap on a building: panel with name, level, hp, state, what it does, stats (with the next level's
-    values), «Улучшить», «Починить», «Продать» (second tap confirms), «Огонь!» for the Арбузомёт (then a tap
-    on the map); an enemy building: name, level, hp. With units selected a tap / right click on an enemy
-    building is an attack order (`ord.tb`);
+    values), «Улучшить», «Починить», «Продать» (second tap within 4 s confirms), «Огонь!» for the Арбузомёт
+    (desktop: the blast ring follows the mouse, a click fires; phone: a tap shows the ring, ✓ fires, ✗ goes
+    back); an enemy building: name, level, hp. With units selected a tap / right click on an enemy building
+    is an attack order (`ord.tb`);
+  - phone details: a long one-word name gets a narrower face on its card (`.bn.lg`), a panel button breaks
+    between its label and its price (`.bs-p`), the price / reason label next to the ghost steps aside
+    instead of covering a HUD slip (command bar, сход sheet, minimap, bank, top slips) — the placing bar
+    carries the same text;
   - keys: B, digits pick in the palette, R = the last building again, Esc one step back;
   - sounds from the existing synth, feed lines by «Прораб», tips with ₽.
 - **src/ui/buildText.ts** — names, blurbs and feed lines by key; `setBuildTexts({ text, feed })` is the one

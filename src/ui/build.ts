@@ -431,12 +431,12 @@ export class Build {
     const key = `${text}|${ev.n ? 1 : 0}`;
     if (key !== this.whyKey) { this.whyKey = key; el.textContent = text; el.className = `bwhy ${ev.n ? 'ok' : 'bad'}`; this.hudAt = 0; }
     el.style.transform = `translate(${Math.round(this.pr.x)}px, ${Math.round(this.pr.y)}px) translate(-50%, -100%)`;
-    // never over a HUD slip (the command bar, the сход sheet, the minimap, the bank): the label steps aside, the
+    // never over a HUD slip (the command bar, the сход sheet, the minimap, the bank, the event chip): the label steps aside, the
     // placing bar and the ghost's colour still tell the story. Measured five times a second, not every frame.
     const now = performance.now();
     if (now - this.hudAt > 200) {
       this.hudAt = now; this.hudBox.length = 0;
-      for (const e of document.querySelectorAll<HTMLElement>('.cmdbar, .vote, .mini, .bank, .toolbar, .side')) if (!e.hidden && e.getClientRects().length) this.hudBox.push(e.getBoundingClientRect());
+      for (const e of document.querySelectorAll<HTMLElement>('.cmdbar, .vote, .mini, .bank, .toolbar, .side, .evchip')) if (!e.hidden && e.getClientRects().length) this.hudBox.push(e.getBoundingClientRect());
       this.whyW = el.offsetWidth; this.whyH = el.offsetHeight;
     }
     const x0 = this.pr.x - this.whyW / 2, x1 = this.pr.x + this.whyW / 2, y0 = this.pr.y - this.whyH, y1 = this.pr.y;

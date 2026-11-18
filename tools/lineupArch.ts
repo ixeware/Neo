@@ -74,8 +74,8 @@ export function archView(view: string, q: URLSearchParams, api: LineupApi): Line
   }
   if (view === 'base1') {
     const key = q.get('k') ?? 'rogatka';
-    for (let lv = 1; lv <= 3; lv++) { put(key, lv, 0, (lv - 2) * 3.2, 1.8); put(key, lv, 1, (lv - 2) * 3.2, -1.8); }
-    api.unit(0, side, 5.6, 1.8, -0.4, false);
+    for (let lv = 1; lv <= 3; lv++) { put(key, lv, 0, (lv - 2) * 3.4, 2.4); put(key, lv, 1, (lv - 2) * 3.4, -2.6); }
+    api.unit(0, side, 5.6, 2.4, -0.4, false);
     return { pitch: Number(q.get('pitch') ?? 0.42), tight: 0.95 };
   }
   if (view === 'basegame') {

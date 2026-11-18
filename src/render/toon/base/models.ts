@@ -18,7 +18,7 @@ type Fn = (c: Ctx) => number[] | void;
 
 const PI = Math.PI, H = PI / 2, O8 = PI / 8;
 const BOTTLE = { white: new THREE.Color('#f5f8f7'), teal: new THREE.Color('#1aa597'), cap: new THREE.Color('#f07a1a'), capD: new THREE.Color('#c85e0e') }; // the Себозол bottle (as models.ts)
-const MELON = new THREE.Color('#2f9a3e'), MELON2 = new THREE.Color('#1a6a36'), MEAT = new THREE.Color('#b0603a'), TAN = new THREE.Color('#c98a4e');
+const MELON = new THREE.Color('#4cba4c'), MELON2 = new THREE.Color('#17602f'), MEAT = new THREE.Color('#b0603a'), TAN = new THREE.Color('#c98a4e');
 
 const mats = (lv: number): Mats => ({
   body: [C.wood, C.wall[2], C.marble][lv - 1], body2: [C.woodDark, C.wall[3], C.metal][lv - 1],
@@ -89,16 +89,16 @@ function hen(k: Kit, x: number, y: number, z: number, s = 1, ry = 0, body: Col =
 }
 function sheep(k: Kit, x: number, z: number, ry: number, s = 1, horns?: Col) {
   k.push(x, 0.07, z, 0, ry, 0, s);
-  k.box(C.ink, 0, 0.09, 0, 0.2, 0.18, 0.34);
-  k.ball(C.white, 0, 0.31, 0, 0.46, 0, 0.82, 1.25);
-  k.box(C.ink, 0, 0.37, 0.3, 0.17, 0.19, 0.2);
+  k.box(C.ink, 0, 0.07, 0, 0.16, 0.14, 0.26);
+  k.ball(C.white, 0, 0.31, 0, 0.5, 0, 0.84, 1.25);
+  k.box(C.ink, 0, 0.36, 0.31, 0.16, 0.17, 0.16);
+  k.box(C.white, 0, 0.47, 0.27, 0.18, 0.08, 0.14);
   if (horns) for (const s2 of [-1, 1]) k.box(horns, s2 * 0.13, 0.46, 0.26, 0.08, 0.08, 0.18);
   k.pop();
 }
 function melon(k: Kit, x: number, y: number, z: number, d: number, fine = false) {
-  k.ball(MELON, x, y, z, d, fine ? 1 : 0);
-  k.cyl(MELON2, x, y, z, d * 1.02, d * 0.13, 8, 0, 0.5, H, d * 1.02);
-  if (fine) k.cyl(MELON2, x, y, z, d * 1.02, d * 0.13, 8, 0, 2.1, H, d * 1.02);
+  k.ball(MELON, x, y, z, d, fine ? 1 : 0, 0.9);
+  for (const ry of fine ? [0.3, 1.35, 2.4] : [0.5, 2.1]) k.cyl(MELON2, x, y, z, d * 0.94, d * 0.17, 8, 0, ry, H, d * 1.04);
 }
 function tuft(k: Kit, x: number, z: number, s = 1) {
   k.cone(C.leaf[1], x, 0.14 * s, z, 0.2 * s, 0.3 * s, 4, 0.2, 0.5, 0);
@@ -188,7 +188,7 @@ const MODELS: Record<string, Fn> = {
     k.bev(C.metalDark, 0, 0.06, 0, 1.56 * g, 0.12, 1.56 * g, 0.1);
     k.box(C.ink, 0, 0.13, 0, 1.16 * g, 0.03, 1.16 * g);
     for (const s of [-1, 1]) {
-      k.push(s * 0.6 * g, 0.12, 0, 0, 0, -s * 0.95);
+      k.push(s * 0.6 * g, 0.12, 0, 0, 0, s * 0.95);
       k.box(C.metal, s * 0.3 * g, 0.03, 0, 0.6 * g, 0.08, 1.14 * g);
       for (const z of [-0.3, 0.3]) k.box(C.gold, s * 0.3 * g, 0.08, z * g, 0.5 * g, 0.03, 0.16 * g);
       k.pop();
@@ -258,11 +258,12 @@ const MODELS: Record<string, Fn> = {
     seg(0.12, [[0, 1.2, 1.4, 0.5], [-0.5, 0, 0.5, 2.9], [0.5, 0, 0.5, 2.9], [0, -1.2, 1.4, 0.5]]);
     // cameras on a cross arm
     const cam = (x: number) => {
-      k.push(x, top + 0.02, 0.06, 0.26, 0, 0);
-      k.box(C.white, 0, 0, 0.1, 0.4, 0.32, 0.74);
-      k.box(C.metalDark, 0, 0.19, 0.16, 0.48, 0.07, 0.92);
-      k.cyl(C.glass, 0, 0, 0.5, 0.26, 0.08, 8, H);
-      k.box(C.danger, 0.13, 0.1, 0.48, 0.08, 0.08, 0.04);
+      k.push(x, top + 0.04, 0.02, 0.42, 0, 0);
+      k.box(C.white, 0, 0, 0.1, 0.42, 0.38, 0.74);
+      k.box(C.metalDark, 0, 0.22, 0.36, 0.5, 0.07, 0.4);
+      k.box(C.metalDark, 0, 0, 0.48, 0.34, 0.3, 0.04);
+      k.cyl(C.glass, 0, -0.02, 0.5, 0.24, 0.08, 8, H);
+      k.box(C.danger, 0.11, 0.1, 0.5, 0.08, 0.08, 0.04);
       k.pop();
     };
     const xs = lv === 1 ? [0.36] : lv === 2 ? [-0.42, 0.42] : [-0.6, 0, 0.6];
@@ -314,6 +315,7 @@ const MODELS: Record<string, Fn> = {
   /** Шлагбаум: a striped boom on a cabinet, with a «кирпич» sign. */
   shlagbaum: c => {
     const { k, lv, g, T, M } = c, x0 = -0.7, yb = 0.84 + lv * 0.06;
+    k.push(0, 0, 0, 0, 0, 0, 1.14);
     k.bev(M.base, x0, 0.05, 0, 0.74, 0.1, 0.74, 0.14);
     k.box(T.main, x0, 0.18, 0, 0.56, 0.16, 0.56);
     k.bev([C.metal, C.wall[3], C.marble][lv - 1], x0, 0.26 + yb / 2, 0, 0.44, yb, 0.44, 0.14);
@@ -335,6 +337,7 @@ const MODELS: Record<string, Fn> = {
     }
     if (lv === 3) { k.box(C.gold, x0, 0.26 + yb * 0.9, 0, 0.47, 0.07, 0.47); k.cyl(C.gold, 0.2, 1.2, -0.5, 0.2, 0.14, 8); }
     studs(c, 0.18, 0.3, x0);
+    k.pop();
     void g;
   },
 
@@ -637,7 +640,7 @@ const MODELS: Record<string, Fn> = {
   sabvufer: c => {
     const { k, lv, T } = c, d = 0.9;
     const cab = (x: number, y: number, w: number, hh: number) => {
-      k.bev(C.cloth, x, y + hh / 2, 0, w, hh, d, 0.08);
+      k.box(C.cloth, x, y + hh / 2, 0, w, hh, d);
       k.box(C.metalDark, x, y + hh / 2, d / 2 + 0.01, w - 0.14, hh - 0.14, 0.04);
       const r = Math.min(w, hh) * 0.68;
       k.cyl(C.ink, x, y + hh / 2, d / 2 + 0.04, r, 0.06, 10, H);
@@ -658,28 +661,30 @@ const MODELS: Record<string, Fn> = {
     flag(k, T, wT / 2 - 0.1, lv === 1 ? 1.42 : 1.12 + (lv - 2) * 1.0, -0.2, 0.7);
     studs(c, 0.26, d / 2 + 0.03);
   },
-  /** Арбузомёт: a trebuchet loaded with a watermelon. */
+  /** Арбузомёт: a catapult on wheels, cocked, with a watermelon in the bucket. */
   arbuzomet: c => {
     const { k, lv, g, T } = c, s = g, wood = lv === 3 ? C.metal : C.wood, dark = lv === 1 ? C.woodDark : C.metalDark;
-    pad(c, 1.7 * s, 2.0 * s, 1.3 * s, 1.6 * s);
+    pad(c, 1.7 * s, 2.1 * s, 1.2 * s, 1.6 * s);
     for (const sx of [-1, 1]) {
-      const x = sx * 0.52 * s;
-      k.box(wood, x, 0.36, 0, 0.16, 0.14, 1.6 * s);
-      k.beam(wood, x, 0.4, 0.6 * s, x, 1.56 * s, 0, 0.15); k.beam(wood, x, 0.4, -0.6 * s, x, 1.56 * s, 0, 0.15);
-      k.box(dark, x, 0.86 * s, 0, 0.1, 0.1, 0.64 * s);
+      const x = sx * 0.5 * s;
+      k.box(wood, x, 0.42, 0, 0.18, 0.18, 1.8 * s);
+      k.box(wood, x, 0.95 * s, 0.56 * s, 0.17, 1.2 * s, 0.17);
+      k.beam(wood, x, 0.46, -0.36 * s, x, 1.36 * s, 0.56 * s, 0.13);
+      for (const z of [-0.6, 0.6]) { k.cyl(dark, sx * 0.68 * s, 0.38, z * s, 0.6, 0.13, 8, 0, 0, H); k.cyl(lv === 3 ? C.gold : C.wood, sx * 0.7 * s, 0.38, z * s, 0.24, 0.15, 6, 0, 0, H); }
     }
-    k.cyl(dark, 0, 1.56 * s, 0, 0.16, 1.3 * s, 6, 0, 0, H);
-    k.beam(C.woodDark, 0, 0.92 * s, 0.6 * s, 0, 2.3 * s, -1.0 * s, 0.16);
-    k.box(C.concrete, 0, 0.74 * s, 0.66 * s, 0.56 * s, 0.5 * s, 0.46 * s);
-    if (lv >= 2) k.box(lv === 3 ? C.gold : C.metalDark, 0, 0.74 * s, 0.66 * s, 0.6 * s, 0.12, 0.5 * s);
-    k.cyl(wood, 0, 2.3 * s, -1.02 * s, 0.56 * s, 0.09, 8);
-    melon(k, 0, 2.3 * s + 0.36 * s, -1.02 * s, 0.68 * s, true);
-    // ammunition
-    melon(k, 0.86 * s, 0.38, 0.7, 0.5); melon(k, 0.7 * s, 0.34, 0.24, 0.42);
-    if (lv >= 2) melon(k, 0.96 * s, 0.34, 0.3, 0.4);
-    k.dome(MELON, -0.84 * s, 0.14, 0.76, 0.5, 0.25); // a cut one
-    k.cyl(C.danger, -0.84 * s, 0.14, 0.76, 0.44, 0.04, 8);
-    flag(k, T, -0.52 * s, 1.56 * s, 0, 0.8);
+    k.box(dark, 0, 1.5 * s, 0.56 * s, 1.26 * s, 0.22, 0.24);
+    k.cyl(dark, 0, 0.52, 0.16 * s, 0.22, 1.1 * s, 6, 0, 0, H);
+    k.beam(C.woodDark, 0, 0.52, 0.16 * s, 0, 1.56 * s, -1.02 * s, 0.18);
+    k.cyl(wood, 0, 1.6 * s, -1.06 * s, 0.74 * s, 0.16, 8);
+    melon(k, 0, 1.68 * s + 0.36 * s, -1.06 * s, 0.84 * s, true);
+    if (lv >= 2) k.box(lv === 3 ? C.gold : C.metal, 0, 1.5 * s, 0.56 * s, 0.4 * s, 0.26, 0.28);
+    // ammunition and a cut one
+    melon(k, 0.86 * s, 0.4, 0.84, 0.5); melon(k, 0.9 * s, 0.36, 0.36, 0.42);
+    if (lv >= 2) melon(k, -0.9 * s, 0.36, 0.3, 0.44);
+    k.push(-0.86 * s, 0.34, 0.86, 0.9 + PI, 0, 0);
+    k.dome(MELON, 0, 0, 0, 0.6, 0.3); k.cyl(C.trim, 0, -0.01, 0, 0.6, 0.04, 8); k.cyl(C.danger, 0, -0.04, 0, 0.48, 0.04, 8);
+    k.pop();
+    flag(k, T, -0.5 * s, 1.55 * s, 0.56 * s, 0.8);
     studs(c, 0.26, 0.82 * s);
   },
 };
@@ -793,8 +798,13 @@ export function baseGhostGeometry(key: string, side: 0 | 1): THREE.BufferGeometr
   const ck = `${key}|${side}`;
   let g = ghosts.get(ck);
   if (g) return g;
-  const b = build(key, 1, side);
+  let b = build(key, 1, side);
   if (!b) return null;
+  if (key === 'zabor') { // a wall cell: the post and a plate (the panels depend on the neighbours)
+    const k = new Kit();
+    wallPost(k, 1, TEAM[side].main, false); k.box(C.fence[2], 0, 0.05, 0, 1.9, 0.1, 1.9);
+    b = { body: k.build(), head: null, pivot: [0, 0, 0], h: 1.15, tris: k.tris };
+  }
   const pos: number[] = [...(b.body.attributes.position.array as Float32Array)], col: number[] = [...(b.body.attributes.color.array as Float32Array)];
   if (b.head) {
     const P = b.head.attributes.position.array as Float32Array, s = side === 0 ? 1 : -1; // yaw ±π/2: +z → ±x

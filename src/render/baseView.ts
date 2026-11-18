@@ -14,10 +14,11 @@ import { C, TEAM, mat, native, groundShadow } from './style';
 import { drapedRing } from './world';
 import type { Particles, Shots } from './fx';
 import type { Stage } from './scene';
+import { baseModel, baseGhostGeometry, wallKit } from './toon/base/models'; // the art: one model per key and level, the wall kit
 
 /** A model for building `key` at `level` (1..3) of `side`, standing on y = 0, facing +z; null = use the placeholder. A child named 'head' turns to the target. */
 export type BaseModelFactory = (key: string, level: number, side: Side) => THREE.Object3D | null;
-let factory: BaseModelFactory | null = null, factoryVer = 0;
+let factory: BaseModelFactory | null = baseModel, factoryVer = 0;
 /** The art track's models: called once per (key, level, side, state) and cached per building. */
 export function setBaseModelFactory(fn: BaseModelFactory | null) { factory = fn; factoryVer++; }
 
@@ -113,7 +114,7 @@ export class BaseView {
   private faint = new Map<THREE.Material, THREE.Material>();
   private scafGeo: THREE.BufferGeometry;
   // walls (instanced: post + arms towards the neighbouring wall cells)
-  private posts: THREE.InstancedMesh; private arms: THREE.InstancedMesh;
+  private posts: THREE.InstancedMesh[] = []; private arms: THREE.InstancedMesh[] = [];
   private wallKey = '';
   private shadow: THREE.Mesh | null = null; private shadowKey = '';
   // hp / construction bars
@@ -122,7 +123,7 @@ export class BaseView {
   private rings: THREE.Mesh[] = [];
   private ringKey = ['', '', '', '', ''];
   private ghostMesh: THREE.InstancedMesh | null = null; private ghostT = -1; private ghostKey = '';
-  private ghostMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.78, depthWrite: false });
+  private ghostMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.78, depthWrite: false, vertexColors: true });
   private zaps: Zap[] = []; private zapMesh: THREE.InstancedMesh;
   private melons: Melon[] = [];
   private m4 = new THREE.Matrix4(); private q = new THREE.Quaternion(); private v = new THREE.Vector3(); private s = new THREE.Vector3(); private right = new THREE.Vector3();
@@ -138,10 +139,12 @@ export class BaseView {
     for (const y of [0.8, 1.6]) { sb.box(C.wood, [0, y, 0.95], [2, 0.08, 0.08]); sb.box(C.wood, [0, y, -0.95], [2, 0.08, 0.08]); sb.box(C.wood, [0.95, y, 0], [0.08, 0.08, 2]); sb.box(C.wood, [-0.95, y, 0], [0.08, 0.08, 2]); }
     for (let i = 0; i < 6; i++) sb.box(i % 2 ? C.ink : C.gold, [-0.8 + i * 0.32, 0.35, 0.97], [0.32, 0.14, 0.04]);
     this.scafGeo = sb.build();
-    const wm = mat.plain();
-    this.posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.4, 1, 0.4).translate(0, 0.5, 0), wm, 96);
-    this.arms = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.86, 1).translate(0, 0.43, 0.5), wm, 384);
-    for (const im of [this.posts, this.arms]) { im.count = 0; im.frustumCulled = false; im.castShadow = true; im.visible = false; this.group.add(im); }
+    for (let lv = 1; lv <= 3; lv++) { // one pair per level: sheet metal, brick, concrete (toon/base/models.ts)
+      const kit = wallKit(lv);
+      this.posts.push(new THREE.InstancedMesh(kit.post, mat.solid(), 96));
+      this.arms.push(new THREE.InstancedMesh(kit.arm, mat.solid(), 384));
+    }
+    for (const im of [...this.posts, ...this.arms]) { im.count = 0; im.frustumCulled = false; im.castShadow = true; im.visible = false; this.group.add(im); }
     this.bars = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false, transparent: true }), BAR_CAP);
     this.bars.count = 0; this.bars.frustumCulled = false; this.bars.renderOrder = 6;
     this.group.add(this.bars);
@@ -253,30 +256,31 @@ export class BaseView {
   }
 
   private buildWalls(walls: B[], tick: number) {
-    const cols = [C.fence[2], C.wall[3], C.concrete]; // sheet metal → brick → concrete: neutral, the posts carry the team colour
-    let np = 0, na = 0;
+    const np = [0, 0, 0], na = [0, 0, 0]; // per level: the panels are neutral, the posts carry the team colour
+    let total = 0;
     const isWall = (x: number, z: number, s: Side) => { const o = this.sim.bldAt(x, z); return !!o && o.s === s && !!BUILDINGS[o.t].line && bldVisible(o, this.side); };
     for (const b of walls) {
-      if (np >= 96) break;
+      if (total++ >= 96) break;
       const lv = b.up > tick && b.lv > 1 ? b.lv - 1 : b.lv, hh = (0.8 + lv * 0.15) * (b.up > tick && b.lv === 1 ? 0.5 : 1) * (b.hp / b.mhp < 0.5 ? 0.85 : 1);
       const y = this.y(b.x, b.z);
       this.m4.compose(this.v.set(b.x, y, b.z), this.q.identity(), this.s.set(1, hh + 0.2, 1));
-      this.posts.setMatrixAt(np, this.m4);
-      this.posts.setColorAt(np++, TEAM[b.s].main);
+      const L = lv - 1, posts = this.posts[L], arms = this.arms[L];
+      posts.setMatrixAt(np[L], this.m4);
+      posts.setColorAt(np[L]++, TEAM[b.s].main);
       const C2 = BASE.cell;
       let any = 0;
       const arm = (dx: number, dz: number) => {
-        if (na >= 384) return;
+        if (na[L] >= 384) return;
         this.q.setFromAxisAngle(this.v.set(0, 1, 0), Math.atan2(dx, dz));
         this.m4.compose(this.v.set(b.x, y, b.z), this.q, this.s.set(1, hh / 0.86, 1));
-        this.arms.setMatrixAt(na, this.m4);
-        this.arms.setColorAt(na++, this.col.copy(cols[lv - 1]).multiplyScalar(b.hp / b.mhp < 0.5 ? 0.8 : 1));
+        arms.setMatrixAt(na[L], this.m4);
+        arms.setColorAt(na[L]++, this.col.setScalar(b.hp / b.mhp < 0.5 ? 0.78 : 1));
       };
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (isWall(b.x + dx * C2, b.z + dz * C2, b.s)) { arm(dx, dz); any++; }
       if (!any) { arm(1, 0); arm(-1, 0); } // a lone segment still reads as a piece of fence
     }
-    this.posts.count = np; this.arms.count = na;
-    for (const im of [this.posts, this.arms]) { im.visible = im.count > 0; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+    for (let L = 0; L < 3; L++) { this.posts[L].count = np[L]; this.arms[L].count = na[L]; }
+    for (const im of [...this.posts, ...this.arms]) { im.visible = im.count > 0; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
   }
 
   /** Phone tier of the new style: one merged sheet of fake shadows for every solid building (null elsewhere). */
@@ -343,7 +347,7 @@ export class BaseView {
     if (this.ghostT !== t || !this.ghostMesh) {
       if (this.ghostMesh) this.group.remove(this.ghostMesh);
       const d = BUILDINGS[t];
-      const geo = d.line ? new THREE.BoxGeometry(1.9, 1, 1.9).translate(0, 0.5, 0) : placeholder(d.key, 1, this.side).geo;
+      const geo = baseGhostGeometry(d.key, this.side) ?? (d.line ? new THREE.BoxGeometry(1.9, 1, 1.9).translate(0, 0.5, 0) : placeholder(d.key, 1, this.side).geo);
       this.ghostMesh = new THREE.InstancedMesh(geo, this.ghostMat, GHOST_CAP);
       this.ghostMesh.frustumCulled = false; this.ghostMesh.renderOrder = 5;
       this.group.add(this.ghostMesh);

@@ -10,12 +10,13 @@ import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
 import { TOON, C, TEAM, mat, groundShadow } from './style';
 import { hqFloorGeo, hqRoofGeo, hqGroundGeo } from './toon/arch/highrise';
+import { toonHouseKits, HOUSE_NEAR } from './toon/arch/houses';
 import type { Pt } from '../sim/sim';
 import { landmarkSpots, fudziSpot } from './landmarks'; // v3 real places (decor.ts builds them)
 import { cityPlan, cityOccupied, cityQ, cityKeepOut, siteRect, inRect, CITY_SITES, CITY_HOUSES_FROM } from './city'; // v4 Грозный
 
-const WALLS = ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
-const ROOFS = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
+const WALLS = TOON ? [...C.wall, C.wall[0], C.wall[4]] : ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
+const ROOFS = TOON ? [...C.roof] : ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
 
 interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color; c2?: THREE.Color; v?: number }
 
@@ -27,7 +28,7 @@ interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: nu
  * From the overview (camera ~285 up) that is about half the houses and trees; at play zoom nothing near
  * changes. Render-only, so the order is free to differ from the build order.
  */
-interface LodChunk { im: THREE.InstancedMesh; n: number; x: number; z: number; K: number; min: number }
+interface LodChunk { im: THREE.InstancedMesh; n: number; x: number; z: number; K: number; min: number; near?: THREE.BufferGeometry; far?: THREE.BufferGeometry; D?: number }
 const lodChunks: LodChunk[] = [];
 const LOD_K: Record<string, [number, number]> = { houses: [155, 0.3], trees: [130, 0.25] };
 
@@ -37,10 +38,11 @@ export function updateWorldLod(cam: { x: number; y: number; z: number }) {
     const d = Math.hypot(c.x - cam.x, c.z - cam.z, cam.y);
     const n = d <= c.K ? c.n : Math.max(Math.ceil(c.n * c.min), Math.ceil((c.n * c.K) / d));
     if (c.im.count !== n) c.im.count = n;
+    if (c.far) { const g = d < c.D! ? c.near! : c.far; if (c.im.geometry !== g) c.im.geometry = g; } // new style: the detailed kit near the camera only
   }
 }
 
-function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true, name = '') {
+function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true, name = '', far?: THREE.BufferGeometry[], farD = 0) {
   const buckets = new Map<number, Item[]>();
   for (const it of items) {
     const k = Math.floor(it.x / chunk) * 1000 + Math.floor(it.z / chunk);
@@ -71,7 +73,7 @@ function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Materi
       if (lod) {
         let cx = 0, cz = 0;
         for (const it of list) { cx += it.x; cz += it.z; }
-        lodChunks.push({ im, n: list.length, x: cx / list.length, z: cz / list.length, K: lod[0], min: lod[1] });
+        lodChunks.push({ im, n: list.length, x: cx / list.length, z: cz / list.length, K: lod[0], min: lod[1], near: far && geo, far: far?.[gi], D: farD });
       }
     });
   }
@@ -353,11 +355,19 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     const two = hash2(i + 5, j + 13) > 0.78;
     place(x, z, blockRot, w, d, two ? 0.42 : 0.24 + hash2(i + 2, j) * 0.06, hash2(i + 9, j + 9));
   }
+  if (TOON) { // the new style: painted kits, a detailed one near the camera and a far twin (toon/arch/houses.ts)
+    const hm = mat.solid();
+    toonHouseKits().variants.forEach((kit, vi) => {
+      const list = items.filter(it => (it.v ?? 0) === vi);
+      if (list.length) chunked(list, [kit.body, kit.roof], [hm, hm], [false, true], parent, 50, hq, 'houses', [kit.farBody, kit.farRoof], HOUSE_NEAR());
+    });
+    return items.length;
+  }
   const { variants } = houseGeometries();
-  const mat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+  const hmat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
   variants.forEach((kit, vi) => {
     const list = items.filter(it => (it.v ?? 0) === vi);
-    if (list.length) chunked(list, [kit.body, kit.roof], [mat, mat], [false, true], parent, 50, hq, 'houses');
+    if (list.length) chunked(list, [kit.body, kit.roof], [hmat, hmat], [false, true], parent, 50, hq, 'houses');
   });
   return items.length;
 }

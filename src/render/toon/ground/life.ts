@@ -8,7 +8,7 @@ import { hash2, tinClass, type Tin } from '../../lowpoly';
 import { C, native } from '../../style';
 import { GC } from './colors';
 import { KitBuilder, G as GEO, type Kit } from './kits';
-import type { HouseSpot, Plaza } from './paint';
+import type { HouseSpot, Plaza, ShoreEdge } from './paint';
 
 const K_WALK = 0, K_CLOTH = 1, K_SMOKE = 2, K_BIRD = 3;
 const CHUNK = 56;
@@ -21,7 +21,7 @@ const uTime = { value: 0 };
 
 export interface LifeEnv {
   t: Terrain; tin: Tin; low: boolean;
-  houses: (HouseSpot & { h: number })[]; plazas: Plaza[];
+  houses: (HouseSpot & { h: number })[]; plazas: Plaza[]; shore: ShoreEdge[];
   /** scatter's test: may a thing of radius r stand here (roads, water, houses, build zones, other things)? */
   free: (x: number, z: number, r: number) => boolean;
 }
@@ -99,7 +99,7 @@ export function buildLife(parent: THREE.Object3D, env: LifeEnv) {
   const CLOTH = hexes(GC.cloth), HEN = hexes(GC.chicken), AWN = hexes(GC.awning);
   const pick = <T>(arr: readonly T[], h: number): T => arr[Math.min(arr.length - 1, Math.floor(h * arr.length))];
   const K = (f: (b: KitBuilder) => void) => { const b = new KitBuilder(); f(b); return b.build(); };
-  const white = new THREE.Color(GC.sheep), dark = new THREE.Color(GC.sheepHead), smoke = new THREE.Color('#f6f8fc');
+  const white = new THREE.Color(GC.sheep), dark = new THREE.Color(GC.sheepHead), smoke = new THREE.Color('#e4e8f4');
   const kit = {
     // nose towards +z
     hen: K(b => {
@@ -118,7 +118,7 @@ export function buildLife(parent: THREE.Object3D, env: LifeEnv) {
       b.add(GEO.octa, 2, [0, 0.12, 0.08], [0.07, 0.08, 0.07]);
       b.add(GEO.tetra, C.gold, [0, 0.11, 0.13], [0.04, 0.03, 0.06]);
     }),
-    puff: K(b => { b.add(GEO.octa, smoke, [0, 0, 0], [0.26, 0.24, 0.26], [0.3, 0.4, 0]); }),
+    puff: K(b => { b.add(low ? GEO.octa : GEO.ico, smoke, [0, 0, 0], [0.24, 0.2, 0.24], [0.3, 0.4, 0]); }),
     post: K(b => { b.add(GEO.cyl3, C.woodDark, [0, 0.17, 0], [0.05, 0.34, 0.05]); }),
     // a hanging cloth 0.1 wide: the top edge (y = 0) holds on the line
     cloth: K(b => { b.add(GEO.box, 1, [0, -0.08, 0], [0.1, 0.16, 0.012]); }),
@@ -148,8 +148,8 @@ export function buildLife(parent: THREE.Object3D, env: LifeEnv) {
     const at = (lx: number, lz: number) => [h.x + lx * c + lz * s, h.z - lx * s + lz * c] as const;
     const y = heightY(t, h.x, h.z), a = acc(h.x, h.z);
     const r1 = H(i, 1201), r2 = H(i, 1202), r3 = H(i, 1203);
-    if (r1 < 0.17 * dens) { // smoke: the puffs follow each other up
-      const [x, z] = at(h.w * 0.2, -h.d * 0.12), top = y + h.h * 1.5 + 0.02, np = low ? 2 : 3;
+    if (r1 < 0.13 * dens) { // smoke: the puffs follow each other up
+      const [x, z] = at(h.w * 0.2, -h.d * 0.12), top = y + h.h * 1.5 + 0.02, np = 2;
       for (let k = 0; k < np; k++) add(a, kit.puff, x, top, z, K_SMOKE, r2 + k / np, 0.55 + r3 * 0.25, 0.16 + r3 * 0.06, { s: 0.8 + r2 * 0.4 });
       nSmoke++;
     }
@@ -225,6 +225,22 @@ export function buildLife(parent: THREE.Object3D, env: LifeEnv) {
       const drake = k % 3 === 0;
       add(acc(x, z), kit.duck, x, heightY(t, x, z) + 0.015, z, K_WALK, H(bi, 1820 + k) * 6.28, 0.25 + H(bi, 1830 + k) * 0.5, 0.12 * (k % 2 ? 1 : -1), { c1: drake ? white : HEN[1], c2: drake ? C.fir[0] : HEN[1], s: 1.1 });
       nDuck++;
+    }
+  });
+
+  // ... and a few along the banks
+  env.shore.forEach((e, i) => {
+    if (H(i, 1901) > 0.05 * dens) return;
+    const mx = (e.ax + e.bx) / 2, mz = (e.az + e.bz) / 2, dx = e.bx - e.ax, dz = e.bz - e.az, L = Math.hypot(dx, dz) || 1;
+    for (const sd of [-1, 1]) {
+      const cx = mx - (dz / L) * sd * 0.7, cz = mz + (dx / L) * sd * 0.7;
+      if (tinClass(tin, cx, cz) !== LC.WATER || tinClass(tin, cx - (dz / L) * sd * 0.6, cz + (dx / L) * sd * 0.6) !== LC.WATER) continue;
+      for (let k = 0; k < 3; k++) {
+        const drake = k === 0;
+        add(acc(cx, cz), kit.duck, cx, heightY(t, cx, cz) + 0.015, cz, K_WALK, H(i, 1910 + k) * 6.28 + k * 0.5, 0.2 + k * 0.12, 0.11 * (i % 2 ? 1 : -1), { c1: drake ? white : HEN[1], c2: drake ? C.fir[0] : HEN[1], s: 1.1 });
+        nDuck++;
+      }
+      break;
     }
   });
 

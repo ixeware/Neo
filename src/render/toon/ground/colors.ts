@@ -2,7 +2,7 @@
 // folder; the merger may move them into toon/palette.ts). sRGB hex.
 export const GC = {
   /** Village ground under and between the yards (two tones in big patches). */
-  lawn: ['#84d45c', '#77cc52'],
+  lawn: ['#84d45c', '#77cc52'], tuft: '#63bf47',
   /** Garden lawn behind a house; vegetable plot soil and its green rows. */
   garden: '#62c04a', soil: '#b98a5e', plotGreen: '#58b848',
   /** Plazas, paths, house yards; the rim line just inside their edge and its half width (world units). */

@@ -71,7 +71,7 @@ export function groundBuild(skip: (x: number, z: number) => boolean) {
   mask.flush();
   if (G.parent) {
     const sc = buildScatter(G.parent, { t, tin, low: G.low, houses, plazas, shore, skip });
-    buildLife(G.parent, { t, tin, low: G.low, houses, plazas, free: sc.free });
+    buildLife(G.parent, { t, tin, low: G.low, houses, plazas, shore, free: sc.free });
   }
   console.info(`ground: ${houses.length} yards, ${plazas.length} plazas, ${shore.length} shore edges, ${(performance.now() - t0).toFixed(0)} ms`);
 }

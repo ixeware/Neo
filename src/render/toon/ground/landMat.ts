@@ -30,6 +30,12 @@ export function toonLandMaterial(mask: GroundMask, hq: THREE.Vector4[]): THREE.M
 		if ( vFld.z < -0.5 ) {
 			vec2 q = floor( vWxz / 7.0 );
 			base = mix( ${v3(GC.lawn[0])}, ${v3(GC.lawn[1])}, step( 0.5, fract( sin( dot( q, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 ) ) );
+			// tufts of darker grass and a few meadow flowers (gone before they are under a pixel)
+			vec2 tq = vWxz / 0.3, ti = floor( tq );
+			float th = gHash( ti + 3.7 ), near = 1.0 - smoothstep( 0.035, 0.07, px );
+			vec2 to = tq - ti - 0.5 - ( vec2( th, fract( th * 5.31 ) ) - 0.5 ) * 0.6;
+			float tuft = ( 1.0 - smoothstep( 0.16, 0.16 + px / 0.3, length( to * vec2( 1.0, 2.2 ) ) ) ) * step( 0.55, th ) * near;
+			base = mix( base, th > 0.93 ? ${v3(GC.flower[1])} : th > 0.88 ? ${v3(GC.flower[3])} : ${v3(GC.tuft)}, tuft * ( th > 0.88 ? step( length( to ), 0.11 ) : 0.8 ) );
 		}
 		// fields: furrow rows, then a dirt strip along the parcel border
 		if ( vFld.z > 0.0 ) {

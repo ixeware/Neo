@@ -19,7 +19,7 @@ export function toonRoadMaterial(kind: RoadKind, offset: number): THREE.MeshLamb
 		rc = mix( rc, ${v3(trim)}, smoothstep( 0.8 - fv * 2.0, 0.8, e ) * mix( 0.45, 1.0, lod ) );`
     : kind === 'street' ? /* glsl */`
 		vec3 rc = ${v3(C.street)};
-		rc = mix( rc, ${v3(trim)}, smoothstep( 0.72 - fv * 2.0, 0.72, e ) * 0.62 );`
+		rc = mix( rc, ${v3(trim)}, smoothstep( 0.78 - fv, 0.78, e ) * 0.5 * lod );`
       : /* glsl */`
 		vec3 rc = ${v3(C.track)};
 		rc = mix( rc, ${v3(grass)}, ( 1.0 - smoothstep( 0.3, 0.3 + fv * 2.0, e ) ) * 0.7 * lod );

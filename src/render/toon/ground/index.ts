@@ -15,6 +15,7 @@ import { paintGround, shoreEdges, hqSpots, HQ_ROT, type HouseSpot } from './pain
 import { HQ } from '../../../sim/defs';
 import { BASE } from '../../../sim/bdefs';
 import { buildScatter, updateScatterLod } from './scatter';
+import { buildLife, updateLife } from './life';
 
 interface Ground {
   t: Terrain; tin: Tin; mask: GroundMask; low: boolean;
@@ -36,8 +37,8 @@ export function groundLand(t: Terrain, tin: Tin, low: boolean): THREE.Material {
 export function groundRoads(parent: THREE.Object3D) { if (G) G.parent = parent; }
 
 /** The village houses as world.ts drew them: read back from its instanced meshes (named 'houses'). */
-function readHouses(parent: THREE.Object3D): HouseSpot[] {
-  const out: HouseSpot[] = [], seen = new Set<number>();
+function readHouses(parent: THREE.Object3D): (HouseSpot & { h: number })[] {
+  const out: (HouseSpot & { h: number })[] = [], seen = new Set<number>();
   const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), e = new THREE.Euler();
   parent.traverse(o => {
     const im = o as THREE.InstancedMesh;
@@ -49,7 +50,7 @@ function readHouses(parent: THREE.Object3D): HouseSpot[] {
       if (seen.has(key)) continue;
       seen.add(key);
       e.setFromQuaternion(q, 'YXZ');
-      out.push({ x: p.x, z: p.z, ry: e.y, w: Math.abs(s.x), d: Math.abs(s.z) });
+      out.push({ x: p.x, z: p.z, ry: e.y, w: Math.abs(s.x), d: Math.abs(s.z), h: Math.abs(s.y) });
     }
   });
   return out;
@@ -68,7 +69,10 @@ export function groundBuild(skip: (x: number, z: number) => boolean) {
   const shore = shoreEdges(tin);
   const plazas = paintGround(mask, t, tin, houses, shore);
   mask.flush();
-  if (G.parent) buildScatter(G.parent, { t, tin, low: G.low, houses, plazas, shore, skip });
+  if (G.parent) {
+    const sc = buildScatter(G.parent, { t, tin, low: G.low, houses, plazas, shore, skip });
+    buildLife(G.parent, { t, tin, low: G.low, houses, plazas, free: sc.free });
+  }
   console.info(`ground: ${houses.length} yards, ${plazas.length} plazas, ${shore.length} shore edges, ${(performance.now() - t0).toFixed(0)} ms`);
 }
 
@@ -76,4 +80,5 @@ export function groundBuild(skip: (x: number, z: number) => boolean) {
 export function groundTick(camera: THREE.Camera) {
   if (!G || !G.built) return;
   updateScatterLod(camera.position, G.low);
+  updateLife(camera.position, G.low);
 }

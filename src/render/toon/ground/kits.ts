@@ -21,7 +21,7 @@ type V3 = [number, number, number];
 const col = (hex: string) => new THREE.Color(hex);
 const WHITE = new THREE.Color(1, 1, 1);
 
-const G = {
+export const G = {
   ico: new THREE.IcosahedronGeometry(0.5, 0),
   octa: new THREE.OctahedronGeometry(0.5, 0),
   tetra: new THREE.TetrahedronGeometry(0.5, 0),
@@ -152,7 +152,7 @@ export function buildKits(low: boolean): Kits {
     bushes: K(b => {
       b.add(G.ico, 1, [0, 0.18, 0], [0.6, 0.46, 0.6], [0.4, 0.3, 0], 1, 0.04);
       b.add(G.ico, 1, [0.36, 0.13, 0.1], [0.44, 0.34, 0.44], [0.1, 1.3, 0], 0.92, 0.04);
-      if (!low) b.add(G.ico, 1, [-0.3, 0.12, 0.2], [0.4, 0.3, 0.4], [0.9, 0.2, 0], 1.08, 0.04);
+      if (!low) b.add(G.octa, 1, [-0.3, 0.1, 0.2], [0.4, 0.34, 0.4], [0.9, 0.2, 0], 1.08, 0.04);
     }),
     // a flower bed: a low green cushion with bright dots
     flowers: K(b => {

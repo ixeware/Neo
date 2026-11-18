@@ -22,7 +22,7 @@ import { hqSpots, ZONE_MAX, type HouseSpot, type Plaza, type ShoreEdge } from '.
 /** LOD classes: 0 trees, 1 mid-size things seen from afar (bushes, bales, boulders), 2 small props. */
 interface Item { kit: Kit; x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c1: THREE.Color; c2: THREE.Color; cls: 0 | 1 | 2 }
 
-interface Chunk { mesh: THREE.Mesh; far: THREE.Mesh | null; farEnds: Uint32Array; x: number; z: number; ends: Uint32Array; n: [number, number, number] }
+interface Chunk { mesh: THREE.Mesh; far: THREE.Mesh | null; farEnds: Uint32Array; /** far mesh: what the main pass draws (0 while it is only the shadow of the near trees) */ farDraw: number; x: number; z: number; ends: Uint32Array; n: [number, number, number] }
 const chunks: Chunk[] = [];
 const CHUNK = 56;
 
@@ -241,7 +241,7 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     const c = Math.cos(h.ry), s = Math.sin(h.ry); // local +x → (c, −s), local +z (street side) → (s, c)
     const at = (lx: number, lz: number) => [h.x + lx * c + lz * s, h.z - lx * s + lz * c] as const;
     const r1 = H(i, 101), r2 = H(i, 202), r3 = H(i, 303), r4 = H(i, 404);
-    if (r1 < 0.34 * dens + 0.04) { // a tree behind the house
+    if (r1 < 0.26 * dens + 0.04) { // a tree behind the house
       const [x, z] = at((r2 - 0.5) * h.w, -h.d / 2 - 0.34 - r3 * 0.2);
       const fruit = r4 < 0.6;
       tryPut(fruit ? K.fruit : r4 < 0.85 ? K.round : K.round2, x, z, 0.22, { cls: 0, ry: r2 * 6, s: fruit ? 0.8 + r3 * 0.3 : 0.62 + r3 * 0.3, c1: fruit ? pick(FRUITLEAF, r2) : pick(LEAF, r3), c2: pick(FRUIT, r3) });
@@ -316,7 +316,7 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     }
     // rocks on steep faces
     if (ny < 0.86 && cls !== LC.BUILT) for (let k = 0, n = count((0.9 - ny) * 0.9, 81); k < n; k++) { const [x, z] = pt(k, 82); tryPut(K.rocks, x, z, 0.22, { cls: 1, ry: H(f, k) * 6, s: 0.8 + H(f, k + 3) * 1.0, c1: pick(BOULDER, H(f, k + 5)), sink: 0.04 }); }
-    const rate = cls === LC.TREE ? 0.1 : cls === LC.GRASS ? 0.006 : cls === LC.WET ? 0.04 : cls === LC.BARE ? 0.002 : 0.004;
+    const rate = cls === LC.TREE ? 0.085 : cls === LC.GRASS ? 0.006 : cls === LC.WET ? 0.04 : cls === LC.BARE ? 0.002 : 0.004;
     for (let k = 0, n = count(rate, 77); k < n; k++) {
       const [cx, cz] = pt(k, 11);
       const forest = cls === LC.TREE;
@@ -329,7 +329,7 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
         const fir = forest && (hM > 560 || (hM > 380 && h < (hM - 380) / 220));
         const sc = (forest ? 0.85 : 0.72) + h2 * 0.5;
         if (fir) put(K.cone, x, z, 0.2, { cls: 0, ry: h * 6.28, s: sc, sy: 1.0 + H(q, f) * 0.3, c1: pick(FIR, h) });
-        else put(h2 > 0.7 ? K.round2 : K.round, x, z, 0.2, { cls: 0, ry: h * 6.28, s: sc, sy: 0.9 + H(q + 3, f) * 0.3, c1: pick(LEAF, H(f * 3 + q, 5)) });
+        else put(h2 > 0.84 ? K.round2 : K.round, x, z, 0.2, { cls: 0, ry: h * 6.28, s: sc, sy: 0.9 + H(q + 3, f) * 0.3, c1: pick(LEAF, H(f * 3 + q, 5)) });
       }
     }
     // bushes: forest edges and meadows; flowers on the meadows
@@ -378,7 +378,7 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     g.computeBoundingSphere();
     const mesh = new THREE.Mesh(g, material);
     mesh.name = 'ground-scatter';
-    mesh.castShadow = STYLE.shadows; mesh.receiveShadow = true;
+    mesh.receiveShadow = true; // its shadow is cast by the far stand-in (a quarter of the triangles): see below
     mesh.matrixAutoUpdate = false;
     parent.add(mesh);
     // the far stand-in: the chunk's trees as gems and pyramids, in the same shuffled order
@@ -412,7 +412,14 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
       parent.add(far);
       farTris += fi / 3;
     }
-    chunks.push({ mesh, far, farEnds, x: cx / list.length, z: cz / list.length, ends, n });
+    const chunk: Chunk = { mesh, far, farEnds, farDraw: 0, x: cx / list.length, z: cz / list.length, ends, n };
+    if (far && STYLE.shadows) {
+      // desktop: near by, the stand-ins are drawn into the shadow map only (the trees' shadows at 8 triangles each)
+      const fg = far.geometry, all = fg.index!.count;
+      far.onBeforeShadow = () => { fg.setDrawRange(0, all); };
+      far.onBeforeRender = () => { fg.setDrawRange(0, chunk.farDraw); };
+    }
+    chunks.push(chunk);
     for (let q = 0; q < 3; q++) total[q] += n[q];
     tris += ni / 3;
   }
@@ -424,8 +431,8 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
  * LOD distances (camera to chunk): small props fade c0 → c1, mid-size things b0 → b1; beyond `far` the trees are
  * drawn as their stand-ins, which thin out from k (never below `min`).
  */
-const LOD = { c0: 60, c1: 115, b0: 110, b1: 185, far: 165, k: 260, min: 0.45 };
-const LOD_LOW = { c0: 45, c1: 90, b0: 85, b1: 125, far: 105, k: 150, min: 0.3 };
+const LOD = { c0: 55, c1: 105, b0: 105, b1: 175, far: 165, k: 260, min: 0.45, shadow: 150 };
+const LOD_LOW = { c0: 45, c1: 90, b0: 85, b1: 125, far: 105, k: 150, min: 0.3, shadow: 0 };
 
 /** Set every chunk's draw range for a camera position. */
 export function updateScatterLod(cam: { x: number; y: number; z: number }, low: boolean) {
@@ -451,8 +458,15 @@ export function updateScatterLod(cam: { x: number; y: number; z: number }, low: 
     if (c.far) {
       const f = isFar ? Math.max(L.min, Math.min(1, L.k / d)) : 0;
       const fn = Math.floor(c.farEnds.length * f), fc = fn > 0 ? c.farEnds[fn - 1] : 0;
-      if (c.far.visible !== fc > 0) c.far.visible = fc > 0;
-      if (c.far.geometry.drawRange.count !== fc) c.far.geometry.setDrawRange(0, fc);
+      c.farDraw = fc;
+      if (STYLE.shadows) { // also the near trees' shadow caster (its hooks set the draw range per pass)
+        const on = !isFar && d < L.shadow;
+        if (c.far.castShadow !== on) c.far.castShadow = on;
+        if (c.far.visible !== (on || fc > 0)) c.far.visible = on || fc > 0;
+      } else {
+        if (c.far.visible !== fc > 0) c.far.visible = fc > 0;
+        if (c.far.geometry.drawRange.count !== fc) c.far.geometry.setDrawRange(0, fc);
+      }
     }
   }
 }

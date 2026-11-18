@@ -136,6 +136,9 @@
   /* units selected: the command bar needs the whole row between the bank and the minimap, so the button steps
      back (the count chip lets go of the selection; B and the open palette's own ✗ still work) */
   #hud.has-sel .bank > .bank-build { display: none; }
+  /* …and a long income line (a debuff's note after the number) is cut short instead of widening the slip: the
+     row would not hold the command bar, it would wrap and reach an open сход sheet */
+  #hud.has-sel .bank .inc { width: 0; min-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bld { flex: 1 1 auto; align-self: flex-end; }
   .bpal { display: flex; align-items: flex-end; gap: 6px; }
   .bfams { flex: none; flex-direction: column; }

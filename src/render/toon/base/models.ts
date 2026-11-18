@@ -71,9 +71,9 @@ function tower(c: Ctx, hh: number, w = 0.66): number {
   k.bev(C.marble, 0, 0.06, 0, w + 1.1, 0.12, w + 1.1, 0.16);
   k.bev(C.gold, 0, 0.15, 0, w + 0.86, 0.06, w + 0.86, 0.16);
   k.cyl(T.main, 0, 0.29, 0, w + 0.62, 0.22, 8, 0, O8);
-  k.tap(C.marble, 0, 0.4 + (hh - 0.4) / 2, 0, w + 0.42, w + 0.1, hh - 0.4, 8, 0, O8);
+  k.tube(C.marble, 0, 0.4 + (hh - 0.4) / 2, 0, w + 0.42, w + 0.1, hh - 0.4, 8, O8);
   k.cyl(C.gold, 0, 0.4 + (hh - 0.4) * 0.62, 0, w + 0.3, 0.1, 8, 0, O8);
-  k.tap(C.metal, 0, hh + 0.09, 0, w + 0.16, w + 0.84, 0.18, 8, 0, O8);
+  k.tube(C.metal, 0, hh + 0.09, 0, w + 0.16, w + 0.84, 0.18, 8, O8);
   k.cyl(C.metal, 0, hh + 0.245, 0, w + 0.9, 0.13, 8, 0, O8);
   for (let a = 0; a < 8; a += 2) { const an = a * PI / 4 + PI / 4, r = w / 2 + 0.34; k.box(C.gold, Math.sin(an) * r, hh + 0.4, Math.cos(an) * r, 0.2, 0.18, 0.2, 0, an, 0); }
   return hh + 0.31;
@@ -155,10 +155,10 @@ const MODELS: Record<string, Fn> = {
     h.tbox(BOTTLE.white, 0, 0.65, 0, 0.6, 0.44, 0.3, 0.3, 0.2);
     h.cyl(BOTTLE.cap, 0, 1.0, 0, 0.38, 0.3, 8);
     h.box(BOTTLE.capD, 0, 1.17, 0.06, 0.3, 0.06, 0.2);
-    if (lv === 3) { h.cyl(C.gold, 0, 0.84, 0, 0.44, 0.09, 8); h.cyl(C.gold, 0, -0.44, 0, 0.6, 0.09, 8, 0, 0, 0, 0.44); }
-    if (lv >= 2) { h.ball(C.white, 0.1, 1.3, 0.04, 0.26); h.ball(C.white, -0.12, 1.42, -0.02, 0.2); h.ball(C.white, 0.02, 1.55, 0.08, 0.14); }
+    if (lv === 3) h.cyl(C.gold, 0, 0.84, 0, 0.44, 0.09, 8);
+    if (lv >= 2) { h.ball(C.white, 0.1, 1.3, 0.04, 0.26); h.ball(C.white, -0.1, 1.46, 0, 0.18); }
     h.pop();
-    if (lv >= 2) for (let i = 0; i < lv - 1; i++) { const x = -0.52 + i * 0.3; k.bev(BOTTLE.white, x, y + 0.2, 0.52, 0.2, 0.3, 0.16, 0.25); k.box(BOTTLE.cap, x, y + 0.4, 0.52, 0.12, 0.1, 0.12); }
+    if (lv >= 2) for (let i = 0; i < lv - 1; i++) { const x = -0.52 + i * 0.3; k.box(BOTTLE.white, x, y + 0.2, 0.52, 0.2, 0.3, 0.16); k.box(BOTTLE.cap, x, y + 0.4, 0.52, 0.12, 0.1, 0.12); }
     flag(k, T, 0.6 + lv * 0.05, y, -0.6 - lv * 0.05, 0.7);
     studs(c, 0.26, 0.74 + lv * 0.04);
     return [0, y, 0];
@@ -174,8 +174,8 @@ const MODELS: Record<string, Fn> = {
     for (const z of [-0.58, 0.3]) h.cyl(lv === 3 ? C.gold : C.metal, 0, 0, z, 0.76, 0.07, 8, H, 0, O8);
     h.tap(C.metalDark, 0, 0, 0.56, 0.36, 0.17, 0.48, 8, H);
     h.cyl(lv === 3 ? C.gold : C.metal, 0, 0, 0.82, 0.24, 0.08, 8, H);
-    h.ball(C.white, 0, -0.06, 0.93, 0.22); h.ball(C.white, 0, -0.26, 0.95, 0.15);
-    if (lv >= 2) { h.cyl(C.white, 0, 0.5, -0.2, 0.4, 0.44, 8); h.cyl(C.dome, 0, 0.5, -0.2, 0.43, 0.2, 8); h.cyl(C.metal, 0, 0.74, -0.2, 0.42, 0.05, 8); }
+    h.ball(C.white, 0, -0.08, 0.93, 0.22);
+    if (lv >= 2) { h.cyl(C.white, 0, 0.5, -0.2, 0.4, 0.44, 6); h.cyl(C.dome, 0, 0.5, -0.2, 0.43, 0.2, 6); }
     h.pop();
     k.cyl(C.white, 0.38, y + 0.02, 0.4, 0.42, 0.04, 8); // a puddle
     flag(k, T, -0.5 - lv * 0.04, y, -0.5 - lv * 0.04, 0.8);
@@ -214,13 +214,13 @@ const MODELS: Record<string, Fn> = {
     h.cyl(C.metal, 0, 1.32, 0, 0.11, 1.0, 6, 0, 0, H);
     for (const s of [-1, 1]) {
       h.cyl(C.cloth, s * 0.42, 1.32, 0, 0.5, 0.16, 8, 0, 0, H);
-      if (lv >= 2) h.cyl(lv === 3 ? C.gold : C.danger, s * 0.56, 1.32, 0, 0.36, 0.12, 8, 0, 0, H);
+      if (lv >= 2) h.cyl(lv === 3 ? C.gold : C.danger, s * 0.56, 1.32, 0, 0.36, 0.12, 6, 0, 0, H);
     }
     h.pop();
     for (const s of [-1, 1]) h.beam(C.metal, s * 0.42, 0.02, 0.52, s * 0.2, 0.78, 0.26, 0.1);
     h.pop();
     // spare iron on the platform
-    for (let i = 0; i < lv; i++) { const x = -0.56 + i * 0.26; k.cyl(C.cloth, x, y + 0.2, 0.62, 0.4, 0.12, 8, H); }
+    for (let i = 0; i < lv; i++) { const x = -0.56 + i * 0.26; k.cyl(C.cloth, x, y + 0.2, 0.62, 0.4, 0.12, 6, H); }
     flag(k, T, 0.66 + lv * 0.05, y, -0.66 - lv * 0.05, 0.7);
     studs(c, 0.26, 0.8 + lv * 0.04);
     return [0, y, 0];
@@ -489,12 +489,12 @@ const MODELS: Record<string, Fn> = {
     for (let i = 0; i < n; i++) {
       const [x, z] = P(i), [x1, z1] = P(i + 1);
       k.box(post, x, 0.36, z, 0.13, 0.66, 0.13, 0, (i / n) * PI * 2 + O8, 0);
-      if (lv === 3) k.box(C.gold, x, 0.72, z, 0.17, 0.08, 0.17, 0, (i / n) * PI * 2 + O8, 0);
+      if (lv === 3 && i % 2 === 0) k.box(C.gold, x, 0.72, z, 0.17, 0.08, 0.17, 0, (i / n) * PI * 2 + O8, 0);
       if (i === n - 1) { k.beam(T.main, x, 0.38, z, x1, 0.38, z1, 0.4, 0.07); continue; } // the gate, towards +z
       k.beam(rail, x, 0.46, z, x1, 0.46, z1, 0.22, 0.07);
     }
     const flock: number[][] = [[-0.26, 0.2, 0.4], [0.34, -0.1, -0.9], [0.06, 0.42, 2.4], [-0.3, -0.36, 1.5], [0.36, 0.34, 0.2]];
-    for (let i = 0; i < 2 + lv; i++) sheep(k, flock[i][0], flock[i][1], flock[i][2], i === 0 ? 1.1 : 0.94, i === 0 && lv === 3 ? C.gold : i === 0 ? C.wall[1] : undefined);
+    for (let i = 0; i < Math.min(4, 2 + lv); i++) sheep(k, flock[i][0], flock[i][1], flock[i][2], i === 0 ? 1.1 : 0.94, i === 0 && lv === 3 ? C.gold : i === 0 ? C.wall[1] : undefined);
     k.cyl(C.crop[0], 0.04, 0.24, -0.5, 0.4, 0.4, 8, 0, 0.3, H);
     if (lv >= 2) { // a lean-to at the back
       for (const s of [-1, 1]) k.box(C.woodDark, s * 0.44, 0.52, -r + 0.14, 0.1, 0.94, 0.1);
@@ -758,7 +758,7 @@ function build(key: string, level: number, side: 0 | 1): Built | null {
   if (!b) {
     const k = new Kit(), h = new Kit();
     const pivot = fn({ k, h, lv, T: TEAM[side], M: mats(lv), g: 1 + (lv - 1) * 0.13 }) ?? [0, 0, 0];
-    k.dropBottoms();
+    k.dropBottoms(); h.dropBottoms(0.02);
     const body = k.build(), head = h.empty ? null : h.build();
     b = { body, head, pivot, h: Math.max(body.boundingBox!.max.y, head ? head.boundingBox!.max.y + pivot[1] : 0), tris: k.tris + h.tris };
     built.set(ck, b);

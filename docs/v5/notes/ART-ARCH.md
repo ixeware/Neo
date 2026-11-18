@@ -55,8 +55,9 @@ Classic: 14 of 20 fixed views are pixel-identical to the before set; the other s
 models themselves (the AI's прорабская: they serve both styles by design) and by a few particle pixels
 (three's object UUIDs draw from the seeded `Math.random`, and baseView now creates more objects).
 
-Known overs of the per-object caps (ART.md §6): level-3 Себозол / Сгущёнкомёт / Гантелемёт / Антидрон /
-Загон / Прорабская are 610–730 triangles, the two superweapons 300–1000 (one per side); traps 90–190.
+Per-object caps (ART.md §6): every tower, economy and support model is at or under 600 triangles per level
+(226–600) except the level-3 Прорабская (732, one per side); the two superweapons are 294–922 (one per
+side, 3×3 cells); traps are 92–192 (cap 150: Яма and the level-3 Грабли / Лежачий are over by up to 42).
 
 
 ## Next (priority order)
@@ -64,7 +65,7 @@ Known overs of the per-object caps (ART.md §6): level-3 Себозол / Сгу
 1. Mosques, Soviet blocks and the city fill of Грозный in palette colours (`city.ts`, `grozny.ts`: the blocks
    are vertex-coloured kits — recolour through `C.panel` / `C.balcony` / `C.roof`), the landmark set, stops,
    capture-place markers (`placeMarks.ts`), village props per plot (ART.md §4).
-2. Trim the level-3 towers under 600 triangles; a merged body + head for towers that have no target.
+2. A merged body + head for towers that have no target (a tower is two draw calls now).
 3. Bigger thumbnails need a CSS rule in `src/ui/build.css` (the merger's file): `.bi` is 46 px (36 on phones).
 
 ## Decisions

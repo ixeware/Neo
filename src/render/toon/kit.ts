@@ -80,6 +80,11 @@ export class Kit {
     const k = r2(d1 / d0);
     return this.put(shape(`tp${n}|${k}`, () => new THREE.CylinderGeometry(0.5 * k, 0.5, 1, n)), c, x, y, z, d0, h, d0, rx, ry, rz);
   }
+  /** An upright tapered tube without caps (for parts stacked inside others): bottom diameter d0, top d1. */
+  tube(c: Col, x: number, y: number, z: number, d0: number, d1: number, h: number, n = 8, ry = 0) {
+    const k = r2(d1 / d0);
+    return this.put(shape(`tu${n}|${k}`, () => new THREE.CylinderGeometry(0.5 * k, 0.5, 1, n, 1, true)), c, x, y, z, d0, h, d0, 0, ry, 0);
+  }
   cone(c: Col, x: number, y: number, z: number, d: number, h: number, n = 6, rx = 0, ry = 0, rz = 0) { return this.put(shape(`co${n}`, () => new THREE.ConeGeometry(0.5, 1, n)), c, x, y, z, d, h, d, rx, ry, rz); }
   /** Faceted ball centred at (x, y, z): diameter d, squashed by sy / sz. */
   ball(c: Col, x: number, y: number, z: number, d: number, det = 0, sy = 1, sz = 1) { return this.put(shape(`ic${det}`, () => new THREE.IcosahedronGeometry(0.5, det)), c, x, y, z, d, d * sy, d * sz); }

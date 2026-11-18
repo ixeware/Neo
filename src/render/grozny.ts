@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { Builder, PAL } from './models';
 import { body, strokeText, type V3, type Face } from './props';
+import { TOON, C } from './style';
 
 type Col = THREE.Color;
 const col = (s: string) => new THREE.Color(s);
@@ -507,9 +508,10 @@ export const CITY_FLOORS = [5, 9, 12, 16] as const;
 /** Storey height of the fill blocks (village houses are ~0.24 per storey). */
 export const CITY_FH = 0.26;
 const CITY_FOOT: [number, number][] = [[3.0, 0.95], [3.4, 1.05], [2.6, 1.25], [1.6, 1.5]];
-const CITY_WALL = ['#e6d4b0', '#efe9dd', '#d9b98c', '#c77a5c', '#e8bfa0', '#d6d1c6', '#ead9bd'].map(col);
-const CITY_ACCENT = ['#b8573e', '#3f8f8a', '#3e6fb0', '#d39b3a', '#8e3b3b', '#f3efe6', '#6f8f3f'].map(col);
-const CITY_WIN = [col('#36424d'), col('#3d5a73'), col('#2f3a44')];
+// the new style paints the blocks from the palette (draw them with a native material: city.ts does)
+const CITY_WALL = TOON ? [C.wall[1], C.panel[0], C.wall[3], C.wall[2], C.wall[5], C.panel[1], C.wall[0]] : ['#e6d4b0', '#efe9dd', '#d9b98c', '#c77a5c', '#e8bfa0', '#d6d1c6', '#ead9bd'].map(col);
+const CITY_ACCENT = TOON ? [C.roof[0], C.roof[5], C.roof[2], C.gold, C.roof[1], C.trim, C.roof[6]] : ['#b8573e', '#3f8f8a', '#3e6fb0', '#d39b3a', '#8e3b3b', '#f3efe6', '#6f8f3f'].map(col);
+const CITY_WIN = TOON ? [C.glass, C.glass, C.glass] : [col('#36424d'), col('#3d5a73'), col('#2f3a44')];
 
 /**
  * Ground extent [width x, depth z] of a city block kind (0: 5 эт., 1: 9 эт., 2: 12 эт., 3: 16 эт.), centred on
@@ -548,6 +550,7 @@ export function cityBlock(kind: number, seed: number): THREE.BufferGeometry {
   const b = new Builder();
   b.box(wall, [0, h / 2, 0], [w, h, d]);
   b.box(trim, [0, h + 0.06, 0], [w + 0.05, 0.12, d + 0.05]);
+  if (TOON) b.box(C.roof[4], [0, h + 0.125, 0], [w - 0.08, 0.01, d - 0.08]); // a dark roof inside the parapet
   b.box(lift(wall, 0.75), [w * (r() > 0.5 ? 0.22 : -0.22), h + 0.2, -d * 0.1], [Math.min(0.5, w * 0.25), 0.28, d * 0.45]);
   const faces: Face[] = kind === 3 ? ['+z', '-z', '+x', '-x'] : ['+z', '-z'];
   const band = fh * 0.42;

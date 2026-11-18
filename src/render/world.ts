@@ -16,7 +16,7 @@ import { landmarkSpots, fudziSpot } from './landmarks'; // v3 real places (decor
 import { cityPlan, cityOccupied, cityQ, cityKeepOut, siteRect, inRect, CITY_SITES, CITY_HOUSES_FROM } from './city'; // v4 Грозный
 
 const WALLS = TOON ? [...C.wall, C.wall[0], C.wall[4]] : ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
-const ROOFS = TOON ? [...C.roof] : ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
+const ROOFS = TOON ? [...C.roof, C.roof[0], C.roof[6], C.roof[1]] : ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
 
 interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color; c2?: THREE.Color; v?: number }
 

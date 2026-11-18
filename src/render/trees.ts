@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { LC, EXAG, heightY, type Terrain } from '../world/terrain';
 import { Builder } from './models';
 import { hash2, tinClass, type Tin } from './lowpoly';
+import { TOON } from './style';
+import { groundBuild } from './toon/ground';
 
 export interface TreeSpot { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color }
 
@@ -31,6 +33,8 @@ export function treeGeometries() {
  */
 export function treeSpots(t: Terrain, tin: Tin, hq: boolean, skip: (x: number, z: number) => boolean) {
   const broad: TreeSpot[] = [], fir: TreeSpot[] = [];
+  // toon: the ground track plants its own trees (and everything else) now that the villages stand
+  if (TOON) { groundBuild(skip); return { broad, fir }; }
   const dens = hq ? 1 : 0.5;
   const T = tin.tri, X = tin.x, Z = tin.z, Y = tin.y;
   for (let f = 0; f < tin.nt; f++) {

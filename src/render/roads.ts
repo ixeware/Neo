@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { ROADS_META, ROADS_B64, HOUSES_B64 } from '../data/roads';
 import { LC, BRIDGES, heightY, lcAt, type Terrain } from '../world/terrain';
 import { tinClass, type Tin } from './lowpoly';
-import { ground } from './style';
+import { TOON, ground } from './style';
+import { groundRoads } from './toon/ground';
 
 /** Road classes, in the order tools/bake_roads.py writes them. */
 export const RC = { MAIN: 0, ROAD: 1, STREET: 2, TRACK: 3, RAIL: 4, RIVER: 5, STREAM: 6 } as const;
@@ -428,6 +429,7 @@ export function buildRoads(parent: THREE.Object3D, t: Terrain, opts: { lowPower:
   const t0 = performance.now();
   const n = roadNet();
   const low = opts.lowPower;
+  if (TOON) groundRoads(parent); // the ground track builds into the same group later (toon/ground/index.ts)
   const cx: Ctx = { t, tin: opts.tin, W: t.W, H: t.H, Z0: t.z0, step: low ? 0.7 : 0.5, tolH: low ? 0.03 : 0.014, keep: opts.keep ?? [] };
   const group = new THREE.Group();
   group.name = 'roads';

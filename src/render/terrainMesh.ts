@@ -3,8 +3,9 @@
 import * as THREE from 'three';
 import { LC, type Terrain } from '../world/terrain';
 import type { Tin } from './lowpoly';
-import { TOON, HEX, ground, native } from './style';
+import { TOON, STYLE, HEX, ground, native } from './style';
 import { toonWater, toonWaterShore } from './toon/water';
+import { groundLand, groundTick } from './toon/ground';
 
 export { hash2 } from './lowpoly';
 
@@ -32,13 +33,26 @@ function faceGeometry(tin: Tin, keep: (cls: number) => boolean, lift = 0): THREE
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  if (TOON && tin.fld && tin.edge && lift === 0) geo.setAttribute('fld', fieldAttribute(tin, keep, n)); // field rows, parcel borders (toon/ground/landMat.ts)
   geo.computeBoundingSphere();
   return geo;
 }
 
+/** Toon: per vertex (row direction / period: x, z; row strength or −1 on built-up ground; distance to the parcel border). */
+function fieldAttribute(tin: Tin, keep: (cls: number) => boolean, n: number): THREE.BufferAttribute {
+  const out = new Float32Array(n * 12), F = tin.fld!, E = tin.edge!;
+  let o = 0;
+  for (let f = 0; f < tin.nt; f++) {
+    if (!keep(tin.cls[f])) continue;
+    for (let k = 0; k < 3; k++, o += 4) { out[o] = F[f * 4]; out[o + 1] = F[f * 4 + 1]; out[o + 2] = F[f * 4 + 2]; out[o + 3] = E[f * 3 + k]; }
+  }
+  return new THREE.BufferAttribute(out, 4);
+}
+
 export function terrainMesh(t: Terrain, tin: Tin): THREE.Group {
   const group = new THREE.Group();
-  const land = new THREE.Mesh(faceGeometry(tin, c => c !== LC.WATER), ground(native(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }))));
+  const land = new THREE.Mesh(faceGeometry(tin, c => c !== LC.WATER), TOON ? groundLand(t, tin, STYLE.tier === 'phone') : ground(native(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }))));
+  if (TOON) land.onBeforeRender = (_r, _s, camera) => groundTick(camera); // the ground track's frame tick
   land.receiveShadow = true;
   land.name = 'terrain';
   group.add(land);

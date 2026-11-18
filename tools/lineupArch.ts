@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { BASE_KEYS, baseModel, baseModelInfo, wallKit } from '../src/render/toon/base/models';
 import { TEAM, mat } from '../src/render/style';
+import { HqBuilding } from '../src/render/world';
 
 export interface LineupApi {
   scene: THREE.Scene;
@@ -104,8 +105,20 @@ export function archView(view: string, q: URLSearchParams, api: LineupApi): Line
     api.unit(0, 0, -4, 2.4, 0.4, false);
     return { pitch: Number(q.get('pitch') ?? 0.5), tight: 0.97 };
   }
+  if (view === 'hq') {
+    // the two high-rises: full height, and after losing floors
+    const one = (s: 0 | 1, floors: number, x: number, z: number, ry: number) => {
+      const h = new HqBuilding(s, 5); h.setFloors(floors, false);
+      api.addObj(h.group, x, z, ry);
+      api.labels.push({ text: s === 0 ? `высотка Атагов · ${floors} эт.` : `пятиэтажка Курчалоя · ${floors} эт.`, sub: '', at: new THREE.Vector3(x, floors * h.fh + 2.4, z), side: s });
+    };
+    const ry = Number(q.get('ry') ?? 0.5);
+    one(0, 3, -6.5, 3.5, ry); one(0, 4, -6.5, -4, ry); one(1, 5, 4.5, 3.5, -ry * 0.6); one(1, 2, 4.5, -4, -ry * 0.6);
+    api.unit(0, 0, -2.6, 5.6, 0.4, false); api.unit(6, 1, 10, 5.6, -0.4, false);
+    return { pitch: Number(q.get('pitch') ?? 0.5), tight: 0.97 };
+  }
   return null;
 }
 /** Nav links of this module. */
-export const ARCH_NAV: [string, string][] = [['base', 'база: все'], ['base&side=1', 'база: Курчалой'], ['base1&k=rogatka', 'база крупно'], ['basegame', 'база в игре'], ['basewall', 'заборы']];
+export const ARCH_NAV: [string, string][] = [['base', 'база: все'], ['base&side=1', 'база: Курчалой'], ['base1&k=rogatka', 'база крупно'], ['basegame', 'база в игре'], ['basewall', 'заборы'], ['hq', 'высотки']];
 export const ARCH_KEYS = BASE_KEYS;

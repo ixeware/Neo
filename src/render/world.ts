@@ -8,6 +8,8 @@ import { roadNet, roadClearance, ROAD_HALF, RC, ALL_MASK, type KeepOut } from '.
 import { Builder, PAL, houseGeometries, facadeTexture } from './models';
 import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
+import { TOON, C, TEAM, mat, groundShadow } from './style';
+import { hqFloorGeo, hqRoofGeo, hqGroundGeo } from './toon/arch/highrise';
 import type { Pt } from '../sim/sim';
 import { landmarkSpots, fudziSpot } from './landmarks'; // v3 real places (decor.ts builds them)
 import { cityPlan, cityOccupied, cityQ, cityKeepOut, siteRect, inRect, CITY_SITES, CITY_HOUSES_FROM } from './city'; // v4 Грозный
@@ -599,8 +601,9 @@ export class HqBuilding {
   floors: THREE.Group[] = [];
   ghost?: THREE.LineSegments;
   roof: THREE.Group;
-  flag: THREE.Mesh;
+  flag!: THREE.Mesh;
   private dust: { t: number; m: THREE.Mesh }[] = [];
+  private shadow: THREE.Mesh | null = null;
   private shake = 0;
   readonly fh: number; readonly len: number; readonly dep: number;
   private mats: THREE.Material[];
@@ -612,12 +615,13 @@ export class HqBuilding {
     this.dep = side === 0 ? 3.0 : 2.2;
     // front / back: brick — the whole front once, stairwell over the one entrance; panel — one section
     // per entrance (4), stairwell over each canopy. Ends: three windows / the blind panel wall.
+    this.roof = new THREE.Group();
+    if (TOON) { this.mats = []; this.toonParts(); return; } // the new style: modelled floors, roof and entrances (toon/arch/highrise.ts)
     const tex = facadeTexture(side === 0 ? 'brick' : 'panel', side, 'long');
     tex.repeat.set(side === 0 ? 1 : 4, 1);
     const end = facadeTexture(side === 0 ? 'brick' : 'panel', side, 'end');
     const plain = new THREE.MeshLambertMaterial({ color: side === 0 ? '#9b5236' : '#d9d3c5' });
     this.mats = [new THREE.MeshLambertMaterial({ map: end }), new THREE.MeshLambertMaterial({ map: end }), plain, plain, new THREE.MeshLambertMaterial({ map: tex }), new THREE.MeshLambertMaterial({ map: tex })];
-    this.roof = new THREE.Group();
     const rb = new Builder();
     rb.box(new THREE.Color('#5c5a55'), [0, 0.06, 0], [this.len + 0.12, 0.12, this.dep + 0.12]);
     rb.box(new THREE.Color('#8d8a83'), [this.len * 0.3, 0.3, 0], [0.6, 0.45, 0.6]);
@@ -648,7 +652,34 @@ export class HqBuilding {
     this.group.add(ent);
   }
 
-  private signMesh(text: string) {
+  /** New style: roof (parapet, lift boxes, tank, antenna, the turret), the sign on a frame above the front, the flag, the ground around the entrances. */
+  private toonParts() {
+    const { side, len, dep } = this, solid = mat.solid();
+    const roofMesh = new THREE.Mesh(hqRoofGeo(side, len, dep), solid);
+    roofMesh.castShadow = true; roofMesh.receiveShadow = true;
+    this.roof.add(roofMesh);
+    const sx = side === 0 ? -len * 0.2 : -len * 0.08, sw = len * (side === 0 ? 0.5 : 0.4), sb = new Builder();
+    sb.box(C.metalDark, [sx, 0.62, dep / 2 - 0.02], [sw + 0.12, 0.62, 0.07]);
+    for (const s of [-1, 1]) sb.box(C.metalDark, [sx + s * sw * 0.4, 0.42, dep / 2 - 0.2], [0.06, 0.06, 0.36], [0.6, 0, 0]);
+    const frame = new THREE.Mesh(sb.build(), solid); frame.castShadow = true;
+    this.roof.add(frame);
+    const sign = this.signMesh(side === 0 ? 'АТАГИ' : 'КУРЧАЛОЙ', sw);
+    sign.position.set(sx, 0.62, dep / 2 + 0.02);
+    this.roof.add(sign);
+    const fx = side === 0 ? len * 0.42 : -len * 0.2, fz = -dep * 0.3;
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.9, 0.07), mat.plain(C.metal));
+    pole.position.set(fx, 0.95, fz);
+    this.roof.add(pole);
+    this.flag = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.6, 6, 1), mat.plain(TEAM[side].main, { side: THREE.DoubleSide }));
+    this.flag.position.set(fx + 0.5, 1.55, fz);
+    this.roof.add(this.flag);
+    this.group.add(this.roof);
+    const ground = new THREE.Mesh(hqGroundGeo(side, len, dep), solid);
+    ground.castShadow = true; ground.receiveShadow = true;
+    this.group.add(ground);
+  }
+
+  private signMesh(text: string, w = this.len * 0.5) {
     const c = document.createElement('canvas');
     c.width = 256; c.height = 64;
     const g = c.getContext('2d')!;
@@ -659,11 +690,17 @@ export class HqBuilding {
     g.fillText(text, 128, 34, 240);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
-    return new THREE.Mesh(new THREE.PlaneGeometry(this.len * 0.5, 0.5 * 0.92), new THREE.MeshBasicMaterial({ map: tex }));
+    return new THREE.Mesh(new THREE.PlaneGeometry(w, 0.5 * 0.92), new THREE.MeshBasicMaterial({ map: tex }));
   }
 
   private makeFloor(): THREE.Group {
     const g = new THREE.Group();
+    if (TOON) {
+      const m = new THREE.Mesh(hqFloorGeo(this.side, this.len, this.fh, this.dep, this.floors.length), mat.solid());
+      m.castShadow = true; m.receiveShadow = true;
+      g.add(m);
+      return g;
+    }
     const m = new THREE.Mesh(new THREE.BoxGeometry(this.len, this.fh, this.dep), this.mats);
     m.position.y = this.fh / 2;
     m.castShadow = true; m.receiveShadow = true;
@@ -688,6 +725,11 @@ export class HqBuilding {
       this.shake = animate ? 1 : 0;
     }
     this.roof.position.y = this.floors.length * this.fh;
+    if (TOON) { // phone tier: the fake shadow follows the height
+      if (this.shadow) this.group.remove(this.shadow);
+      this.shadow = groundShadow(this.len, this.dep, this.floors.length * this.fh + 0.3, this.group.rotation.y);
+      if (this.shadow) this.group.add(this.shadow);
+    }
     this.updateGhost();
   }
 
@@ -739,6 +781,7 @@ export class HqBuilding {
     this.group.position.set(p.x, y - 0.05, p.z);
     this.baseX = p.x;
     this.group.rotation.y = this.side === 0 ? 0.35 : -0.25;
+    if (TOON && this.shadow) this.setFloors(this.floors.length, false); // the shadow depends on the turn
   }
 }
 

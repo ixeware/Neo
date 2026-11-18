@@ -32,6 +32,13 @@ export interface Tin {
   /** Uniform grid → faces (CSR) for height lookups. */
   gs: number; gw: number; gh: number; cellStart: Uint32Array; cellTri: Uint32Array;
   ms: number;
+  /**
+   * Toon style only (src/render/toon/ground/landMat.ts draws them in the land shader). Per face:
+   * (row direction × 1/period: x, z; row strength, or −1 on a built-up face; spare).
+   */
+  fld?: Float32Array;
+  /** Toon style only. Per face corner: distance to the border of the face's field parcel (big off the fields). */
+  edge?: Float32Array;
 }
 
 const NC = 7;
@@ -192,7 +199,7 @@ function outlinePoints(V: Votes, pts: PointSet, edgeSeed: Uint8Array, W: number,
 }
 
 // ---- parcels --------------------------------------------------------------------------------------------------
-interface Seeds { xy: Float64Array; n: number; tone: Uint8Array; grid: Int32Array[]; gcell: number; gw: number; gh: number }
+interface Seeds { xy: Float64Array; n: number; tone: Uint8Array; grid: Int32Array[]; gcell: number; gw: number; gh: number; /** heading of the strip (radians) per seed */ ang: Float32Array }
 
 /**
  * Field parcels: rows of strips; a few regions each with its own heading and strip size. The regions are
@@ -212,7 +219,7 @@ function parcelSeeds(W: number, H: number, z0 = 0): Seeds {
     for (let r = 0; r < regs.length; r++) { const dx = regs[r].x - x, dz = regs[r].z - z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = r; } }
     return best;
   };
-  const xs: number[] = [];
+  const xs: number[] = [], angs: number[] = [];
   regs.forEach((g, r) => {
     const ext = R * 1.25;
     for (let v = -Math.ceil(ext / g.D); v <= Math.ceil(ext / g.D); v++) {
@@ -224,6 +231,7 @@ function parcelSeeds(W: number, H: number, z0 = 0): Seeds {
         if (x < -10 || z < z0 - 10 || x > W + 10 || z > H + z0 + 10) continue;
         if (nearestReg(x, z) !== r) continue;
         xs.push(x, z - z0);
+        angs.push(Math.atan2(g.sa, g.ca));
       }
     }
   });
@@ -241,7 +249,7 @@ function parcelSeeds(W: number, H: number, z0 = 0): Seeds {
     const gi = Math.max(0, Math.min(gw - 1, Math.floor((xs[i * 2] + 10) / gcell))), gj = Math.max(0, Math.min(gh - 1, Math.floor((xs[i * 2 + 1] + 10) / gcell)));
     lists[gj * gw + gi].push(i);
   }
-  return { xy: Float64Array.from(xs), n, tone, grid: lists.map(l => Int32Array.from(l)), gcell, gw, gh };
+  return { xy: Float64Array.from(xs), n, tone, grid: lists.map(l => Int32Array.from(l)), gcell, gw, gh, ang: Float32Array.from(angs) };
 }
 
 function nearestSeed(s: Seeds, x: number, z: number): number {
@@ -256,6 +264,28 @@ function nearestSeed(s: Seeds, x: number, z: number): number {
   }
   return best;
 }
+
+/** Distance from (x, z) to the border of seed k's parcel: the nearest bisector with another seed (toon field borders). */
+function parcelBorder(s: Seeds, k: number, x: number, z: number): number {
+  const gi = Math.floor((x + 10) / s.gcell), gj = Math.floor((z + 10) / s.gcell);
+  const kx = s.xy[k * 2], kz = s.xy[k * 2 + 1], dk = (kx - x) * (kx - x) + (kz - z) * (kz - z);
+  let best = 9;
+  for (let j = Math.max(0, gj - 2); j <= Math.min(s.gh - 1, gj + 2); j++) for (let i = Math.max(0, gi - 2); i <= Math.min(s.gw - 1, gi + 2); i++) {
+    const g = s.grid[j * s.gw + i];
+    for (let q = 0; q < g.length; q++) {
+      const o = g[q];
+      if (o === k) continue;
+      const ox = s.xy[o * 2], oz = s.xy[o * 2 + 1], sep = Math.hypot(ox - kx, oz - kz);
+      if (sep < 1e-3) continue;
+      const d = ((ox - x) * (ox - x) + (oz - z) * (oz - z) - dk) / (2 * sep);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+/** Row period (world units) and strength per crop tone: wheat, straw, ochre, ploughed, sunflower, olive, young. */
+const ROWS: [number, number][] = [[0.42, 0.07], [0.8, 0.05], [0.46, 0.07], [0.3, 0.1], [0.56, 0.08], [0.66, 0.06], [0.36, 0.07]];
 
 /** Points along the parcel borders (Voronoi edges of the seeds), only well inside fields. */
 function parcelPoints(V: Votes, seeds: Seeds, pts: PointSet, edgeSeed: Uint8Array, W: number, H: number) {
@@ -446,6 +476,7 @@ export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
 
   // ---- colour + normals ----
   const rgb = new Float32Array(nt * 3), nrm = new Float32Array(nt * 3);
+  const fld = TOON ? new Float32Array(nt * 4) : undefined, edge = TOON ? new Float32Array(nt * 3).fill(9) : undefined;
   const col: RGB = [0, 0, 0];
   const hb = blurredHeights(t, 3), gw1 = t.gw + 1;
   for (let f = 0; f < nt; f++) {
@@ -464,6 +495,18 @@ export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
     const conv = cls[f] === LC.WATER ? 0 : Math.max(-0.13, Math.min(0.07, (hM - hAvg) * 0.0055));
     const j = (1 + conv) * (1 + (hash2(f * 7 + 3, Math.floor(gx * 13)) - 0.5) * (TOON ? TOON_JITTER : 0.075));
     rgb[f * 3] = Math.min(1, col[0] * j); rgb[f * 3 + 1] = Math.min(1, col[1] * j); rgb[f * 3 + 2] = Math.min(1, col[2] * j);
+    if (fld && edge) { // toon: field rows and parcel borders, village lawns (drawn by the land shader)
+      if (cls[f] === LC.BUILT) fld[f * 4 + 2] = -1;
+      else if (cls[f] === LC.CROP) {
+        const s = nearestSeed(seeds, gx, gz);
+        if (s >= 0) {
+          const [per, str] = ROWS[seeds.tone[s]];
+          const ang = seeds.ang[s] + (hash2(s, 811) > 0.72 ? Math.PI / 2 : 0);
+          fld[f * 4] = -Math.sin(ang) / per; fld[f * 4 + 1] = Math.cos(ang) / per; fld[f * 4 + 2] = str;
+          edge[f * 3] = parcelBorder(seeds, s, X[a], Z[a]); edge[f * 3 + 1] = parcelBorder(seeds, s, X[b], Z[b]); edge[f * 3 + 2] = parcelBorder(seeds, s, X[c], Z[c]);
+        }
+      }
+    }
   }
 
   // ---- border lists for the skirt ----
@@ -481,7 +524,7 @@ export function buildTin(t: Terrain, opt: TinOptions = {}): Tin {
   const triOut = tri.slice(0, nt * 3);
   const grid = faceGrid(triOut, nt, X, Z, W, H);
   for (let i = 0; i < np; i++) Z[i] += z0; // local → world
-  return { W, H: t.H, z0, np, x: X, z: Z, y: Y, nt, tri: triOut, cls, rgb, nrm, border, ...grid, ms: performance.now() - t0 };
+  return { W, H: t.H, z0, np, x: X, z: Z, y: Y, nt, tri: triOut, cls, rgb, nrm, border, ...grid, ms: performance.now() - t0, fld, edge };
 }
 
 /** Box-blurred heightmap (metres), radius r cells, same grid as heightsM. */

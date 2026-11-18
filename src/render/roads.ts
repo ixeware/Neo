@@ -6,7 +6,9 @@ import * as THREE from 'three';
 import { ROADS_META, ROADS_B64, HOUSES_B64 } from '../data/roads';
 import { LC, BRIDGES, heightY, lcAt, type Terrain } from '../world/terrain';
 import { tinClass, type Tin } from './lowpoly';
-import { ground } from './style';
+import { TOON, ground } from './style';
+import { groundRoads } from './toon/ground';
+import { toonRoadMaterial } from './toon/ground/roadMat';
 
 /** Road classes, in the order tools/bake_roads.py writes them. */
 export const RC = { MAIN: 0, ROAD: 1, STREET: 2, TRACK: 3, RAIL: 4, RIVER: 5, STREAM: 6 } as const;
@@ -428,6 +430,7 @@ export function buildRoads(parent: THREE.Object3D, t: Terrain, opts: { lowPower:
   const t0 = performance.now();
   const n = roadNet();
   const low = opts.lowPower;
+  if (TOON) groundRoads(parent); // the ground track builds into the same group later (toon/ground/index.ts)
   const cx: Ctx = { t, tin: opts.tin, W: t.W, H: t.H, Z0: t.z0, step: low ? 0.7 : 0.5, tolH: low ? 0.03 : 0.014, keep: opts.keep ?? [] };
   const group = new THREE.Group();
   group.name = 'roads';
@@ -435,32 +438,33 @@ export function buildRoads(parent: THREE.Object3D, t: Terrain, opts: { lowPower:
   const white = new THREE.Color(1, 1, 1);
   const lin = (hex: string) => new THREE.Color(hex);
   const asphalt = lin(ASPHALT);
+  const plain = low && !TOON; // toon paints the markings in the shader on both tiers (toon/ground/roadMat.ts)
   for (const l of n.lines) {
     if (l.deck !== undefined) { // a link from a game bridge's deck down to the street network
       const b = BRIDGES[l.deck];
       const y = Math.max(heightY(t, b.x0, b.z0), heightY(t, b.x1, b.z1)) + 0.12 + 0.07 - LIFT[l.c] + 0.005; // deck top (buildBridges)
-      if (l.c === RC.ROAD) ribbon(cx, A.main, l, low ? asphalt : white, low ? 'none' : 'gap', 1, { y });
+      if (l.c === RC.ROAD) ribbon(cx, A.main, l, plain ? asphalt : white, plain ? 'none' : 'gap', 1, { y });
       else if (!low) ribbon(cx, A.track, l, lin(COLOR[3]), 'none', 1, { y });
       continue;
     }
     switch (l.c) {
       // short main-road pieces (junction stubs) get no centre line: crossing dashes only clutter
-      case RC.MAIN: ribbon(cx, A.main, l, low ? asphalt : white, low ? 'none' : lineLength(l) < 1.5 ? 'gap' : 'len', 0.62, null); break;
-      case RC.ROAD: ribbon(cx, A.main, l, low ? asphalt : white, low ? 'none' : 'gap', 1, null); break;
+      case RC.MAIN: ribbon(cx, A.main, l, plain ? asphalt : white, plain ? 'none' : lineLength(l) < 1.5 ? 'gap' : 'len', 0.62, null); break;
+      case RC.ROAD: ribbon(cx, A.main, l, plain ? asphalt : white, plain ? 'none' : 'gap', 1, null); break;
       case RC.STREET: ribbon(cx, A.street, l, lin(COLOR[2]), 'none', 1, null); break;
       case RC.TRACK: if (!low) ribbon(cx, A.track, l, lin(COLOR[3]), 'none', 1, null); break;
       case RC.RAIL: ribbon(cx, A.rail, l, low ? lin('#7d7366') : white, low ? 'none' : 'len', 0.25, null); break;
       default: ribbon(cx, A.water, l, lin(COLOR[l.c]), 'none', 1, null);
     }
   }
-  const mainTex = low ? null : stripeTexture('main');
+  const mainTex = low || TOON ? null : stripeTexture('main');
   const railTex = low ? null : stripeTexture('rail');
   const meshes = [
     toMesh(A.water, material(null, 2), 'roads-water'),
-    toMesh(A.track, material(null, 2), 'roads-track'),
-    toMesh(A.street, material(null, 4), 'roads-street'),
+    toMesh(A.track, TOON ? toonRoadMaterial('track', 2) : material(null, 2), 'roads-track'),
+    toMesh(A.street, TOON ? toonRoadMaterial('street', 4) : material(null, 4), 'roads-street'),
     toMesh(A.rail, material(railTex, 5), 'roads-rail'),
-    toMesh(A.main, material(mainTex, 6), 'roads-main'),
+    toMesh(A.main, TOON ? toonRoadMaterial('main', 6) : material(mainTex, 6), 'roads-main'),
   ];
   for (const m of meshes) if (m) group.add(m);
   parent.add(group);

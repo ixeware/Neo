@@ -8,7 +8,7 @@
 // The phone tier gets lighter kits (no side windows, no wing). Every kit has a `far` twin with the triangle
 // count of the old houses (walls, roof, fence): world.ts swaps a chunk to it beyond HOUSE_NEAR.
 import * as THREE from 'three';
-import { STYLE } from '../../style';
+import { STYLE, C, native } from '../../style';
 
 type V3 = [number, number, number];
 interface Kit3 { kind: 'plain' | 'gate' | 'gateL'; body: THREE.BufferGeometry; roof: THREE.BufferGeometry; tris: number; farBody: THREE.BufferGeometry; farRoof: THREE.BufferGeometry }
@@ -43,12 +43,29 @@ class Soup {
 }
 
 const W: V3 = [1, 1, 1];
-const GLASS: V3 = [0.24, 0.38, 0.6], DOOR: V3 = [0.5, 0.31, 0.2], BRICK: V3 = [0.86, 0.46, 0.34], CAP: V3 = [0.5, 0.48, 0.52];
-const FENCE: V3 = [0.8, 0.8, 0.8], POST: V3 = [1.25, 1.25, 1.25], WING: V3 = [0.9, 0.9, 0.9];
+/** A palette colour shown as it is, whatever the instance colour (stored +2: see toonHouseMaterial). */
+const abs = (c: THREE.Color): V3 => [c.r + 2, c.g + 2, c.b + 2];
+const GLASS = abs(C.glass), DOOR = abs(C.door), BRICK = abs(C.wall[2]), CAP = abs(C.metalDark), STEP = abs(C.concrete), POST = abs(C.trim);
+const FENCE: V3 = [0.8, 0.8, 0.8], WING: V3 = [0.9, 0.9, 0.9];
 const LO = -0.25, P = 0.04; // walls reach below the ground; painted parts stand this far off the wall
 
 /** Camera distance (to a chunk's centre) up to which the detailed kit is drawn. */
 export const HOUSE_NEAR = () => (STYLE.tier === 'phone' ? 56 : 66);
+
+let houseMat: THREE.Material | null = null;
+/**
+ * The material of the kits: vertex colour × instance colour as usual, except vertex colours stored +2, which
+ * are shown as they are — so glass, doors, brick and steps keep their palette colour on any wall.
+ */
+export function toonHouseMaterial(): THREE.Material {
+  if (houseMat) return houseMat;
+  const m = native(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <color_vertex>', '#include <color_vertex>\n#if defined( USE_COLOR ) && defined( USE_INSTANCING_COLOR )\n\tif ( color.r >= 1.5 ) vColor.xyz = color.rgb - 2.0;\n#endif');
+  };
+  m.customProgramCacheKey = () => 'toon-house';
+  return (houseMat = m);
+}
 
 let cache: { body: THREE.BufferGeometry; roof: THREE.BufferGeometry; variants: Kit3[] } | null = null;
 /** The toon house kits, shaped like houseGeometries(): draw `body` and `roof` with a vertex-coloured material and instance colours. */
@@ -78,7 +95,7 @@ export function toonHouseKits() {
     if (!lite) {
       b.onX(-0.2, 0.2, 0.36, 0.76, 0.5 + P, 1, GLASS);
       b.onX(-0.2, 0.2, 0.36, 0.76, -0.5 - P, -1, GLASS);
-      b.onZ(-0.3, 0.02, 0.36, 0.76, -0.5 - P, -1, GLASS);
+      if (kind !== 'gateL') b.onZ(-0.3, 0.02, 0.36, 0.76, -0.5 - P, -1, GLASS);
     }
     // a tall hip roof with a wide overhang, ridge along x
     const e = 0.63, h = 0.74, rg = 0.22, y0 = 0.98, y1 = y0 + h;
@@ -95,13 +112,13 @@ export function toonHouseKits() {
       // the street fence in the roof's sheet metal, lighter posts at the gate, the gate itself
       const z = 1.02, x0 = -0.8, x1 = 0.8, top = 0.58, gx = kind === 'gate' ? 0.32 : -0.32, g0 = gx - 0.26, g1 = gx + 0.26;
       for (const n of [1, -1]) { r.onZ(x0, g0, LO, top, z, n, FENCE); r.onZ(g1, x1, LO, top, z, n, FENCE); r.onZ(g0, g1, LO, top + 0.1, z, n, W); }
-      if (!lite) for (const gp of [g0, g1]) for (const n of [1, -1]) r.onZ(gp - 0.05, gp + 0.05, LO, top + 0.22, z + n * P, n, POST);
+      if (!lite) for (const gp of [g0, g1]) r.onZ(gp - 0.05, gp + 0.05, LO, top + 0.22, z + P, 1, POST); // seen from the street
     }
     if (kind === 'gate' && !lite) {
       // a porch roof over the door
       r.quad([dx - 0.22, 0.86, 0.5], [dx + 0.22, 0.86, 0.5], [dx + 0.22, 0.72, 0.78], [dx - 0.22, 0.72, 0.78], [0, 1, 0.3], W);
-      b.onX(0.5, 0.76, 0, 0.1, dx - 0.2, -1, CAP); b.onX(0.5, 0.76, 0, 0.1, dx + 0.2, 1, CAP); b.onZ(dx - 0.2, dx + 0.2, 0, 0.1, 0.76, 1, CAP);
-      b.quad([dx - 0.2, 0.1, 0.5], [dx + 0.2, 0.1, 0.5], [dx + 0.2, 0.1, 0.76], [dx - 0.2, 0.1, 0.76], [0, 1, 0], CAP);
+      b.onX(0.5, 0.76, 0, 0.1, dx - 0.2, -1, STEP); b.onX(0.5, 0.76, 0, 0.1, dx + 0.2, 1, STEP); b.onZ(dx - 0.2, dx + 0.2, 0, 0.1, 0.76, 1, STEP);
+      b.quad([dx - 0.2, 0.1, 0.5], [dx + 0.2, 0.1, 0.5], [dx + 0.2, 0.1, 0.76], [dx - 0.2, 0.1, 0.76], [0, 1, 0], STEP);
     }
     if (kind === 'gateL' && !lite) {
       // a low side wing (the summer kitchen) under a lean-to roof

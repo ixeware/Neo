@@ -10,7 +10,7 @@ import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
 import { TOON, C, TEAM, mat, groundShadow } from './style';
 import { hqFloorGeo, hqRoofGeo, hqGroundGeo } from './toon/arch/highrise';
-import { toonHouseKits, HOUSE_NEAR } from './toon/arch/houses';
+import { toonHouseKits, toonHouseMaterial, HOUSE_NEAR } from './toon/arch/houses';
 import type { Pt } from '../sim/sim';
 import { landmarkSpots, fudziSpot } from './landmarks'; // v3 real places (decor.ts builds them)
 import { cityPlan, cityOccupied, cityQ, cityKeepOut, siteRect, inRect, CITY_SITES, CITY_HOUSES_FROM } from './city'; // v4 Грозный
@@ -361,7 +361,7 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     place(x, z, blockRot, w, d, two ? 0.42 : 0.24 + hash2(i + 2, j) * 0.06, hash2(i + 9, j + 9));
   }
   if (TOON) { // the new style: painted kits, a detailed one near the camera and a far twin (toon/arch/houses.ts)
-    const hm = mat.solid();
+    const hm = toonHouseMaterial();
     toonHouseKits().variants.forEach((kit, vi) => {
       const list = items.filter(it => (it.v ?? 0) === vi);
       if (list.length) chunked(list, [kit.body, kit.roof], [hm, hm], [false, true], parent, 50, hq, 'houses', [kit.farBody, kit.farRoof], HOUSE_NEAR());

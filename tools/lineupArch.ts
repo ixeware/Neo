@@ -3,11 +3,14 @@
 //   base1&k=rogatka[&side=]                             one building: three levels, both sides
 //   basegame[&dist=38][&side=]                          a mock base at the game camera, units for scale
 //   basewall                                            wall runs of the three materials, corners and a gate gap
-//   arch (see archView for the rest: houses, high-rises…)
+//   hq                                                  the two high-rises, full height and after losing floors
+//   kits                                                the village house kits of the new style, near and far
 import * as THREE from 'three';
 import { BASE_KEYS, baseModel, baseModelInfo, wallKit } from '../src/render/toon/base/models';
 import { TEAM, mat } from '../src/render/style';
 import { HqBuilding } from '../src/render/world';
+import { toonHouseKits, toonHouseMaterial } from '../src/render/toon/arch/houses';
+import { C } from '../src/render/style';
 
 export interface LineupApi {
   scene: THREE.Scene;
@@ -105,6 +108,25 @@ export function archView(view: string, q: URLSearchParams, api: LineupApi): Line
     api.unit(0, 0, -4, 2.4, 0.4, false);
     return { pitch: Number(q.get('pitch') ?? 0.5), tight: 0.97 };
   }
+  if (view === 'kits') {
+    // the village kits of the new style: plain / gate / gate left, the detailed one in front of its far twin, in palette colours
+    const kits = toonHouseKits().variants, one = new THREE.Matrix4(), q4 = new THREE.Quaternion();
+    const row = (far: boolean, z: number) => kits.forEach((kit, vi) => {
+      for (const [geo, roof] of [[far ? kit.farBody : kit.body, false], [far ? kit.farRoof : kit.roof, true]] as const) {
+        const im = new THREE.InstancedMesh(geo, toonHouseMaterial(), 6);
+        for (let i = 0; i < 6; i++) {
+          const k = vi * 6 + i, two = i === 4;
+          im.setMatrixAt(i, one.compose(new THREE.Vector3((k - 8.5) * 1.5, 0.2, z), q4.setFromAxisAngle(new THREE.Vector3(0, 1, 0), (i % 3 - 1) * 0.5), new THREE.Vector3(1.0 + (i % 2) * 0.2, two ? 1.25 : 0.75, 0.9)));
+          im.setColorAt(i, roof ? C.roof[k % 7] : C.wall[(k * 5) % 6]);
+        }
+        im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false;
+        api.scene.add(im); api.placed.push(im);
+      }
+      api.labels.push({ text: `${['дом', 'дом с воротами', 'дом с пристройкой'][vi]}${far ? ' · дальний' : ''}`, sub: `${far ? (kit.farBody.attributes.position.count + kit.farRoof.attributes.position.count) / 3 : kit.tris} тр`, at: new THREE.Vector3((vi * 6 + 2.5 - 8.5) * 1.5, 2.6, z), side: -1 });
+    });
+    row(false, 1.6); row(true, -2.4);
+    return { pitch: Number(q.get('pitch') ?? 0.55), tight: 0.97 };
+  }
   if (view === 'hq') {
     // the two high-rises: full height, and after losing floors
     const one = (s: 0 | 1, floors: number, x: number, z: number, ry: number) => {
@@ -120,5 +142,5 @@ export function archView(view: string, q: URLSearchParams, api: LineupApi): Line
   return null;
 }
 /** Nav links of this module. */
-export const ARCH_NAV: [string, string][] = [['base', 'база: все'], ['base&side=1', 'база: Курчалой'], ['base1&k=rogatka', 'база крупно'], ['basegame', 'база в игре'], ['basewall', 'заборы'], ['hq', 'высотки']];
+export const ARCH_NAV: [string, string][] = [['base', 'база: все'], ['base&side=1', 'база: Курчалой'], ['base1&k=rogatka', 'база крупно'], ['basegame', 'база в игре'], ['basewall', 'заборы'], ['hq', 'высотки'], ['kits', 'дома (новые)']];
 export const ARCH_KEYS = BASE_KEYS;

@@ -67,6 +67,11 @@ function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Materi
         im.setColorAt(i, useC2[gi] ? it.c2! : it.c);
       });
       im.castShadow = shadows; im.receiveShadow = true;
+      if (far && shadows) { // new style houses: only the walls / the roof cast (the first triangles of a kit), the painted details do not
+        const n = gi === 0 ? 24 : 18;
+        im.onBeforeShadow = () => { im.geometry.setDrawRange(0, n); };
+        im.onAfterShadow = () => { im.geometry.setDrawRange(0, Infinity); };
+      }
       im.computeBoundingSphere();
       im.name = name;
       parent.add(im);

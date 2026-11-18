@@ -1,0 +1,175 @@
+/* Build mode (src/ui/build.ts): the «Стройка» button in the bank slip, the palette, the placing bar and the
+   building panel. The three panels stand in the deck's place (.deck.alt), so the bank, the minimap, the command
+   bar, the chat and the сход sheet restack on the measured size (Hud.layout) and nothing is covered. */
+
+/* ---------- «Стройка»: a button at the right end of the bank slip (the slip's measured width moves the rest) ---------- */
+.bank:has(> .bank-build) { grid-template-columns: auto auto; align-items: center; }
+.bank > .money { grid-column: 1; grid-row: 1; } .bank > .inc { grid-column: 1; grid-row: 2; }
+.bank > .bank-build { grid-column: 2; grid-row: 1 / span 2; align-self: stretch; pointer-events: auto; margin: -8px -12px -9px 10px; min-width: 62px; min-height: 44px; padding: 3px 7px 2px; border: 0; border-left: 1.5px solid var(--graphite); background: var(--marker); display: grid; justify-items: center; align-content: center; gap: 1px; font-weight: 700; font-size: 10.5px; line-height: 1.05; color: var(--graphite); touch-action: manipulation; }
+.bank-build svg { width: 22px; height: 22px; }
+.bank-build.on { background: var(--graphite); color: var(--paper); }
+.bank-build:active { filter: brightness(.94); }
+
+/* ---------- the deck's place ---------- */
+.deck.alt > .tabs, .deck.alt > .cards { display: none !important; }
+.bld { display: grid; gap: 4px; min-width: 0; max-width: 100%; }
+.bpal { display: grid; gap: 4px; min-width: 0; }
+.bfams { display: flex; gap: 4px; align-items: stretch; min-width: 0; max-width: 100%; }
+.bchip { flex: none; height: 34px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-weight: 700; font-size: 13px; color: var(--graphite); white-space: nowrap; box-shadow: 2px 2px 0 rgba(0,0,0,.28); position: relative; touch-action: manipulation; }
+.bchip svg { width: 18px; height: 18px; flex: none; }
+.bchip.on { background: var(--graphite); color: var(--paper); }
+.bchip.need::after { content: "!"; position: absolute; right: 2px; top: -5px; font-family: var(--f-hand); font-weight: 700; font-size: 22px; line-height: 1; color: var(--pen-k); }
+.bchip-x { width: 34px; padding: 0; color: var(--graphite-2); }
+.bchip-next { display: none; }
+.bchip-rep { color: var(--ok); }
+.bsum { flex: 0 1 auto; min-width: 0; align-self: center; padding: 0 6px; font-family: var(--f-hand); font-weight: 700; font-size: 19px; line-height: 1; color: #fff; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,.65); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.bcards { display: flex; gap: 8px; align-items: flex-end; max-width: 100%; box-sizing: border-box; padding: 10px 2px 3px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x; }
+.bcards::-webkit-scrollbar { display: none; }
+.bcard { flex: 0 0 100px; height: 136px; box-sizing: border-box; padding: 5px 3px 6px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 2px; justify-items: center; align-items: center; text-align: center; position: relative; transition: transform .12s ease-out; color: var(--graphite); touch-action: manipulation; }
+.bi { width: 46px; height: 46px; display: grid; place-items: center; border: 1.5px dashed currentColor; box-sizing: border-box; font-style: normal; }
+.bi svg { width: 28px; height: 28px; }
+.bi-def { color: #23262b; background: rgba(35, 38, 43, .08); }
+.bi-wall { color: #7a4a2c; background: rgba(122, 74, 44, .1); }
+.bi-trap { color: #b3261a; background: rgba(179, 38, 26, .09); }
+.bi-eco { color: #2f7a43; background: rgba(47, 122, 67, .1); }
+.bi-sup, .bi-super { color: #6a3fb0; background: rgba(106, 63, 176, .1); }
+.bcard .bn { font-weight: 700; font-size: 12.5px; line-height: 1.12; padding: 0 2px; max-width: 100%; box-sizing: border-box; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.bcard .bc { font-family: var(--f-display); font-weight: 800; font-size: 14px; white-space: nowrap; }
+.bcard .bq { position: absolute; top: 3px; right: 5px; font-family: var(--f-hand); font-weight: 700; font-size: 17px; line-height: 1; color: var(--graphite-2); }
+.bcard .key { position: absolute; top: 3px; left: 5px; font-family: var(--f-hand); font-size: 17px; line-height: 1; color: var(--graphite-2); }
+.bcard .bl { display: none; position: absolute; left: 2px; right: 2px; top: 20px; font-family: var(--f-hand); font-weight: 700; font-size: 17px; line-height: .95; color: var(--pen-k); transform: rotate(-6deg); text-shadow: 0 0 2px var(--paper), 0 0 4px var(--paper), 0 0 6px var(--paper); pointer-events: none; }
+.bcard.lock .bl { display: block; }
+.bcard.lock .bi, .bcard.lock .bn, .bcard.lock .bc { opacity: .38; filter: grayscale(1); }
+.bcard.poor .bc { color: var(--pen-k); }
+.bcard.poor .bi { opacity: .6; }
+.bcard.sel { transform: translateY(-8px); background-color: #fff6b8; box-shadow: 3px 6px 0 rgba(20,16,12,.38); }
+.bcard.sel::after { content: ""; position: absolute; inset: 2px; border: 2px dashed var(--graphite); pointer-events: none; }
+.bcard[aria-disabled="true"] { cursor: not-allowed; }
+
+/* ---------- placing on a phone / aiming ---------- */
+.bbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 6px 8px 6px 12px; box-sizing: border-box; width: min(460px, 100%); }
+.bb-t { display: grid; gap: 2px; min-width: 0; }
+.bb-n { font-family: var(--f-display); font-weight: 800; font-size: 13.5px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bb-w { font-size: 12.5px; line-height: 1.2; color: var(--graphite-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.bb-w.bad { color: var(--pen-k); font-weight: 700; }
+.bb-ok, .bb-x { width: 58px; height: 48px; padding: 0; display: grid; place-items: center; border: 1.5px solid var(--graphite); box-shadow: 2px 2px 0 rgba(0,0,0,.28); touch-action: manipulation; }
+.bb-ok svg, .bb-x svg { width: 26px; height: 26px; }
+.bb-ok { background: var(--ok); color: #fff; }
+.bb-ok.off { background: var(--graphite-2); opacity: .55; }
+.bb-x { width: 48px; background: var(--paper); color: var(--graphite); }
+
+/* ---------- a selected building ---------- */
+.bsel { display: grid; gap: 5px; padding: 8px 10px 9px; width: min(600px, 100%); box-sizing: border-box; }
+.bs-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bs-h .bi { width: 30px; height: 30px; flex: none; }
+.bs-h .bi svg { width: 20px; height: 20px; }
+.bs-n { font-family: var(--f-display); font-weight: 800; font-size: 15px; line-height: 1.1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bs-n.s0 { color: var(--pen-a); } .bs-n.s1 { color: var(--pen-k); }
+.bs-lv { flex: 1; font-family: var(--f-hand); font-weight: 700; font-size: 19px; line-height: 1; white-space: nowrap; }
+.bs-x { flex: none; width: 44px; height: 44px; margin: -8px -8px -8px 0; padding: 0; border: 0; background: transparent; display: grid; place-items: center; color: var(--graphite-2); }
+.bs-x svg { width: 22px; height: 22px; }
+.bs-hp { display: flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
+.bs-bar { flex: 0 1 190px; min-width: 60px; height: 8px; border: 1.5px solid var(--graphite); background: #fff; }
+.bs-bar i { display: block; height: 100%; background: var(--ok); }
+.bs-bar i.low { background: var(--pen-k); }
+.bs-hp em { font-family: var(--f-hand); font-style: normal; font-weight: 700; font-size: 18px; line-height: .9; color: var(--pen-k); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bs-d { font-size: 12.5px; line-height: 1.25; color: var(--graphite-2); }
+.bs-stats { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; line-height: 1.25; }
+.bs-st b { font-family: var(--f-display); font-weight: 800; }
+.bs-st i { font-style: normal; color: var(--ok); }
+.bs-btns { display: flex; gap: 6px; }
+.bs-b { flex: 1 1 0; min-width: 0; min-height: 40px; padding: 4px 6px; border: 1.5px solid var(--graphite); background: var(--paper); box-shadow: 2px 2px 0 rgba(0,0,0,.28); font-weight: 700; font-size: 12.5px; line-height: 1.1; color: var(--graphite); touch-action: manipulation; }
+.bs-up { background: var(--marker); }
+.bs-sell.arm, .bs-fire { background: var(--pen-k); color: #fff; }
+.bs-b.off { opacity: .5; }
+.bs-b { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; align-content: center; gap: 1px 5px; text-align: center; }
+.bs-b .bs-p { white-space: nowrap; font-family: var(--f-display); font-weight: 800; }
+
+/* ---------- price or reason next to the ghost ---------- */
+.bwhy { position: absolute; left: 0; top: 0; z-index: 3; padding: 1px 9px 4px; font-family: var(--f-hand); font-weight: 700; font-size: 22px; line-height: 1; white-space: nowrap; color: #fff; background: var(--ok); border: 1.5px solid var(--graphite); box-shadow: 2px 2px 0 rgba(0,0,0,.28); pointer-events: none; will-change: transform; }
+.bwhy.bad { background: var(--pen-k); }
+
+/* ---------- phones (both ways): smaller slip button ---------- */
+@media (max-width: 760px) {
+  .bank > .bank-build { margin: -5px -9px -6px 8px; min-width: 54px; font-size: 9.5px; }
+  .bank-build svg { width: 20px; height: 20px; }
+}
+/* ---------- phones upright: the summary on its own line, five chips across, cards as wide as unit cards ---------- */
+@media (max-width: 760px) and (min-height: 501px) {
+  /* the slip may never reach the minimap beside it: a long income line («… · аура нищеты ×0,5») wraps instead */
+  .bank:has(> .bank-build) { box-sizing: border-box; max-width: calc(100vw - var(--edge-l) - var(--edge-r) - var(--mini-w) - 6px); grid-template-columns: minmax(0, 1fr) auto; }
+  .bank:has(> .bank-build) .inc { white-space: normal; line-height: .95; }
+  .bfams { display: grid; grid-template-columns: 44px repeat(5, minmax(0, 1fr)); }
+  .bsum { grid-column: 1 / -1; grid-row: 1; font-size: 16px; padding: 0 2px; }
+  .bfams:has(> .bchip-rep:not([hidden])) .bsum { grid-column: 1 / 4; }
+  .bchip-rep { grid-column: 4 / -1; grid-row: 1; height: 44px; font-size: 12px; padding: 0 6px; }
+  .bchip { min-width: 0; height: 44px; padding: 2px 1px 1px; flex-direction: column; gap: 0; font-size: 9.5px; letter-spacing: -.03em; overflow: hidden; }
+  .bchip svg { width: 20px; height: 20px; }
+  .bchip.need::after { top: -2px; }
+  .bcards { gap: 5px; padding: 8px 1px 3px; }
+  .bcard { flex: none; width: clamp(64px, calc((100vw - var(--edge-l) - var(--edge-r) - 22px) / 4.5), 88px); height: 100px; padding: 3px 2px 4px; gap: 1px; }
+  .bi { width: 36px; height: 36px; }
+  .bi svg { width: 22px; height: 22px; }
+  .bcard .bn { font-size: 10.5px; letter-spacing: -.015em; }
+  .bcard .bn.lg { font-size: 9.5px; letter-spacing: -.035em; }
+  .bcard .bc { font-size: 11.5px; }
+  .bcard .bq { font-size: 15px; top: 2px; right: 3px; }
+  .bcard .bl { font-size: 14px; top: 14px; }
+  .bcard .key { display: none; }
+  .bcard.sel { transform: translateY(-6px); }
+  .bbar, .bsel { width: 100%; }
+  .bs-d:not(.bs-foe) { display: none; }
+  .bs-b { min-height: 44px; font-size: 11.5px; padding: 3px 3px; }
+  .bwhy { font-size: 19px; }
+  /* the chat is two lines here: in build mode the map is wanted more */
+  #hud.building .feed { display: none; }
+}
+/* the narrowest phones: a slimmer button, so a five-digit bank still fits beside the minimap */
+@media (max-width: 380px) and (min-height: 501px) {
+  .bcard .bn.lg { font-size: 8.8px; letter-spacing: -.04em; }
+  .bank > .bank-build { min-width: 46px; margin-left: 6px; padding: 3px 2px 2px; letter-spacing: -.02em; }
+}
+/* ---------- phones sideways: the palette is one row as high as the deck (close + «next family» on the left) ---------- */
+@media (max-height: 500px) and (min-width: 600px) {
+  .bank > .bank-build { margin: -4px -9px -5px 8px; }
+  /* units selected: the command bar needs the whole row between the bank and the minimap, so the button steps
+     back (the count chip lets go of the selection; B and the open palette's own ✗ still work) */
+  #hud.has-sel .bank > .bank-build { display: none; }
+  /* …and a long income line (a debuff's note after the number) is cut short instead of widening the slip: the
+     row would not hold the command bar, it would wrap and reach an open сход sheet */
+  #hud.has-sel .bank .inc { width: 0; min-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bld { flex: 1 1 auto; align-self: flex-end; }
+  .bpal { display: flex; align-items: flex-end; gap: 6px; }
+  .bfams { flex: none; flex-direction: column; }
+  .bfams .bchip:not(.bchip-x):not(.bchip-next), .bsum { display: none; }
+  .bchip { height: 44px; }
+  .bchip-x { width: auto; }
+  .bchip-next { display: inline-flex; min-width: 96px; background: var(--graphite); color: var(--paper); }
+  .bcards { flex: 0 1 auto; min-width: 0; gap: 6px; padding: 7px 1px 1px; }
+  .bcard { flex: none; width: 74px; height: 86px; padding: 2px 2px 3px; gap: 1px; }
+  .bi { width: 32px; height: 32px; }
+  .bi svg { width: 20px; height: 20px; }
+  .bcard .bn { font-size: 10px; }
+  .bcard .bn.lg { font-size: 9.5px; letter-spacing: -.035em; }
+  .bcard .bc { font-size: 11px; }
+  .bcard .bq { font-size: 14px; top: 1px; right: 3px; }
+  .bcard .bl { font-size: 13px; top: 12px; }
+  .bcard .key { font-size: 14px; top: 1px; left: 3px; }
+  .bcard.sel { transform: translateY(-5px); }
+  .bsel { width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); column-gap: 10px; padding: 5px 8px 6px; gap: 3px 10px; }
+  .bs-h, .bs-hp, .bs-stats { grid-column: 1; }
+  .bs-btns { grid-column: 2; grid-row: 1 / span 3; flex-wrap: wrap; align-content: center; }
+  .bs-d:not(.bs-foe) { display: none; }
+  .bs-foe { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
+  .bs-b { flex: 1 1 40%; min-height: 44px; font-size: 11.5px; }
+  .bs-x { margin: -10px -6px -10px 0; }
+  .bwhy { font-size: 19px; }
+  #hud.building .feed { display: none; }
+}
+/* ---------- touch: every target at least 44 px ---------- */
+@media (pointer: coarse) {
+  .bchip { min-height: 44px; }
+  .bchip-x { min-width: 44px; }
+  .bs-b { min-height: 44px; }
+}

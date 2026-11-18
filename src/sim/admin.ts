@@ -42,12 +42,17 @@
 //   reset       v number                                      new seed (truncated to int32): war №1, score 0:0, admin toggles cleared
 //   diff        v int 0..2                                    AI difficulty
 //   ai          s 0|1, v int 0..2                             0 auto, 1 always AI, 2 never AI (State.adm.ai)
+//   bgive       s 0|1, u int, v? int 1..3, x? z? number       a finished building of type u (index in BUILDINGS), level v (default 1): free,
+//                                                             ignores zone / caps / tier; x and z together (its nav cell) or the first free
+//                                                             spot of the side's zone
+//   bkill       s -1|0|1, x? z? number, r? number              removes buildings (no bounty); with x, z: only within r (as kill)
+//   bheal       s 0|1                                         every building of the side: full hp, construction finished
 //   say         txt string                                    control/format characters → space, whitespace collapsed, trimmed,
 //                                                             1..140 code points (empty after cleaning → invalid); FxEv 'adminSay'
 //
 // A relay should accept a command only when validAdmCmd(cmd) is true, and may forward it as is
 // (every client normalises it again with normAdm in Sim.apply).
-import { UNITS, CARDS, EVENTS, BOSS } from './defs';
+import { UNITS, CARDS, EVENTS, BOSS, BUILDINGS } from './defs';
 
 export const ADM_OPS = [
   'money', 'moneySet', // s, v: add v / set to v
@@ -59,6 +64,7 @@ export const ADM_OPS = [
   'event', 'endEvents', // world events
   'win', 'newWar', 'score', 'reset', // war
   'diff', 'ai', // AI
+  'bgive', 'bkill', 'bheal', // base buildings (src/sim/bld.ts)
   'say', // announcement (FxEv 'adminSay')
 ] as const;
 export type AdmOp = typeof ADM_OPS[number];
@@ -68,11 +74,11 @@ export interface Adm {
   op: AdmOp;
   /** Side: 0 / 1; -1 = both (kill, heroCd) or «ничьё» (owner). */
   s: -1 | 0 | 1;
-  /** Amount (money), floors, on/off (freeze, god), mode (ai: 0 auto, 1 always AI, 2 never), difficulty, seed (reset). */
+  /** Amount (money), floors, on/off (freeze, god), mode (ai: 0 auto, 1 always AI, 2 never), difficulty, seed (reset), building level (bgive). */
   v: number;
   /** Count (spawn), card id (card), point index (owner). */
   n: number;
-  /** Unit type (spawn). */
+  /** Unit type (spawn), building type (bgive). */
   u: number;
   /** Optional map point (spawn, kill in a radius): NaN when absent. */
   x: number; z: number; r: number;
@@ -132,14 +138,21 @@ export function normAdm(c: unknown): Adm | null {
       pt();
       return a;
     }
-    case 'kill': {
+    case 'bgive': {
+      const s = side01(o.s), u = idx(o.u), v = idx(o.v ?? 1);
+      if (s === null || u === null || u < 0 || u >= BUILDINGS.length || v === null || v < 1 || v > 3) return null;
+      a.s = s; a.u = u; a.v = v;
+      pt();
+      return a;
+    }
+    case 'kill': case 'bkill': {
       const s = side3(o.s);
       if (s === null) return null;
       a.s = s; pt();
       if (!Number.isNaN(a.x)) { const r = typeof o.r === 'number' && Number.isFinite(o.r) ? o.r : 8; a.r = clamp(Math.round(r * 10) / 10, 1, ADM_MAX.radius); }
       return a;
     }
-    case 'boss': case 'heal': case 'repair': case 'vote': case 'win': {
+    case 'boss': case 'heal': case 'repair': case 'vote': case 'win': case 'bheal': {
       const s = side01(o.s);
       if (s === null) return null;
       a.s = s;

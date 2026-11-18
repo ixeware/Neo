@@ -533,7 +533,7 @@ export function initAdmin(h: AdminHooks): Admin {
   }
 
   const st = () => sim.st;
-  const ptName = (i: number) => { const p = st().pts[i]; return p.kind === 2 ? (h.prefs.spicy ? DONER.spicy : DONER.clean) : p.name; };
+  const ptName = (i: number) => { const p = st().pts[i]; return p.kind === 2 ? DONER.clean : p.name; };
   const ptKind = (i: number) => {
     const p = st().pts[i];
     return p.kind === 0 ? 'высотка' : p.kind === 1 ? 'село' : p.kind === 2 ? 'шаурмичная' : `место · ${({ sportiki: 'стадион', gelik: 'мойка', gym: 'качалка', market: 'рынок' } as Record<string, string>)[p.perk ?? ''] ?? 'перк'}`;

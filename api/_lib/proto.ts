@@ -38,6 +38,9 @@ const UNIT_ID = 2 ** 31 - 1;
 /** src/sim/sim.ts ORD_MAX and OrdMode. */
 export const ORD_MAX = 64;
 const ORD_MODES = new Set(['auto', 'move', 'attack', 'attackMove', 'hold', 'possessed']);
+/** src/sim/bdefs.ts BASE.line and the 'bld' ops (src/sim/sim.ts Cmd 'bld'). */
+export const BLD_LINE = 16;
+const BLD_OPS = new Set(['put', 'up', 'sell', 'rep', 'fire']);
 
 /**
  * Fields each kind may carry besides t / id / p / k (src/sim/sim.ts Cmd). A command with any other
@@ -48,7 +51,8 @@ const FIELDS: Record<string, readonly string[]> = {
   join: ['s'],
   dep: ['s', 'u', 'x', 'z'],
   vote: ['s', 'o'],
-  ord: ['s', 'ids', 'm', 'x', 'z', 'tg', 'fi', 'fn'],
+  ord: ['s', 'ids', 'm', 'x', 'z', 'tg', 'fi', 'fn', 'tb'],
+  bld: ['s', 'op', 'b', 'x', 'z', 'n', 'cells'],
   ctl: ['s', 'u', 'dx', 'dz', 'atk', 'fx', 'fz', 'rel'],
   adm: ['op', 's', 'v', 'n', 'u', 'x', 'z', 'r', 'key', 'txt'],
 };
@@ -68,8 +72,8 @@ function common(c: Record<string, unknown>, pid: string): string | null {
 const inWindow = (t: number, now: number) => t >= now - WIN_BACK && t <= now + WIN_AHEAD;
 
 /**
- * Validate one ordinary command from `pid` against the server tick. Kinds: join, dep, vote, and the
- * unit-control commands ord / ctl (src/sim/sim.ts: orders for a side's units, first-person driving;
+ * Validate one ordinary command from `pid` against the server tick. Kinds: join, dep, vote, bld (base
+ * buildings) and the unit-control commands ord / ctl (src/sim/sim.ts: orders for a side's units, first-person driving;
  * the sim checks ownership, sides and modes again). 'adm' goes through checkAdm with a token; 'cfg'
  * never comes from the network. Commands outside [now − WIN_BACK, now + WIN_AHEAD] are rejected (the
  * client takes them back and resyncs). The accepted command is rebuilt from its own fields only.
@@ -101,9 +105,9 @@ export function checkCmd(raw: unknown, pid: string, now: number): Checked {
       if (!side(c.s) || !Array.isArray(ids) || ids.length < 1 || ids.length > ORD_MAX || !ids.every(v => int(v, 0, UNIT_ID))) return { ok: false, why: 'shape' };
       if (typeof c.m !== 'string' || !ORD_MODES.has(c.m)) return { ok: false, why: 'shape' };
       if ((c.x !== undefined && !coord(c.x)) || (c.z !== undefined && !coord(c.z)) || (c.tg !== undefined && !int(c.tg, 0, UNIT_ID))) return { ok: false, why: 'shape' };
-      if ((c.fi !== undefined && !int(c.fi, 0, 1023)) || (c.fn !== undefined && !int(c.fn, 1, 1024))) return { ok: false, why: 'shape' };
+      if ((c.fi !== undefined && !int(c.fi, 0, 1023)) || (c.fn !== undefined && !int(c.fn, 1, 1024)) || (c.tb !== undefined && !int(c.tb, 0, UNIT_ID))) return { ok: false, why: 'shape' };
       out = { t, id, p: pid, k: 'ord', s: c.s, ids: [...(ids as number[])], m: c.m };
-      for (const f of ['x', 'z', 'tg', 'fi', 'fn'] as const) if (c[f] !== undefined) out[f] = c[f];
+      for (const f of ['x', 'z', 'tg', 'fi', 'fn', 'tb'] as const) if (c[f] !== undefined) out[f] = c[f];
       break;
     }
     case 'ctl': {
@@ -113,6 +117,18 @@ export function checkCmd(raw: unknown, pid: string, now: number): Checked {
       out = { t, id, p: pid, k: 'ctl', s: c.s, u: c.u, dx: c.dx, dz: c.dz, atk: c.atk };
       if (c.fx !== undefined) { out.fx = c.fx; out.fz = c.fz; }
       if (c.rel === 1) out.rel = 1;
+      break;
+    }
+    case 'bld': {
+      // base buildings: { s, op, b? (type), x?, z? (both or neither), n? (building id), cells? (a wall line: ≤ BLD_LINE nav cells) }
+      if (!side(c.s) || typeof c.op !== 'string' || !BLD_OPS.has(c.op)) return { ok: false, why: 'shape' };
+      if ((c.b !== undefined && !int(c.b, 0, 255)) || (c.n !== undefined && !int(c.n, 0, UNIT_ID))) return { ok: false, why: 'shape' };
+      if ((c.x === undefined) !== (c.z === undefined) || (c.x !== undefined && (!coord(c.x) || !coord(c.z)))) return { ok: false, why: 'shape' };
+      const cells = c.cells;
+      if (cells !== undefined && (!Array.isArray(cells) || cells.length < 1 || cells.length > BLD_LINE || !cells.every(v => int(v, 0, 1_000_000)))) return { ok: false, why: 'shape' };
+      out = { t, id, p: pid, k: 'bld', s: c.s, op: c.op };
+      for (const f of ['b', 'x', 'z', 'n'] as const) if (c[f] !== undefined) out[f] = c[f];
+      if (cells !== undefined) out.cells = [...(cells as number[])];
       break;
     }
     default:

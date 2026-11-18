@@ -14,6 +14,8 @@ export interface MenuState {
   tab?: MenuTab;
   /** Unlocked achievement ids. */
   achieved?: Set<string>;
+  /** Graphics style of this page load (src/render/style.ts); the setting is hidden when absent. */
+  gfx?: 'toon' | 'classic';
 }
 export interface MenuActions {
   start(side: 0 | 1, diff: number): void;
@@ -21,6 +23,8 @@ export interface MenuActions {
   shared(side: 0 | 1): void;
   setDiff(d: number): void;
   setSpicy(on: boolean): void;
+  /** Save the graphics style and reload into it. */
+  setGfx?(g: 'toon' | 'classic'): void;
 }
 
 const DIFF = ['Легко', 'Нормально', 'Как Зураб'];
@@ -50,6 +54,7 @@ function playPage(p: Portraits, s: MenuState): string {
     <div class="m-row">
       <div class="m-box paper"><h4>Сложность</h4><div class="seg" id="m-diff">${DIFF.map((d, i) => `<button type="button" aria-pressed="${i === s.diff}" data-d="${i}">${d}</button>`).join('')}</div></div>
       <div class="m-box paper"><h4>Пошлятина из чата</h4><div class="seg" id="m-spicy"><button type="button" aria-pressed="${s.spicy}" data-v="1">18+ вкл</button><button type="button" aria-pressed="${!s.spicy}" data-v="0">выкл</button></div></div>
+${s.gfx ? `<div class="m-box paper"><h4>Графика</h4><div class="seg" id="m-gfx"><button type="button" aria-pressed="${s.gfx === 'toon'}" data-g="toon">Новая</button><button type="button" aria-pressed="${s.gfx === 'classic'}" data-g="classic">Старая</button></div></div>` : ''}
       <div class="m-box paper m-how"><h4>Как играть</h4><ol>
         <li>Выбери юнита внизу и тапни по кругу у своего села или захваченного. Вкладка «Пацаны» — герои и наёмники.</li>
         <li>Юниты сами идут брать сёла: Шали, Автуры, Цоцин-Юрт, Аргун. Каждое село даёт деньги, Донер Бей у Грозного — ещё и лечит.</li>
@@ -160,5 +165,11 @@ export function renderMenu(root: HTMLElement, p: Portraits, s: MenuState, a: Men
   root.querySelectorAll<HTMLButtonElement>('#m-spicy button').forEach(b => b.addEventListener('click', () => {
     s.spicy = b.dataset.v === '1'; a.setSpicy(s.spicy);
     root.querySelectorAll<HTMLButtonElement>('#m-spicy button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  }));
+  root.querySelectorAll<HTMLButtonElement>('#m-gfx button').forEach(b => b.addEventListener('click', () => {
+    const g = b.dataset.g === 'classic' ? 'classic' : 'toon';
+    if (g === s.gfx) return;
+    root.querySelectorAll<HTMLButtonElement>('#m-gfx button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    a.setGfx?.(g); // reloads the page
   }));
 }

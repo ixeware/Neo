@@ -5,9 +5,10 @@
 import * as heroes from '../src/data/heroes';
 import * as lore from '../src/data/lore';
 import * as places from '../src/data/places';
-import { UNITS, CARDS } from '../src/sim/defs';
+import { UNITS, CARDS, BUILDINGS, bldStats } from '../src/sim/defs';
+import { readFileSync } from 'node:fs';
 
-const BAD = /(^|[^а-яё])(кур(ени|ит|ят|ил|ю(?![а-яё]))|покур|закур|сигар|табак|никотин|снюс|вейп|кальян|отходняк|бля|ху[йеёя]|пизд|еба|ёба|ебл|выеб|заеб|сука|суки|сучк|жоп|член(?!ами группы)|говн|дерьм|педик|гей(?![а-яё])|девствен|нахер|похер|срать|ссать)|LOOP|[Бб]амб(?![а-яё])/i;
+const BAD = /(^|[^а-яё])(кур(ени|ит|ят(?!ник)|ил|ю(?![а-яё]))|покур|закур|сигар|табак|никотин|снюс|вейп|кальян|отходняк|бля|ху[йеёя]|пизд|еба|ёба|ебл|выеб|заеб|сука|суки|сучк|жоп|член(?!ами группы)|говн|дерьм|педик|гей(?![а-яё])|девствен|нахер|похер|срать|ссать)|LOOP|[Бб]амб(?![а-яё])/i;
 const hits: string[] = [];
 const seen = new WeakSet<object>();
 function walk(v: unknown, path: string, spicyCtx: boolean) {
@@ -38,5 +39,14 @@ UNITS.forEach((u, i) => u?.blurb?.forEach((b, s) => { const t = lore.clean18(b, 
 UNITS.forEach((u, i) => u?.name?.forEach((b, s) => { if (BAD.test(b)) hits.push(`UNITS[${i}].name[${s}]: ${b}`); }));
 // сход cards: clean titles (the 18+ ones live in spicy18 / CARD_TEXT spicy fields)
 CARDS.forEach((c, i) => { const L = heroes.cardLore(i, false); const t = L ? `${L.title} ${L.desc} ${L.quote && !L.quote.spicy ? L.quote.t : ''}` : `${c.title ?? ''} ${c.quote ?? ''}`; if (BAD.test(t)) hits.push(`CARDS[${i}] clean: ${t.slice(0, 120)}`); });
+// base buildings: names, blurbs and stat labels (the 18+ names live in spicy18), and every Russian string of the sim's
+// building module (deny reasons shown to clean-mode players too)
+BUILDINGS.forEach((d, i) => {
+  for (const t of [d.name, d.blurb, ...[1, 2, 3].flatMap(lv => bldStats(i, lv).flat())]) if (BAD.test(t)) hits.push(`BUILDINGS[${i}] ${d.key}: ${t.slice(0, 120)}`);
+});
+for (const f of ['src/sim/bld.ts', 'src/ui/build.ts', 'src/ui/buildText.ts']) { // + the build mode's own lines
+  const src = readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+  for (const m of src.matchAll(/(['`])((?:(?!\1)[^\\\n]|\\.)*[А-Яа-яЁё](?:(?!\1)[^\\\n]|\\.)*)\1/g)) if (BAD.test(m[2])) hits.push(`${f}: ${m[2].slice(0, 120)}`);
+}
 console.log(hits.length ? hits.join('\n') : 'clean: no 18+ words in clean-mode data texts');
 process.exit(hits.length ? 1 : 0);

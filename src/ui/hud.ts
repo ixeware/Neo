@@ -100,7 +100,11 @@ export class Hud {
   private stats: HTMLElement[] = [];
   private scoreEl: HTMLElement; private warEl: HTMLElement; private clockEl: HTMLElement;
   private moneyEl: HTMLElement; private incEl: HTMLElement;
-  private bankEl: HTMLElement;
+  /** The bank slip (build mode adds its «Стройка» button to it). */
+  bankEl: HTMLElement;
+  /** Build mode (src/ui/build.ts) stands in the deck's place: the layout measures this instead of the card row. */
+  deckAlt: HTMLElement | null = null;
+  get deckEl(): HTMLElement { return this.deck; }
   private miniEl: HTMLElement;
   private layoutKey = '';
   /** card buffs (снюс / LOOP / «отходняк»): ours under the clock, the neighbours' under their side slip */
@@ -184,7 +188,7 @@ export class Hud {
     const mini = h('div', 'mini paper');
     this.miniEl = mini;
     this.miniCanvas = h('canvas') as HTMLCanvasElement;
-    this.miniCanvas.width = 456; this.miniCanvas.height = 312;
+    this.miniCanvas.width = 456; this.miniCanvas.height = 353; // the map is 398 × 308 (z0 = −36): every CSS size below keeps 1.292
     mini.append(this.miniCanvas);
 
     this.vote = h('div', 'vote paper');
@@ -225,7 +229,7 @@ export class Hud {
    */
   layout() {
     if (this.root.hidden) return;
-    const row = this.rows[this.tab];
+    const row = this.deckAlt ?? this.rows[this.tab];
     const v = [this.deck.offsetHeight, row.offsetHeight, this.bankEl.offsetHeight, this.bankEl.offsetWidth, this.miniEl.offsetWidth, this.miniEl.offsetHeight,
       this.vote.hidden ? 0 : this.vote.offsetHeight, this.sides[1].offsetHeight];
     if (!v[0] || !v[4]) return;

@@ -1,4 +1,5 @@
 import './ui/style.css';
+import './render/toon/hud.css';
 import * as THREE from 'three';
 import { loadTerrain, heightY, setRenderSurface } from './world/terrain';
 import { Sim, cardTitle, PT_DONER, type FxEv } from './sim/sim';
@@ -39,15 +40,18 @@ import { Roster } from './ui/roster';
 import { LocalPresence, cleanNick, type PresenceSource } from './net/presence';
 import { NearFade } from './render/fpcam';
 import { unitLabel } from './ui/hud';
+import { GFX, setGfx, type Gfx } from './render/style';
+import { BaseView } from './render/baseView';
+import { Build } from './ui/build';
 
 const $ = (id: string) => document.getElementById(id)!;
 const bootMsg = (s: string) => { $('boot-msg').textContent = s; };
 
-interface Prefs { pid: string; diff: number; spicy: boolean; muted: boolean; music: boolean; nick?: string }
+interface Prefs { pid: string; diff: number; spicy: boolean; muted: boolean; music: boolean; nick?: string; gfx: Gfx }
 function loadPrefs(): Prefs {
   let p: Partial<Prefs> = {};
   try { p = JSON.parse(localStorage.getItem('vysotka.prefs') || '{}'); } catch { /* blocked storage */ }
-  return { pid: p.pid || 'p' + Math.random().toString(36).slice(2, 10), diff: p.diff ?? 1, spicy: p.spicy ?? true, muted: p.muted ?? false, music: p.music ?? true, nick: cleanNick(p.nick) };
+  return { pid: p.pid || 'p' + Math.random().toString(36).slice(2, 10), diff: p.diff ?? 1, spicy: p.spicy ?? true, muted: p.muted ?? false, music: p.music ?? true, nick: cleanNick(p.nick), gfx: p.gfx === 'classic' ? 'classic' : 'toon' };
 }
 function savePrefs(p: Prefs) { try { localStorage.setItem('vysotka.prefs', JSON.stringify(p)); } catch { /* blocked storage */ } }
 
@@ -156,7 +160,10 @@ async function boot() {
   let nextChatter = performance.now() + 9000;
   let nextHint = performance.now() + 20000;
   let overEra = 0;
-  const menuState: MenuState = { canContinue: null, diff: prefs.diff, spicy: prefs.spicy, shared: null, tab: 'play' };
+  const menuState: MenuState = { canContinue: null, diff: prefs.diff, spicy: prefs.spicy, shared: null, tab: 'play', gfx: GFX };
+  /** «Графика: Новая / Старая» reloads the page; the war in progress is picked up again right after (RESUME). */
+  const RESUME = 'vysotka.resume';
+  let resumeShared = -1;
 
   /** Card tap or key: select, or say why it can't be used now. */
   const pickCard = (t: number) => {
@@ -164,6 +171,7 @@ async function boot() {
     const why = hud.cardBlocked(t);
     if (why) { sound.deny(); hud.note(lore.deny(why, prefs.spicy)); return; }
     sound.click();
+    build.close();
     hud.select(hud.selected === t ? -1 : t);
   };
   const hud = new Hud($('hud'), {
@@ -194,6 +202,14 @@ async function boot() {
     sim, stage, units, hud, root: $('hud'), labels: $('labels'), side: () => side, pid: () => session?.pid ?? prefs.pid, playing: () => playing && !!session,
     nick: () => prefs.nick ?? '', setNick: n => { prefs.nick = n; savePrefs(prefs); presence.setPresence({ name: n }); },
     riding: () => control.fp.id, selected: () => control.sel.size,
+  });
+  // ---- the base: buildings on screen (src/render/baseView.ts) and build mode (src/ui/build.ts) ----
+  const base = new BaseView(terrain, sim, stage, particles, shots);
+  scene.add(base.group);
+  const build = new Build({
+    sim, stage, hud, terrain, base, control, session: () => session, side: () => side, pid: () => session?.pid ?? prefs.pid,
+    playing: () => playing && !!session, spicy: () => prefs.spicy, sound, say: (who, text, prio, s) => say(who, text, prio, s),
+    deny: why => lore.deny(why, prefs.spicy), near: (x, z, r) => near(x, z, r),
   });
   // first person: whatever stands at the camera dithers away (decor = 2GIS landmarks, Донер Бей, mosques)
   NearFade.install(world, units.group, scene.getObjectByName('decor') ?? world);
@@ -268,7 +284,7 @@ async function boot() {
     heroSay(t, s, 'idle', 0);
     return true;
   };
-  const donerName = () => (prefs.spicy ? DONER.spicy : DONER.clean);
+  const donerName = () => DONER.clean; // one name, 18+ or not
   // tips: the new ones (heroes, Донер Бей, rides) first, then everything in a shuffled loop
   const shuffle = <T,>(a: T[]) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   let hintQ = [...shuffle(HINTS.slice(7)), ...shuffle(HINTS.slice(0, 7))];
@@ -288,6 +304,7 @@ async function boot() {
     syncPlaces();
     session.onStep = () => { units.capture(performance.now()); ach.step(); };
     control.reset();
+    build.reset(); minimap.side = s;
     presence = sess.backend.presence ?? new LocalPresence(sess.pid, prefs.nick ?? '', s);
     roster.attach(presence);
     if (!prefs.nick && vercel?.nick) { prefs.nick = vercel.nick; savePrefs(prefs); } // asked on the first Vercel join
@@ -348,6 +365,12 @@ async function boot() {
       shared: s => { sound.unlock(); void startShared(s); },
       setDiff: d => { prefs.diff = d; savePrefs(prefs); },
       setSpicy: on => { prefs.spicy = on; savePrefs(prefs); applySpicy(); if (!on) feedQ.length = 0; },
+      setGfx: g => setGfx(g, () => {
+        prefs.gfx = g; savePrefs(prefs);
+        if (!session) return;
+        if (session.backend.kind === 'local') session.backend.checkpoint(sim.snapshot(), Date.now());
+        try { sessionStorage.setItem(RESUME, session.backend.kind === 'local' ? 'local' : 'shared' + side); } catch { /* blocked storage: the menu's «Продолжить» still works */ }
+      }),
     });
   }
 
@@ -358,7 +381,8 @@ async function boot() {
       if (!playing || !session) return;
       lastTap = { x, y };
       const t = hud.selected;
-      if (t < 0) { // no card in hand: select / order (src/ui/control.ts)
+      if (t < 0) { // no card in hand: build mode or a building (src/ui/build.ts), else select / order (src/ui/control.ts)
+        if (build.tap(x, y, m)) return;
         if (!control.tap(x, y, m)) hud.note(m.touch ? 'Выбери юнита внизу или тапни по своему' : 'Выбери юнита внизу или кликни по своему');
         return;
       }
@@ -372,14 +396,16 @@ async function boot() {
       hud.tip(x, y, `−${cost} ₽`);
       if (UNITS[t].hero) hud.select(-1); // one per side: the card goes «на поле»
     },
-    order: (x, y) => { sound.unlock(); if (playing && session) control.order(x, y); },
-    box: (ph, x0, y0, x1, y1, m) => control.box(ph, x0, y0, x1, y1, m),
-    hover: (x, y) => control.hover(x, y),
-    keyBusy: code => control.keyBusy(code),
+    order: (x, y) => { sound.unlock(); if (playing && session && !build.order(x, y)) control.order(x, y); },
+    box: (ph, x0, y0, x1, y1, m) => build.box(ph, x0, y0, x1, y1, m) ?? control.box(ph, x0, y0, x1, y1, m),
+    grab: (x, y, m) => build.grab(x, y, m),
+    hover: (x, y) => { build.hover(x, y); control.hover(x, y); },
+    keyBusy: code => build.keyBusy(code) || control.keyBusy(code),
     look: { on: () => control.fp.on, drag: (dx, dy, t) => control.fp.look(dx, dy, t), press: d => control.fp.press(d) },
   });
   addEventListener('keydown', e => {
     if (!playing) return;
+    if (build.key(e)) return; // B, digits in the palette, R, Esc
     if (control.key(e)) return; // selection, orders, groups, first person
     const k = e.ctrlKey || e.metaKey || e.altKey ? -1 : DECK_KEYS.indexOf(e.key);
     if (k >= 0 && hud.typeAt(k) >= 0) pickCard(hud.typeAt(k));
@@ -468,6 +494,7 @@ async function boot() {
     let back: Set<number> | null = null; // heroes coming back from «пары» this frame (their spawn is not news)
     for (const e of list) {
       ach.fx(e);
+      if (build.fx(e, now)) continue; // buildings: effects, sounds, feed (src/ui/build.ts)
       switch (e.e) {
         case 'spawn': {
           const y = heightY(terrain, e.x, e.z);
@@ -578,8 +605,9 @@ async function boot() {
           if (e.s === side) {
             sound.gavel();
             hud.banner(`Сход решил: ${v3 ? v3.title : e.title}`, v3 ? v3.desc : card.quote, e.s, 2800);
-            if (card.fx === Fx.Focus) { const v = sim.st.votes[e.s]; if (v.focusPt >= 0) { const p = sim.st.pts[v.focusPt]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); } }
-            if (card.fx === Fx.FocusDoner) { const p = sim.st.pts[PT_DONER]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); }
+            const fly = build.mode === 'off'; // never pull the camera away from a building being placed
+            if (card.fx === Fx.Focus && fly) { const v = sim.st.votes[e.s]; if (v.focusPt >= 0) { const p = sim.st.pts[v.focusPt]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); } }
+            if (card.fx === Fx.FocusDoner && fly) { const p = sim.st.pts[PT_DONER]; stage.flyTo(p.x, p.z, Math.min(stage.dist, 110)); }
           } else {
             say('admin', `${SIDE_NAME[e.s]} решил: ${v3 ? v3.title : cardTitle(card, e.title.replace(/^Все на |!$/g, ''))}`, 1);
           }
@@ -736,6 +764,7 @@ async function boot() {
     return (vercel = v);
   })).then(s => {
     shared = s;
+    if (resumeShared >= 0 && s && !playing) { void startShared(resumeShared as Side); resumeShared = -1; return; }
     if (!playing && !$('menu').hidden) openMenu();
   }).catch(() => { shared = null; });
 
@@ -796,6 +825,7 @@ async function boot() {
     units.zoomK = control.fp.on ? 1 : Math.max(1, Math.min(2.4, stage.dist / 50));
     units.update(session ? session.alpha() : 1, now, dt, stage.camera);
     control.update(now, dt);
+    build.update(now, dt, session ? session.alpha() : 1, units.zoomK);
     roster.update(now);
     particles.setScale(stage.renderer.domElement.height / (2 * Math.tan((stage.camera.fov * Math.PI) / 360)));
     particles.update(dt, tnow);
@@ -805,15 +835,21 @@ async function boot() {
     });
     if (playing) { labels.update(dt); minimap.draw(now); hud.update(sim, prefs.pid, now); }
     else labels.update(dt);
-    stage.renderer.render(scene, stage.camera);
+    stage.render();
     requestAnimationFrame(frame);
   };
   $('boot').classList.add('done');
   openMenu();
+  try { // back from a graphics switch: straight into the war that was running
+    const r = sessionStorage.getItem(RESUME);
+    sessionStorage.removeItem(RESUME);
+    if (r === 'local' && loadLocal()) resumeLocal();
+    else if (r === 'shared0' || r === 'shared1') resumeShared = r === 'shared1' ? 1 : 0;
+  } catch { /* blocked storage */ }
   requestAnimationFrame(frame);
   // debug handle for automated checks
   (window as unknown as { __game: unknown }).__game = { sim, stage, get session() { return session; }, hud, start: startLocal, units, decor, defs: { CARDS, UNITS }, get side() { return side; },
-    setSpicy(on: boolean) { prefs.spicy = on; savePrefs(prefs); applySpicy(); }, packs, labels, control, roster };
+    setSpicy(on: boolean) { prefs.spicy = on; savePrefs(prefs); applySpicy(); }, packs, labels, control, roster, build, base };
 }
 
 boot().catch(err => {

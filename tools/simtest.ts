@@ -18,6 +18,7 @@ import { Session, type Backend } from '../src/net/session';
 import { validCmd, validAdmCmd } from '../src/net/shared';
 import { okPid, bound, checkState, explained, decide, verdicts, stateShape, moneyBound } from '../src/net/guard';
 import { admBody, localChannel } from '../src/net/adminChannel';
+import { baseChecks, fillBases, forceBase } from './basetest';
 
 const MIN = Number(process.argv[2] || 30);
 const SEED = Number(process.argv[3] || 42);
@@ -496,6 +497,7 @@ function forceContent(sim: Sim) {
   for (const t of [WOU, ADMIN, ERSNO, BEKHAN, ADAM, MOHMAD, GELIK, SPORTIK, AMINA]) put(0, t, at.x + 4, at.z + 1);
   for (const t of [CHIMAEV, WOU, ADMIN, ERSNO, ADAM, MOHMAD, GELIK, SPORTIK]) put(1, t, ku.x - 4, ku.z + 1);
   sim.startEvent('jam');
+  forceBase(sim); // v5: towers, a Тесла with its generator, traps, walls, economy on both sides
 }
 /** Short-lived things right before a snapshot: rides, chickens, Фудзи poison, снюс + LOOP, a pack with scared units, a lost place. */
 function forceLate(sim: Sim) {
@@ -520,7 +522,7 @@ const live = (s: Sim) => {
     heroes: n(u => !!UNITS[u.t].hero), away: s.st.away.length, rides: n(u => u.t === RIDE), golems: n(u => u.t === GOLEM), chickens: n(u => u.t === CHICKEN),
     geliks: n(u => u.t === GELIK), sportiki: n(u => u.t === SPORTIK), packs: s.st.packs.length, scared: n(u => u.fr > now), poisoned: n(u => u.psn > now),
     snus: s.st.sides.map(x => x.snus > now ? 1 : x.snus + BUFF.offFor > now && x.snus ? -1 : 0), loop: s.st.sides.map(x => (x.loop > now ? 1 : 0)), aoe: s.st.aoe.length,
-    places: s.st.pts.slice(PT_PLACE0).map(p => p.owner), ev: s.st.ev,
+    places: s.st.pts.slice(PT_PLACE0).map(p => p.owner), ev: s.st.ev, bld: [0, 1].map(sd => s.st.bld.filter(q => q.s === sd).length),
   });
 };
 /** Restores `b` through JSON and structuredClone and runs all three side by side. */
@@ -541,7 +543,7 @@ const same = hashState(runTo(SEED, 6000).st) === hashState(runTo(SEED, 6000).st)
 const b = runTo(SEED, 3060, { 3000: forceContent, 3050: forceLate });
 console.log('content at 5:06', live(b));
 const liveOk = b.st.packs.length > 0 && b.st.units.some(u => u.fr > b.st.tick) && b.st.units.some(u => u.t === GELIK) && b.st.units.some(u => u.t === SPORTIK) && b.st.sides[0].snus > b.st.tick && b.st.sides[1].loop > b.st.tick && b.st.units.some(u => u.t === ERSNO)
-  && b.st.units.some(u => u.t === AMINA);
+  && b.st.units.some(u => u.t === AMINA) && [0, 1].every(sd => b.st.bld.filter(q => q.s === sd).length >= 10);
 if (!liveOk) { console.log('v3 content not alive at the snapshot'); process.exitCode = 1; }
 let ok = twin(b, 600, 'A (heroes, summons, rides, jam, poison, гелики, спортики, пачка, снюс, LOOP)');
 // «Завтра учимся» right now: heroes are away «на парах» in the snapshot and come back after it
@@ -559,10 +561,12 @@ if (!(same && ok)) process.exitCode = 1;
   for (const sd of [0, 1] as Side[]) {
     for (let n = s.count(sd); n < 150; n++) s.spawn(sd, n % 3 ? 2 : SPORTIK, p.x + (sd ? 8 : -8) + (n % 10) * 0.4, p.z - 4 + Math.floor(n / 10) * 0.4, -1);
   }
+  const nb = fillBases(s); // v5: both bases full too (30 buildings + 40 wall segments a side, towers firing)
   let peak = 0, at = 0;
   for (let i = 0; i < 60; i++) { s.step(undefined); const b = JSON.stringify(s.st).length; if (b > peak) { peak = b; at = s.st.proj.length; } }
   const kb = peak / 1024;
-  console.log(`worst case (both sides at the 150 cap, all heroes, гелики): ${kb.toFixed(1)} KB with ${at} projectiles in flight`);
+  console.log(`worst case (both sides at the 150 cap, all heroes, гелики, ${nb} base buildings): ${kb.toFixed(1)} KB with ${at} projectiles in flight`);
+  check('worst case holds both bases full (140 buildings)', nb >= 136 && s.st.bld.length >= 130, `${nb} placed, ${s.st.bld.length} standing`);
   if (kb > 200) { console.log('STATE TOO BIG'); process.exitCode = 1; }
 }
 
@@ -837,6 +841,7 @@ const doAdm = (s: Sim, body: Record<string, unknown>) => { s.fx.length = 0; s.st
   {
     const sim = runTo(SEED, 400), backend: Backend = { kind: 'local', send() { /* none */ }, checkpoint() { /* none */ } };
     const sess = new Session(sim, backend, 'x');
+    sim.st.sides[0].aiNext = 1e9; // the AI (units, and since v5 its base) must not spend the gift before we look
     const t = sim.st.tick + 3, m0 = sim.st.sides[0].money;
     sess.receive({ t, id: 'same', p: 'evil', k: 'dep', s: 0, u: 0, x: 1, z: 1 } as Cmd);
     sess.receive({ t, id: 'same', p: 'admin', k: 'adm', op: 'money', s: 0, v: 5000 } as unknown as Cmd);
@@ -1369,6 +1374,12 @@ const dist = (u: { x: number; z: number }, x: number, z: number) => Math.hypot(u
 }
 const ctlFails = fails.slice(ctlFails0);
 console.log(ctlFails.length ? `unit control checks FAILED: ${ctlFails.join('; ')}` : 'unit control checks OK');
+
+// ---- v5: base buildings (tools/basetest.ts) ---------------------------------------------------------------
+const baseFails0 = fails.length;
+baseChecks({ terrain, check, sandbox, runTo, cfg, seed: SEED });
+const baseFails = fails.slice(baseFails0);
+console.log(baseFails.length ? `base building checks FAILED: ${baseFails.join('; ')}` : 'base building checks OK');
 
 // ---- shared war input checks (src/net/guard.ts, Sim.apply): forged ids, states and checkpoints ------------
 console.log('\n== shared war input checks: player ids, bound commands, checkpoint states, who vouches ==');

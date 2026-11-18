@@ -52,7 +52,11 @@ export interface UnitDef {
   steal?: [number, number];
   /** Heavy: pushes the crowd aside and is never knocked back (sim MASS; default 1, bosses 9). */
   mass?: number;
+  /** Flies: crosses walls and buildings; only «Антидрон» towers shoot it (src/sim/bld.ts). */
+  fly?: true;
 }
+// Base buildings: BUILDINGS, BKEY, BASE, BF, AI_BW, bldStats (docs/v5/BASE.md).
+export * from './bdefs';
 
 const BOTH: [boolean, boolean] = [true, true];
 

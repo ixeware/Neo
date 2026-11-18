@@ -149,9 +149,9 @@ export class Labels {
     resize();
   }
 
-  /** «Донер Гей» only with the 18+ layer on. */
-  setSpicy(on: boolean) {
-    for (const l of this.list) if (l.kind === 'doner') { l.nm!.textContent = on ? DONER.spicy : DONER.clean; l.mkey = ''; }
+  /** Донер Бей keeps one name, 18+ or not (the 18+ variant of the name is retired). */
+  setSpicy(_on: boolean) {
+    for (const l of this.list) if (l.kind === 'doner') { l.nm!.textContent = DONER.clean; l.mkey = ''; }
   }
 
   /** Drop all hero tags (new war, new session). */

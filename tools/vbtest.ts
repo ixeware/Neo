@@ -233,6 +233,18 @@ const t2 = D.tick() + 8;
 const ord = { t: t2, id: myId('ord'), k: 'ord', s: 0, ids: [3, 5, 8], m: 'attackMove', x: 120.5, z: 88.25, fi: 3, fn: 9 };
 const ctl = { t: t2, id: myId('ctl'), k: 'ctl', s: 0, u: 5, dx: -3, dz: 8, atk: 1, fx: 2, fz: -1 };
 const ctlRel = { t: t2, id: myId('ctlrel'), k: 'ctl', s: 0, u: 5, dx: 0, dz: 0, atk: 0, rel: 1 };
+// base buildings (src/sim/sim.ts 'bld'): one building, a wall line, an upgrade, a superweapon shot; ord with tb
+const bldPut = { t: t2, id: myId('bput'), k: 'bld', s: 0, op: 'put', b: 4, x: 61.5, z: 190.25 };
+const bldLine = { t: t2, id: myId('bline'), k: 'bld', s: 0, op: 'put', b: 9, cells: [23310, 23311, 23312, 23511] };
+const bldUp = { t: t2, id: myId('bup'), k: 'bld', s: 0, op: 'up', n: 4242 };
+const bldFire = { t: t2, id: myId('bfire'), k: 'bld', s: 0, op: 'fire', n: 77, x: 339.4, z: 102.9 };
+const ordTb = { t: t2, id: myId('ordtb'), k: 'ord', s: 0, ids: [3, 5], m: 'attack', tb: 4242 };
+for (const c of [bldPut, bldLine, bldUp, bldFire, ordTb]) D.send({ type: 'cmd', c });
+D.send({ type: 'cmd', c: { ...bldPut, id: myId('bx'), extra: 1 } });
+D.send({ type: 'cmd', c: { ...bldPut, id: myId('bop'), op: 'nuke' } });
+D.send({ type: 'cmd', c: { ...bldLine, id: myId('bn'), cells: Array.from({ length: 17 }, (_, i) => i + 1) } });
+D.send({ type: 'cmd', c: { ...bldPut, id: myId('bz'), z: undefined } }); // x without z
+D.send({ type: 'cmd', c: { ...bldUp, id: myId('bid'), n: -4 } });
 D.send({ type: 'cmd', c: ord }); D.send({ type: 'cmd', c: ctl }); D.send({ type: 'cmd', c: ctlRel });
 D.send({ type: 'cmd', c: { ...ord, id: myId('ordx'), extra: 1 } });
 D.send({ type: 'cmd', c: { ...ord, id: myId('ordm'), m: 'teleport' } });
@@ -248,6 +260,11 @@ check('ctl relayed to everyone with every field (fx, fz, rel)', [A, B, C].every(
 const shapeNaks = new Set(D.got.filter(m => m.type === 'nak' && m.why === 'shape').map(m => m.id));
 check('unknown field / mode / too many ids / half facing / stick out of range refused',
   ['ordx', 'ordm', 'ordn', 'ctlf', 'ctld'].every(s => shapeNaks.has(myId(s))) && ![A, B, C].some(c => ['ordx', 'ordm', 'ordn', 'ctlf', 'ctld'].some(s => relayed(c, myId(s)))),
+  [...shapeNaks].map(x => String(x).split(':').pop()).join(','));
+check('bld relayed to everyone field for field (put, a wall line with its cells, up, fire) and ord with tb',
+  [A, B, C].every(c => [bldPut, bldLine, bldUp, bldFire, ordTb].every(w => same(relayed(c, w.id), w))), JSON.stringify(relayed(B, bldLine.id)));
+check('bld: unknown field / op / 17 cells / half a coordinate / negative id refused, none relayed',
+  ['bx', 'bop', 'bn', 'bz', 'bid'].every(s => shapeNaks.has(myId(s))) && ![A, B, C].some(c => ['bx', 'bop', 'bn', 'bz', 'bid'].some(s => relayed(c, myId(s)))),
   [...shapeNaks].map(x => String(x).split(':').pop()).join(','));
 D.ws.close();
 

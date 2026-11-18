@@ -1,0 +1,53 @@
+/* HUD skin of the new graphics style. Everything is scoped to `html.gfx-toon` (the class is set by
+   src/render/style.ts), so the classic HUD is untouched. Colours, corners and shadows only: no size,
+   position, padding or border-width changes, so the layout and the Hud.layout() variables stay exactly
+   as in src/ui/style.css. */
+html.gfx-toon {
+  --paper: #fffdf6;
+  --grid: #e1e9f7;
+  --graphite: #2a2233;      /* the ink of the 3D outlines */
+  --graphite-2: #5b5266;
+  --pen-a: #2f6bff;
+  --pen-a-deep: #1b3fae;
+  --pen-k: #ff4a2e;
+  --pen-k-deep: #b3261a;
+  --marker: #ffc93c;
+  --table: #1f7fc4;         /* the sky the map floats in */
+  --ok: #1f9d55;
+  --toon-r: 12px;
+  --toon-r-s: 8px;
+  --toon-drop: 0 4px 0 rgba(42, 34, 51, 0.3);
+}
+
+/* panels: rounder, a soft drop instead of the hard offset shadow */
+html.gfx-toon .paper { border-radius: var(--toon-r); box-shadow: var(--toon-drop); }
+html.gfx-toon .card.sel { background-color: #fff3b0; box-shadow: 0 8px 0 rgba(42, 34, 51, 0.34); }
+html.gfx-toon .card.sel::after { border-radius: 9px; }
+html.gfx-toon .card .cdbar { border-radius: 0 0 0 10px; background: var(--pen-a); }
+html.gfx-toon .card img, html.gfx-toon .card .pf { border-radius: var(--toon-r-s); }
+html.gfx-toon .mini canvas { border-radius: var(--toon-r-s); }
+html.gfx-toon .tabs { border-radius: 999px; overflow: hidden; box-shadow: 0 3px 0 rgba(42, 34, 51, 0.3); }
+html.gfx-toon .msg { border-radius: 12px 12px 12px 4px; box-shadow: 0 3px 0 rgba(42, 34, 51, 0.26); }
+html.gfx-toon .vote .opt { border-radius: 10px; }
+html.gfx-toon .vote .time, html.gfx-toon .vote .time b { border-radius: 999px; }
+html.gfx-toon .banner .big { border-radius: 14px; box-shadow: 0 5px 0 rgba(42, 34, 51, 0.36); }
+html.gfx-toon .tip { border-radius: 999px; }
+html.gfx-toon .tip.tip-n, html.gfx-toon .tip.tip-plus { border-radius: 0; }
+html.gfx-toon .over { background: rgba(31, 79, 140, 0.5); }
+html.gfx-toon .ach-toast { border-radius: 14px; }
+
+/* map labels */
+html.gfx-toon .lbl-v .nm, html.gfx-toon .lbl-hero, html.gfx-toon .lbl-lm, html.gfx-toon .lbl-edge, html.gfx-toon .lbl-boss .nm { border-radius: 999px; box-shadow: 0 2px 0 rgba(42, 34, 51, 0.3); }
+html.gfx-toon .lbl-hq .nm { border-radius: 999px; }
+
+/* menu */
+html.gfx-toon .seg { border-radius: 999px; overflow: hidden; }
+html.gfx-toon .m-cont { border-radius: 999px; }
+html.gfx-toon .m-tabs { border-radius: 999px; box-shadow: var(--toon-drop); }
+html.gfx-toon .m-cont { box-shadow: var(--toon-drop); }
+html.gfx-toon .pick:hover { box-shadow: 0 7px 0 rgba(42, 34, 51, 0.34); }
+html.gfx-toon .pick img { border-radius: var(--toon-r-s); background: rgba(47, 155, 224, 0.12); }
+html.gfx-toon .pick .p-go { border-radius: 999px; }
+html.gfx-toon #menu { background: linear-gradient(180deg, rgba(18, 62, 120, .58), rgba(18, 62, 120, .2) 40%, rgba(18, 62, 120, .62)); }
+html.gfx-toon .m-title { text-shadow: 0 5px 0 rgba(42, 34, 51, .4); }
+html.gfx-toon .boot-in { color: #fffdf6; }

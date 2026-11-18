@@ -2,8 +2,9 @@
    Same notebook paper as the rest of the HUD; our ink for what is ours, red pen for attacks. */
 
 /* ---------- command bar (only while something is selected) ---------- */
-/* on top of the deck, centred in the room right of the bank (a rich bank never ends up under it) */
-.cmdbar { position: absolute; left: calc(var(--edge-l) + var(--bank-w) + 8px); right: var(--edge-r); bottom: calc(var(--edge-b) + var(--deck-h) + 8px); display: flex; justify-content: center; align-items: stretch; gap: 6px; z-index: 1; pointer-events: none; }
+/* on top of the deck, centred in the room right of the bank (a rich bank never ends up under it); the minimap
+   follows the map's aspect and may stand taller than a short deck: the bar clears whichever is taller */
+.cmdbar { position: absolute; left: calc(var(--edge-l) + var(--bank-w) + 8px); right: var(--edge-r); bottom: calc(var(--edge-b) + max(var(--deck-h), var(--mini-h)) + 8px); display: flex; justify-content: center; align-items: stretch; gap: 6px; z-index: 1; pointer-events: none; }
 .cmdbar > * { pointer-events: auto; }
 .cb-n { display: flex; align-items: center; gap: 6px; padding: 0 10px; min-height: 44px; font-weight: 600; font-size: 13px; white-space: nowrap; transform: rotate(-1deg); }
 .cb-n .num { font-size: 20px; font-weight: 900; color: var(--pen-a); }

@@ -198,7 +198,7 @@ export class Control {
   // ---- orders --------------------------------------------------------------------------------
   private submit(b: CmdBody) { this.d.session()?.submit(b); }
   /** Orders the selection. Returns false when there is nobody to order. */
-  issue(m: OrdMode, x?: number, z?: number, tg?: number): boolean {
+  issue(m: OrdMode, x?: number, z?: number, tg?: number, tb?: number): boolean {
     const sim = this.d.sim, side = this.d.side();
     let list = [...this.sel].map(id => sim.unit(id)).filter((u): u is U => this.mine(u));
     if (!list.length) { this.d.sound.deny(); this.d.hud.note('Некого: выдели своих'); return false; }
@@ -215,13 +215,14 @@ export class Control {
       const body: Record<string, unknown> = { k: 'ord', s: side, ids: ids.slice(i, i + ORD_MAX), m };
       if (x !== undefined && z !== undefined) { body.x = r(x); body.z = r(z); body.fi = i; body.fn = ids.length; }
       if (tg !== undefined) body.tg = tg;
+      if (tb !== undefined) body.tb = tb; // a building (src/ui/build.ts)
       this.submit(body as unknown as CmdBody);
     }
     this.d.sound.click();
     const n = ids.length, who = n === 1 ? unitLabel(list[0].t, side) : `${n} юн.`;
     if (m === 'move') { this.view.mark('move', x!, z!); }
     else if (m === 'attackMove') { this.view.mark('amove', x!, z!); this.d.hud.note(`${who}: атака с ходу`, 1600); }
-    else if (m === 'attack') { const t = sim.unit(tg!); if (t) this.view.mark('attack', t.x, t.z, t.id); }
+    else if (m === 'attack') { const t = tb !== undefined ? sim.building(tb) : sim.unit(tg!); if (t) this.view.mark('attack', t.x, t.z, tb !== undefined ? -1 : t.id); }
     else if (m === 'hold') this.d.hud.note(`${who}: стоят на месте`, 1600);
     else if (m === 'auto') this.d.hud.note(`${who}: снова сами`, 1600);
     if (m !== 'attackMove') this.armAmove(false);

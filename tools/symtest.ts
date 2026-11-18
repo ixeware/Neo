@@ -19,7 +19,7 @@ if (mode === 'sym') {
 }
 // Quick tuning without editing defs: TUNE='[["chimaev","hp",600],["bekhan","cost",[140,140]]]'
 for (const [k, f, v] of JSON.parse(process.env.TUNE || '[]') as [string, string, unknown][]) {
-  const u = (k === 'DONER' ? D.DONER : k === 'HERO' ? D.HERO : k === 'ECON' ? D.ECON : k === 'AI_W' ? D.AI_W : D.UNITS.find(q => q.key === k)) as unknown as Record<string, unknown>;
+  const u = (k === 'DONER' ? D.DONER : k === 'HERO' ? D.HERO : k === 'ECON' ? D.ECON : k === 'AI_W' ? D.AI_W : k === 'BASE' ? D.BASE : k === 'AI_BW' ? D.AI_BW : D.UNITS.find(q => q.key === k) ?? D.BUILDINGS.find(q => q.key === k)) as unknown as Record<string, unknown>;
   if (u) u[f] = v; else console.log('TUNE: no unit', k);
 }
 const terrain = await loadTerrain();

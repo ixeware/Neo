@@ -7,6 +7,8 @@ export const GC = {
   garden: '#62c04a', soil: '#b98a5e', plotGreen: '#58b848',
   /** Plazas, paths, house yards; the rim line just inside their edge and its half width (world units). */
   pave: '#f5e4b6', rim: '#dcc089', rimW: 0.045,
+  /** The two paving tones of a high-rise plaza. */
+  plaza: ['#fbeecb', '#efd9a2'],
   /** River gravel and bare earth patches. */
   gravel: '#ecdcae',
   /** Dirt strip between two fields and its half width. */

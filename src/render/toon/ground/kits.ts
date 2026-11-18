@@ -13,6 +13,8 @@ export interface Kit {
   /** 0 = fixed colour, 1 | 2 = tint slot A | B */
   tint: Uint8Array;
   tris: number;
+  /** the cheap stand-in drawn from afar (trees only) */
+  far?: Kit;
 }
 
 type V3 = [number, number, number];
@@ -100,42 +102,51 @@ export function kitFromGeometry(g: THREE.BufferGeometry, scale: number): Kit {
 const TRUNK = C.trunk;
 
 function trunk(b: KitBuilder, h: number, r = 0.08) { b.add(G.cyl3, TRUNK, [0, h / 2 - 0.03, 0], [r * 2, h + 0.06, r * 2]); }
+/** Far stand-ins: a gem for a round crown, a pyramid for a fir (no trunk: it is under a pixel wide out there). */
+function farKit(shape: 'round' | 'cone' | 'poplar', y: number, w: number, h: number): Kit {
+  const b = new KitBuilder();
+  if (shape === 'cone') b.add(G.cone4, 1, [0, y, 0], [w, h, w]);
+  else b.add(G.octa, 1, [0, y, 0], [w, h, w], [0, 0.6, 0]);
+  return b.build();
+}
 
 export interface Kits {
   round: Kit; round2: Kit; cone: Kit; poplar: Kit; fruit: Kit; bush: Kit; bushes: Kit; flowers: Kit;
   bale: Kit; haystack: Kit; reeds: Kit; boulder: Kit; rocks: Kit;
   bench: Kit; lamp: Kit; well: Kit; sign: Kit; shelter: Kit; stall: Kit; woodpile: Kit; car: Kit; scarecrow: Kit; crates: Kit; stump: Kit;
+  pier: Kit; brail: Kit; abut: Kit;
 }
 
 /** Build every kit once. `low`: the phone tier's cheaper versions. */
 export function buildKits(low: boolean): Kits {
-  const K = (f: (b: KitBuilder) => void) => { const b = new KitBuilder(); f(b); return b.build(); };
+  const K = (f: (b: KitBuilder) => void, far?: Kit) => { const b = new KitBuilder(); f(b); const k = b.build(); k.far = far; return k; };
+  const fRound = farKit('round', 0.86, 1.05, 1.1), fCone = farKit('cone', 0.85, 0.9, 1.5), fPoplar = farKit('poplar', 1.2, 0.56, 2.1), fFruit = farKit('round', 0.6, 0.8, 0.8);
   const wood = C.wood, woodDark = C.woodDark;
   return {
     // round broadleaf: a chunky crown on a short trunk
-    round: K(b => { trunk(b, 0.5); b.add(G.ico, 1, [0, 0.92, 0], [1.0, 0.9, 1.0], [0.3, 0.5, 0]); }),
+    round: K(b => { trunk(b, 0.5); b.add(G.ico, 1, [0, 0.92, 0], [1.0, 0.9, 1.0], [0.3, 0.5, 0]); }, fRound),
     // a bigger one with a second, lighter lobe
     round2: K(b => {
       trunk(b, 0.55, 0.1);
       b.add(G.ico, 1, [-0.08, 0.95, 0], [1.05, 0.92, 1.05], [0.2, 0.2, 0.1]);
       if (!low) b.add(G.ico, 1, [0.3, 1.22, 0.12], [0.62, 0.56, 0.62], [0.5, 1.1, 0], 1.12);
-    }),
+    }, fRound),
     // fir: stacked cones, darker towards the ground
     cone: K(b => {
       trunk(b, 0.3, 0.07);
       b.add(G.cone6, 1, [0, 0.62, 0], [0.86, 0.74, 0.86], [0, 0, 0], 0.9);
       b.add(G.cone6, 1, [0, 1.02, 0], [0.62, 0.66, 0.62], [0, 0.5, 0]);
       if (!low) b.add(G.cone5, 1, [0, 1.36, 0], [0.4, 0.5, 0.4], [0, 0.2, 0], 1.1);
-    }),
+    }, fCone),
     // pyramid poplar: the tall thin one along the roads
-    poplar: K(b => { trunk(b, 0.4, 0.07); b.add(G.ico, 1, [0, 1.25, 0], [0.5, 2.0, 0.5], [0, 0.4, 0]); }),
+    poplar: K(b => { trunk(b, 0.4, 0.07); b.add(G.ico, 1, [0, 1.25, 0], [0.5, 2.0, 0.5], [0, 0.4, 0]); }, fPoplar),
     // fruit tree: small, light crown with red or gold dots
     fruit: K(b => {
       trunk(b, 0.34, 0.07);
       b.add(G.ico, 1, [0, 0.64, 0], [0.78, 0.66, 0.78], [0.2, 0.9, 0]);
-      const dots: V3[] = low ? [[0.3, 0.72, 0.16], [-0.18, 0.86, 0.2]] : [[0.3, 0.72, 0.16], [-0.18, 0.86, 0.2], [0.02, 0.6, 0.36], [-0.3, 0.62, -0.12], [0.16, 0.9, -0.16]];
-      for (const d of dots) b.add(G.tetra, 2, d, [0.2, 0.2, 0.2], [d[0] * 5, d[2] * 7, 0]);
-    }),
+      const dots: V3[] = low ? [[0.3, 0.72, 0.16], [-0.18, 0.86, 0.2]] : [[0.3, 0.72, 0.16], [-0.18, 0.86, 0.2], [0.02, 0.6, 0.36], [-0.3, 0.62, -0.12]];
+      for (const d of dots) b.add(G.tetra, 2, d, [0.22, 0.22, 0.22], [d[0] * 5, d[2] * 7, 0]);
+    }, fFruit),
     bush: K(b => { b.add(G.ico, 1, [0, 0.16, 0], [0.56, 0.42, 0.56], [0.4, 0.3, 0], 1, 0.04); }),
     // a hedge clump: three lobes
     bushes: K(b => {
@@ -236,5 +247,24 @@ export function buildKits(low: boolean): Kits {
       if (!low) b.box(wood, [0.04, 0.25, 0.02], [0.16, 0.14, 0.16], 0.2, 0.9);
     }),
     stump: K(b => { b.add(G.cyl6, TRUNK, [0, 0.07, 0], [0.22, 0.14, 0.22], [0, 0, 0], 1, 0.02); }),
+    // ---- bridge dressing (local z runs along the deck, y = 0 is the deck top) ----
+    pier: K(b => {
+      b.add(G.box, C.concrete, [0, -0.95, 0], [0.9, 1.6, 0.34], [0, 0, 0], 0.86);
+      b.add(G.box, C.concrete, [0, -0.2, 0], [1.3, 0.12, 0.5]);
+    }),
+    // a railing section: two posts and a coloured handrail (slot 1)
+    brail: K(b => {
+      b.add(G.box, C.trim, [0, 0.17, -0.5], [0.1, 0.34, 0.1]);
+      b.add(G.box, C.trim, [0, 0.17, 0.5], [0.1, 0.34, 0.1]);
+      b.add(G.box, 1, [0, 0.3, 0], [0.07, 0.07, 2.0]);
+      b.add(G.box, 1, [0, 0.14, 0], [0.05, 0.05, 2.0], [0, 0, 0], 0.85);
+    }),
+    abut: K(b => {
+      b.add(G.box, C.concrete, [0, -0.3, 0], [1.6, 0.9, 0.5], [0, 0, 0], 0.92);
+      b.add(G.box, C.trim, [-0.72, 0.28, 0], [0.16, 0.56, 0.16]);
+      b.add(G.box, C.trim, [0.72, 0.28, 0], [0.16, 0.56, 0.16]);
+      b.add(G.octa, C.gold, [-0.72, 0.64, 0], [0.2, 0.2, 0.2]);
+      b.add(G.octa, C.gold, [0.72, 0.64, 0], [0.2, 0.2, 0.2]);
+    }),
   };
 }

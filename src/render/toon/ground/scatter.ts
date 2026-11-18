@@ -6,7 +6,7 @@
 // Placement is hashed from positions and indices only: every client sees the same map on every load.
 // Nothing solid stands on a road, in water, in a house, or in a buildable cell of a build zone.
 import * as THREE from 'three';
-import { LC, EXAG, heightY, type Terrain } from '../../../world/terrain';
+import { LC, EXAG, BRIDGES, heightY, type Terrain } from '../../../world/terrain';
 import { HQ } from '../../../sim/defs';
 import { BASE } from '../../../sim/bdefs';
 import { hash2, tinClass, type Tin } from '../../lowpoly';
@@ -22,7 +22,7 @@ import { hqSpots, ZONE_MAX, type HouseSpot, type Plaza, type ShoreEdge } from '.
 /** LOD classes: 0 trees, 1 mid-size things seen from afar (bushes, bales, boulders), 2 small props. */
 interface Item { kit: Kit; x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c1: THREE.Color; c2: THREE.Color; cls: 0 | 1 | 2 }
 
-interface Chunk { mesh: THREE.Mesh; x: number; z: number; ends: Uint32Array; n: [number, number, number] }
+interface Chunk { mesh: THREE.Mesh; far: THREE.Mesh | null; farEnds: Uint32Array; x: number; z: number; ends: Uint32Array; n: [number, number, number] }
 const chunks: Chunk[] = [];
 const CHUNK = 56;
 
@@ -99,13 +99,13 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     if (inHouse(x, z, r + 0.03) || taken(x, z, r)) return false;
     return true;
   };
-  const put = (kit: Kit, x: number, z: number, r: number, o: { ry?: number; s?: number; sy?: number; c1?: THREE.Color; c2?: THREE.Color; cls?: 0 | 1 | 2; sink?: number } = {}) => {
+  const put = (kit: Kit, x: number, z: number, r: number, o: { ry?: number; s?: number; sy?: number; c1?: THREE.Color; c2?: THREE.Color; cls?: 0 | 1 | 2; sink?: number; gap?: number; y?: number } = {}) => {
     const s = o.s ?? 1;
-    items.push({ kit, x, z, y: heightY(t, x, z) - (o.sink ?? 0.02), ry: o.ry ?? 0, sx: s, sy: s * (o.sy ?? 1), sz: s, c1: o.c1 ?? WHITE, c2: o.c2 ?? WHITE, cls: o.cls ?? 2 });
+    items.push({ kit, x, z, y: o.y ?? heightY(t, x, z) - (o.sink ?? 0.02), ry: o.ry ?? 0, sx: s, sy: s * (o.sy ?? 1), sz: s, c1: o.c1 ?? WHITE, c2: o.c2 ?? WHITE, cls: o.cls ?? 2 });
     take(x, z, r);
   };
   const tryPut = (kit: Kit, x: number, z: number, r: number, o: Parameters<typeof put>[4] = {}, big = false) => {
-    if (!free(x, z, r) || (big && skip(x, z))) return false;
+    if (!free(x, z, r, o.gap) || (big && skip(x, z))) return false;
     put(kit, x, z, r, o);
     return true;
   };
@@ -194,7 +194,7 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
         const d = next.lamp; next.lamp += l.c === RC.STREET ? 5.5 : 3.2;
         const side = Math.floor(d / 3.2) % 2 ? 1 : -1, [x, z] = at(d, side, hw + 0.13);
         if (builtAt(x, z) < 120 || (low && H(li, Math.floor(d)) > 0.5)) continue;
-        tryPut(K.lamp, x, z, 0.08, { ry: ry + (side > 0 ? Math.PI / 2 : -Math.PI / 2) + Math.PI, cls: 2 });
+        tryPut(K.lamp, x, z, 0.08, { ry: ry + (side > 0 ? Math.PI / 2 : -Math.PI / 2) + Math.PI, cls: 2, gap: -0.02 });
       }
       if (l.c <= RC.ROAD) while (next.sign < end) {
         const d = next.sign; next.sign += 14 + H(li, Math.floor(d)) * 8;
@@ -208,7 +208,7 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
         const side = H(li, Math.floor(d) + 2) > 0.5 ? 1 : -1, [x, z] = at(d, side, hw + 0.2);
         if (builtAt(x, z) < 130) continue;
         const hv = H(li * 5 + Math.floor(d), 13) < (low ? 0.03 : 0.09);
-        if (!free(x, z, 0.3, 0.02)) continue;
+        if (!free(x, z, 0.3, -0.17)) continue;
         nCars++;
         if (hv) put(heavyKit(nCars), x, z, 0.36, { ry: ry + (side > 0 ? 0 : Math.PI), sink: 0 });
         else put(K.car, x, z, 0.3, { ry: ry + (side > 0 ? 0 : Math.PI), c1: pick(CAR, H(li, Math.floor(d) + 11)), sink: 0 });
@@ -218,10 +218,22 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
         const d = next.stop; next.stop += 26 + H(li, Math.floor(d)) * 20;
         const side = H(li, Math.floor(d) + 8) > 0.5 ? 1 : -1, [x, z] = at(d, side, hw + 0.34);
         if (builtAt(x, z) < 140) continue;
-        tryPut(K.shelter, x, z, 0.42, { ry: ry + (side > 0 ? -Math.PI / 2 : Math.PI / 2), c1: pick(C.roof, H(li, Math.floor(d) + 3)), cls: 2 });
+        tryPut(K.shelter, x, z, 0.42, { ry: ry + (side > 0 ? -Math.PI / 2 : Math.PI / 2), c1: pick(C.roof, H(li, Math.floor(d) + 3)), cls: 1, gap: -0.22 });
       } else next.stop = end;
       s = end;
     }
+  });
+
+  // ---- the bridges over the Аргун: piers, railings with lamps, abutments (on top of world.ts's plain deck) -------
+  BRIDGES.forEach((b, bi) => {
+    const dx = b.x1 - b.x0, dz = b.z1 - b.z0, len = Math.hypot(dx, dz), ux = dx / len, uz = dz / len, ry = Math.atan2(ux, uz);
+    const top = Math.max(heightY(t, b.x0, b.z0), heightY(t, b.x1, b.z1)) + 0.19;
+    const rail = bi % 2 ? C.roof[0] : C.roof[2];
+    for (let d = 1; d < len; d += 2) for (const sd of [-1, 1]) put(K.brail, b.x0 + ux * d - uz * sd * 0.56, b.z0 + uz * d + ux * sd * 0.56, 0, { ry, y: top, c1: rail, cls: 1 });
+    for (let d = 2; d < len - 1; d += 4) { const sd = Math.round(d / 4) % 2 ? 1 : -1; put(K.lamp, b.x0 + ux * d - uz * sd * 0.6, b.z0 + uz * d + ux * sd * 0.6, 0, { ry: ry + (sd > 0 ? 0 : Math.PI), y: top, cls: 1 }); }
+    for (let d = 1.5; d < len - 1; d += 3) { const x = b.x0 + ux * d, z = b.z0 + uz * d; if (top - heightY(t, x, z) > 0.25) put(K.pier, x, z, 0, { ry, y: top - 0.14, cls: 1 }); }
+    put(K.abut, b.x0 - ux * 0.1, b.z0 - uz * 0.1, 0, { ry, y: top, cls: 1 });
+    put(K.abut, b.x1 + ux * 0.1, b.z1 + uz * 0.1, 0, { ry, y: top, cls: 1 });
   });
 
   // ---- every house: a fruit tree in the garden, bushes, a flower bed, firewood, a haystack, a bench ------------
@@ -229,12 +241,12 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     const c = Math.cos(h.ry), s = Math.sin(h.ry); // local +x → (c, −s), local +z (street side) → (s, c)
     const at = (lx: number, lz: number) => [h.x + lx * c + lz * s, h.z - lx * s + lz * c] as const;
     const r1 = H(i, 101), r2 = H(i, 202), r3 = H(i, 303), r4 = H(i, 404);
-    if (r1 < 0.62 * dens + 0.1) { // a tree behind the house
+    if (r1 < 0.34 * dens + 0.04) { // a tree behind the house
       const [x, z] = at((r2 - 0.5) * h.w, -h.d / 2 - 0.34 - r3 * 0.2);
       const fruit = r4 < 0.6;
       tryPut(fruit ? K.fruit : r4 < 0.85 ? K.round : K.round2, x, z, 0.22, { cls: 0, ry: r2 * 6, s: fruit ? 0.8 + r3 * 0.3 : 0.62 + r3 * 0.3, c1: fruit ? pick(FRUITLEAF, r2) : pick(LEAF, r3), c2: pick(FRUIT, r3) });
     }
-    if (r2 < 0.4 * dens) { const [x, z] = at(-h.w / 2 - 0.2, (r3 - 0.5) * h.d); tryPut(r3 > 0.5 ? K.bushes : K.bush, x, z, 0.16, { cls: 1, c1: pick(LEAF, r4), ry: r1 * 6, s: 0.7 + r1 * 0.4 }); }
+    if (r2 < 0.3 * dens) { const [x, z] = at(-h.w / 2 - 0.2, (r3 - 0.5) * h.d); tryPut(r3 > 0.5 ? K.bushes : K.bush, x, z, 0.16, { cls: 1, c1: pick(LEAF, r4), ry: r1 * 6, s: 0.7 + r1 * 0.4 }); }
     if (r3 < 0.14 * dens) { const [x, z] = at(h.w / 2 - 0.08, h.d / 2 + 0.16); tryPut(K.flowers, x, z, 0.12, { c1: pick(FLOWER, r1), c2: pick(FLOWER, r2), s: 0.62, ry: r4 * 6 }); }
     if (r4 < 0.12 * dens) { const [x, z] = at(h.w / 2 + 0.14, -0.05); tryPut(K.woodpile, x, z, 0.12, { ry: h.ry + Math.PI / 2 }); }
     else if (r4 > 1 - 0.07 * dens) { const [x, z] = at(h.w / 2 + 0.3, -h.d / 2 - 0.3); tryPut(K.haystack, x, z, 0.26, { cls: 1, ry: r1 * 6, s: 0.8 + r2 * 0.3 }); }
@@ -251,6 +263,14 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
       const f = r2 - 0.5, x = mx + dx * f * 0.8 + nx * 0.12, z = mz + dz * f * 0.8 + nz * 0.12;
       tryPut(K.reeds, x, z, 0.14, { cls: 1, ry: r3 * 6, s: 0.8 + r3 * 0.5 });
     }
+    const r4 = H(i, 64);
+    if (r4 < 0.3 * dens + 0.08) { // willows and bushes a little inland
+      const off = 0.55 + r1 * 0.9, x = mx + nx * off, z = mz + nz * off;
+      if (tinClass(tin, x, z) !== LC.WATER && tinClass(tin, x, z) !== LC.CROP) {
+        if (r3 < 0.6) tryPut(r3 < 0.3 ? K.round2 : K.round, x, z, 0.28, { cls: 0, ry: r2 * 6, s: 0.7 + r2 * 0.35, sy: 0.85, c1: r3 < 0.15 ? C.leaf[5] : C.leaf[3] }, true);
+        else tryPut(K.bushes, x, z, 0.2, { cls: 1, ry: r2 * 6, s: 0.8 + r1 * 0.5, c1: pick(LEAF, r1) }, true);
+      }
+    }
     if (r2 < 0.3 * dens) {
       const f = r3 - 0.5, off = 0.08 + r1 * 0.3, x = mx + dx * f * 0.8 + nx * off, z = mz + dz * f * 0.8 + nz * off;
       tryPut(r1 > 0.5 ? K.rocks : K.boulder, x, z, 0.2, { cls: 1, ry: r1 * 6, s: 0.7 + r3 * 0.7, c1: pick(BOULDER, r3), sink: 0.03 });
@@ -258,7 +278,7 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
   });
 
   // ---- the land itself: forests, lone trees and bushes on the meadows, hay on the mown fields, rocks up high ---
-  const T = tin.tri, X = tin.x, Z = tin.z, Y = tin.y, F = tin.fld;
+  const T = tin.tri, X = tin.x, Z = tin.z, Y = tin.y, F = tin.fld, E = tin.edge;
   for (let f = 0; f < tin.nt; f++) {
     const cls = tin.cls[f];
     if (cls === LC.WATER) continue;
@@ -271,6 +291,23 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     };
     const count = (rate: number, salt: number) => Math.floor(area * rate * dens + H(f, salt));
     if (cls === LC.CROP) {
+      // shelter belts: rows of trees and hedges along some of the parcel borders (the TIN has edges on them)
+      if (E) for (let e = 0; e < 3; e++) {
+        if (E[f * 3 + e] > 0.08 || E[f * 3 + (e + 1) % 3] > 0.08) continue;
+        const i0 = T[f * 3 + e], i1 = T[f * 3 + (e + 1) % 3], ex = X[i1] - X[i0], ez = Z[i1] - Z[i0], L = Math.hypot(ex, ez);
+        if (L < 0.5) continue;
+        const mx = (X[i0] + X[i1]) / 2, mz = (Z[i0] + Z[i1]) / 2;
+        const bin = Math.floor(((Math.atan2(ez, ex) + Math.PI) % Math.PI) / (Math.PI / 4) + 0.5) % 4;
+        const belt = H(Math.floor(mx / 16) * 4 + bin, Math.floor(mz / 16) + 71);
+        if (belt > 0.34) continue;
+        const kit = belt < 0.09 ? K.poplar : belt < 0.2 ? K.round : belt < 0.27 ? K.fruit : K.bushes, step = kit === K.bushes ? 0.55 : kit === K.poplar ? 0.7 : 0.95;
+        for (let d = step * H(f, e + 20); d < L; d += step) {
+          if (H(f * 3 + e, Math.floor(d * 9)) > 0.3 + 0.6 * dens) continue;
+          const x = X[i0] + (ex * d) / L, z = Z[i0] + (ez * d) / L, h1 = H(Math.floor(x * 41), Math.floor(z * 43));
+          if (kit === K.bushes) tryPut(kit, x, z, 0.2, { cls: 1, ry: h1 * 6, s: 0.8 + h1 * 0.5, c1: pick(LEAF, h1) }, true);
+          else tryPut(kit, x, z, 0.26, { cls: 0, ry: h1 * 6, s: (kit === K.fruit ? 0.95 : 0.7) + h1 * 0.3, c1: kit === K.fruit ? pick(FRUITLEAF, h1) : pick(LEAF, h1 * 0.6), c2: pick(FRUIT, h1) }, true);
+        }
+      }
       const per = F ? 1 / (Math.hypot(F[f * 4], F[f * 4 + 1]) || 1) : 0;
       if (per > 0.75) { // straw: round bales
         for (let k = 0, n = count(0.07, 91); k < n; k++) { const [x, z] = pt(k, 92); tryPut(K.bale, x, z, 0.2, { cls: 1, ry: H(f, k) * 3.14 }); }
@@ -279,7 +316,7 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     }
     // rocks on steep faces
     if (ny < 0.86 && cls !== LC.BUILT) for (let k = 0, n = count((0.9 - ny) * 0.9, 81); k < n; k++) { const [x, z] = pt(k, 82); tryPut(K.rocks, x, z, 0.22, { cls: 1, ry: H(f, k) * 6, s: 0.8 + H(f, k + 3) * 1.0, c1: pick(BOULDER, H(f, k + 5)), sink: 0.04 }); }
-    const rate = cls === LC.TREE ? 0.05 : cls === LC.GRASS ? 0.0045 : cls === LC.WET ? 0.04 : cls === LC.BARE ? 0.002 : 0.004;
+    const rate = cls === LC.TREE ? 0.1 : cls === LC.GRASS ? 0.006 : cls === LC.WET ? 0.04 : cls === LC.BARE ? 0.002 : 0.004;
     for (let k = 0, n = count(rate, 77); k < n; k++) {
       const [cx, cz] = pt(k, 11);
       const forest = cls === LC.TREE;
@@ -311,7 +348,8 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     b.push(it);
   }
   const material = mat.solid();
-  let tris = 0;
+  let tris = 0, farTris = 0;
+  const total = [0, 0, 0];
   for (const list of buckets.values()) {
     const key = (it: Item) => it.cls + hash2(Math.floor(it.x * 97), Math.floor(it.z * 89));
     list.sort((p, q) => key(p) - key(q));
@@ -343,16 +381,51 @@ export function buildScatter(parent: THREE.Object3D, env: ScatterEnv): ScatterOu
     mesh.castShadow = STYLE.shadows; mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     parent.add(mesh);
-    chunks.push({ mesh, x: cx / list.length, z: cz / list.length, ends, n });
+    // the far stand-in: the chunk's trees as gems and pyramids, in the same shuffled order
+    const trees = list.slice(0, n[0]).filter(it => it.kit.far);
+    let far: THREE.Mesh | null = null;
+    const farEnds = new Uint32Array(trees.length);
+    if (trees.length) {
+      let fv = 0, fi = 0;
+      for (const it of trees) { fv += it.kit.far!.pos.length / 3; fi += it.kit.far!.idx.length; }
+      const fp = new Float32Array(fv * 3), fc = new Uint8Array(fv * 3), fx = fv > 65535 ? new Uint32Array(fi) : new Uint16Array(fi);
+      let v2 = 0, o2 = 0, ti = 0;
+      for (const it of trees) {
+        const k = it.kit.far!, P = k.pos, c = Math.cos(it.ry), s = Math.sin(it.ry), m = P.length / 3;
+        for (let i = 0; i < m; i++) {
+          const lx = P[i * 3] * it.sx, ly = P[i * 3 + 1] * it.sy, lz = P[i * 3 + 2] * it.sz, w = (v2 + i) * 3;
+          fp[w] = it.x + lx * c + lz * s; fp[w + 1] = it.y + ly; fp[w + 2] = it.z - lx * s + lz * c;
+          fc[w] = Math.round(it.c1.r * 255); fc[w + 1] = Math.round(it.c1.g * 255); fc[w + 2] = Math.round(it.c1.b * 255);
+        }
+        for (let i = 0; i < k.idx.length; i++) fx[o2 + i] = v2 + k.idx[i];
+        v2 += m; o2 += k.idx.length;
+        farEnds[ti++] = o2;
+      }
+      const fg = new THREE.BufferGeometry();
+      fg.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+      fg.setAttribute('color', new THREE.BufferAttribute(fc, 3, true));
+      fg.setIndex(new THREE.BufferAttribute(fx, 1));
+      fg.boundingSphere = g.boundingSphere!.clone();
+      far = new THREE.Mesh(fg, material);
+      far.name = 'ground-scatter-far';
+      far.receiveShadow = true; far.matrixAutoUpdate = false; far.visible = false;
+      parent.add(far);
+      farTris += fi / 3;
+    }
+    chunks.push({ mesh, far, farEnds, x: cx / list.length, z: cz / list.length, ends, n });
+    for (let q = 0; q < 3; q++) total[q] += n[q];
     tris += ni / 3;
   }
-  console.info(`scatter: ${items.length} things in ${chunks.length} chunks, ${Math.round(tris / 1000)}k triangles, cars ${nCars}`);
+  console.info(`scatter: ${items.length} things (trees ${total[0]}, mid ${total[1]}, small ${total[2]}, cars ${nCars}) in ${chunks.length} chunks, ${Math.round(tris / 1000)}k triangles near, ${Math.round(farTris / 1000)}k far`);
   return { free, count: items.length, tris };
 }
 
-/** LOD distances (camera to chunk): small props fade C0 → C1, mid-size things B0 → B1, then the trees thin out. */
-const LOD = { c0: 60, c1: 115, b0: 115, b1: 190, k: 190, min: 0.3 };
-const LOD_LOW = { c0: 45, c1: 95, b0: 95, b1: 150, k: 150, min: 0.3 };
+/**
+ * LOD distances (camera to chunk): small props fade c0 → c1, mid-size things b0 → b1; beyond `far` the trees are
+ * drawn as their stand-ins, which thin out from k (never below `min`).
+ */
+const LOD = { c0: 60, c1: 115, b0: 110, b1: 185, far: 165, k: 260, min: 0.45 };
+const LOD_LOW = { c0: 45, c1: 90, b0: 85, b1: 125, far: 105, k: 150, min: 0.3 };
 
 /** Set every chunk's draw range for a camera position. */
 export function updateScatterLod(cam: { x: number; y: number; z: number }, low: boolean) {
@@ -360,14 +433,26 @@ export function updateScatterLod(cam: { x: number; y: number; z: number }, low: 
   for (const c of chunks) {
     const d = Math.hypot(c.x - cam.x, c.z - cam.z, cam.y);
     const [na, nb, nc] = c.n;
+    const isFar = d >= L.far;
     let n: number;
     if (d <= L.c0) n = na + nb + nc;
     else if (d < L.c1) n = na + nb + Math.floor(nc * (1 - (d - L.c0) / (L.c1 - L.c0)));
-    else if (d < L.b1) n = na + Math.floor(nb * (1 - (d - L.b0) / (L.b1 - L.b0)));
-    else n = Math.max(Math.ceil(na * L.min), Math.ceil((na * L.k) / d));
-    const count = n > 0 ? c.ends[Math.min(c.ends.length, n) - 1] : 0;
+    else if (d < L.b1) n = na + (d < L.b0 ? nb : Math.floor(nb * (1 - (d - L.b0) / (L.b1 - L.b0))));
+    else n = na;
+    let count = n > 0 ? c.ends[Math.min(c.ends.length, n) - 1] : 0, start = 0;
+    if (isFar && c.far) { // the trees are the far mesh's now: the near mesh draws what is left of the mid-size things
+      start = na > 0 ? c.ends[na - 1] : 0;
+      count = Math.max(0, count - start);
+    }
     const vis = count > 0;
     if (c.mesh.visible !== vis) c.mesh.visible = vis;
-    if (c.mesh.geometry.drawRange.count !== count) c.mesh.geometry.setDrawRange(0, count);
+    const dr = c.mesh.geometry.drawRange;
+    if (dr.count !== count || dr.start !== start) c.mesh.geometry.setDrawRange(start, count);
+    if (c.far) {
+      const f = isFar ? Math.max(L.min, Math.min(1, L.k / d)) : 0;
+      const fn = Math.floor(c.farEnds.length * f), fc = fn > 0 ? c.farEnds[fn - 1] : 0;
+      if (c.far.visible !== fc > 0) c.far.visible = fc > 0;
+      if (c.far.geometry.drawRange.count !== fc) c.far.geometry.setDrawRange(0, fc);
+    }
   }
 }

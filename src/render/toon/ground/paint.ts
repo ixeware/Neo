@@ -21,7 +21,7 @@ export interface ShoreEdge { ax: number; az: number; bx: number; bz: number }
 
 const STREETS = 0b111; // RC.MAIN | RC.ROAD | RC.STREET (a literal: this module sits in an import cycle with roads.ts)
 /** High-rise rotation (world.ts HqBuilding.place). */
-const HQ_ROT = [0.35, -0.25];
+export const HQ_ROT = [0.35, -0.25];
 
 /** The two high-rise points (pts[0], pts[1] of the sim are these villages). */
 export function hqSpots(t: Terrain): { x: number; z: number; side: 0 | 1 }[] {

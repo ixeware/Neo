@@ -11,7 +11,10 @@ import type { Terrain } from '../../../world/terrain';
 import type { Tin } from '../../lowpoly';
 import { GroundMask } from './mask';
 import { toonLandMaterial } from './landMat';
-import { paintGround, shoreEdges, type HouseSpot } from './paint';
+import { paintGround, shoreEdges, hqSpots, HQ_ROT, type HouseSpot } from './paint';
+import { HQ } from '../../../sim/defs';
+import { BASE } from '../../../sim/bdefs';
+import { buildScatter, updateScatterLod } from './scatter';
 
 interface Ground {
   t: Terrain; tin: Tin; mask: GroundMask; low: boolean;
@@ -24,7 +27,9 @@ let G: Ground | null = null;
 export function groundLand(t: Terrain, tin: Tin, low: boolean): THREE.Material {
   const mask = new GroundMask(t.W, t.z0, t.H, low ? 1024 : 2048);
   G = { t, tin, mask, low, parent: null, built: false };
-  return toonLandMaterial(mask);
+  const hq = [new THREE.Vector4(), new THREE.Vector4()];
+  for (const h of hqSpots(t)) hq[h.side].set(h.x, h.z, HQ.radius[h.side] + BASE.keep + 0.7, HQ_ROT[h.side]);
+  return toonLandMaterial(mask, hq);
 }
 
 /** The group the world is built into (roads.ts buildRoads gets it first). */
@@ -63,11 +68,12 @@ export function groundBuild(skip: (x: number, z: number) => boolean) {
   const shore = shoreEdges(tin);
   const plazas = paintGround(mask, t, tin, houses, shore);
   mask.flush();
-  void skip; void plazas;
+  if (G.parent) buildScatter(G.parent, { t, tin, low: G.low, houses, plazas, shore, skip });
   console.info(`ground: ${houses.length} yards, ${plazas.length} plazas, ${shore.length} shore edges, ${(performance.now() - t0).toFixed(0)} ms`);
 }
 
 /** Once a frame, from the land mesh (the main camera only: portraits and tools do not draw the land). */
 export function groundTick(camera: THREE.Camera) {
-  void camera;
+  if (!G || !G.built) return;
+  updateScatterLod(camera.position, G.low);
 }

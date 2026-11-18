@@ -90,6 +90,7 @@ export class Build {
   private rowKey = ''; private selKey = ''; private barKey = ''; private whyKey = '';
   private lastPaint = 0; private sellArm = 0; private putAt = 0;
   private pr = { x: 0, y: 0, vis: false };
+  private hudBox: DOMRect[] = []; private hudAt = 0; private whyW = 0; private whyH = 0;
   private cds = new Map<string, number>();
 
   constructor(private d: BuildDeps) {
@@ -422,8 +423,18 @@ export class Build {
     if (!this.pr.vis) return;
     const text = ev.n ? (ev.cells.length > 1 ? `${ev.n} шт. · ${ev.price} ₽` : `${ev.price} ₽`) : d.deny(ev.why ?? '');
     const key = `${text}|${ev.n ? 1 : 0}`;
-    if (key !== this.whyKey) { this.whyKey = key; el.textContent = text; el.className = `bwhy ${ev.n ? 'ok' : 'bad'}`; }
+    if (key !== this.whyKey) { this.whyKey = key; el.textContent = text; el.className = `bwhy ${ev.n ? 'ok' : 'bad'}`; this.hudAt = 0; }
     el.style.transform = `translate(${Math.round(this.pr.x)}px, ${Math.round(this.pr.y)}px) translate(-50%, -100%)`;
+    // never over a HUD slip (the command bar, the сход sheet, the minimap, the bank): the label steps aside, the
+    // placing bar and the ghost's colour still tell the story. Measured five times a second, not every frame.
+    const now = performance.now();
+    if (now - this.hudAt > 200) {
+      this.hudAt = now; this.hudBox.length = 0;
+      for (const e of document.querySelectorAll<HTMLElement>('.cmdbar, .vote, .mini, .bank, .toolbar, .side')) if (!e.hidden && e.getClientRects().length) this.hudBox.push(e.getBoundingClientRect());
+      this.whyW = el.offsetWidth; this.whyH = el.offsetHeight;
+    }
+    const x0 = this.pr.x - this.whyW / 2, x1 = this.pr.x + this.whyW / 2, y0 = this.pr.y - this.whyH, y1 = this.pr.y;
+    el.style.visibility = this.hudBox.some(r => x0 < r.right && x1 > r.left && y0 < r.bottom && y1 > r.top) ? 'hidden' : '';
   }
 
   private paint(now: number, force: boolean) {
@@ -444,7 +455,7 @@ export class Build {
       this.cards.clear();
       this.types().forEach((t, i) => {
         const tx = bldText(t, spicy), fi = FAM_OF(t);
-        const b = h('button', `bcard paper s${side}`, `<span class="key">${'1234567890'[i] ?? ''}</span><i class="bi bi-${BUILDINGS[t].fam}">${FAMS[fi].icon}</i><span class="bn">${esc(tx.name)}</span><span class="bc"></span><span class="bq"></span><span class="bl"></span>`) as HTMLButtonElement;
+        const b = h('button', `bcard paper s${side}`, `<span class="key">${'1234567890'[i] ?? ''}</span><i class="bi bi-${BUILDINGS[t].fam}">${FAMS[fi].icon}</i><span class="bn${/[^\s-]{10,}/.test(tx.name) ? ' lg' : ''}">${esc(tx.name)}</span><span class="bc"></span><span class="bq"></span><span class="bl"></span>`) as HTMLButtonElement;
         b.type = 'button'; b.dataset.t = String(t);
         b.title = `${tx.name}. ${tx.blurb}`;
         b.addEventListener('click', () => { this.mouse = null; this.pick(t); }); // the mouse is on the card: the ghost waits for it over the map
@@ -514,11 +525,12 @@ export class Build {
     let btns = '';
     if (own) {
       const wu = sim.canUp(side, b.id, me), wr = sim.canRep(side, b.id, me), ws = sim.canSell(side, b.id, me);
-      const up = b.lv >= 3 ? 'Макс. уровень' : `Улучшить · ${sim.bcost(side, b.t, b.lv + 1)} ₽`;
+      const lp = (l: string, p: string) => `<span>${l}</span> <span class="bs-p">${p}</span>`; // label + price: a narrow button breaks between them
+      const up = b.lv >= 3 ? 'Макс. уровень' : lp('Улучшить', `${sim.bcost(side, b.t, b.lv + 1)} ₽`);
       const arm = now < this.sellArm;
       btns = `<button type="button" class="bs-b bs-up${wu ? ' off' : ''}" data-a="up">${up}</button>`
-        + `<button type="button" class="bs-b bs-rep${wr ? ' off' : ''}" data-a="rep">${b.hp >= b.mhp ? 'Целое' : `Починить · ${repairCost(b)} ₽`}</button>`
-        + `<button type="button" class="bs-b bs-sell${ws ? ' off' : ''}${arm ? ' arm' : ''}" data-a="sell">${arm ? `Точно? +${refund(b)} ₽` : `Продать · +${refund(b)} ₽`}</button>`;
+        + `<button type="button" class="bs-b bs-rep${wr ? ' off' : ''}" data-a="rep">${b.hp >= b.mhp ? 'Целое' : lp('Починить', `${repairCost(b)} ₽`)}</button>`
+        + `<button type="button" class="bs-b bs-sell${ws ? ' off' : ''}${arm ? ' arm' : ''}" data-a="sell">${arm ? lp('Точно?', `+${refund(b)} ₽`) : lp('Продать', `+${refund(b)} ₽`)}</button>`;
       if (D.key === 'arbuzomet') btns = `<button type="button" class="bs-b bs-fire${sim.canFire(side, b.id, b.x, b.z, me) ? ' off' : ''}" data-a="fire">Огонь!</button>` + btns;
     }
     const hp = Math.max(0, Math.ceil(b.hp)), k = Math.max(0, Math.min(1, b.hp / b.mhp));

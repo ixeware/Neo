@@ -43,6 +43,9 @@ import { unitLabel } from './ui/hud';
 import { GFX, setGfx, type Gfx } from './render/style';
 import { BaseView } from './render/baseView';
 import { Build } from './ui/build';
+import { installV5Texts } from './ui/v5texts';
+
+installV5Texts(); // v5 chat content: building texts, feed lines, ticker, tips (src/data/v5*.ts)
 
 const $ = (id: string) => document.getElementById(id)!;
 const bootMsg = (s: string) => { $('boot-msg').textContent = s; };

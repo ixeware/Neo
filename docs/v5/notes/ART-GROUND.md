@@ -76,5 +76,25 @@ touched: every hook is behind `TOON`. Scratch (scripts, screenshots): `…/scrat
   (scratch folder) dumps canvases and `renderer.info`; `node cmp.cjs before/classic <dir>` proves classic is
   unchanged. Console lines `scatter:` / `life:` / `ground:` give the counts.
 
-## Budget (renderer.info, whole frames, 99 units on the field; before = foundation toon)
-See the table in the final report of the track (kept in the commit message of the last commit).
+## Budget (renderer.info, whole frames with the shadow pass, 99 units on the field)
+Before = the foundation's toon on `335e139` (`before_toon_*.log`), after = this branch (`m2d.log`, `m3p.log`).
+Allowed for this track: desktop +200k triangles / +60 draw calls, phone tier +55k / +16.
+
+| View (camera distance) | Desktop triangles | Desktop calls | Phone triangles | Phone calls |
+|---|---|---|---|---|
+| Атаги (70) | 463k → 603k (+140k) | 349 → 367 | 238k → 272k (+34k) | 155 → 163 |
+| Атаги (38) | 386k → 553k (+167k) | 316 → 338 | 235k → 276k (+40k) | 139 → 148 |
+| close fight (16) | 360k → 535k (+176k) | 225 → 249 | 232k → 280k (+49k) | 95 → 106 |
+| Курчалой (90) | 575k → 647k (+72k) | 376 → 389 | 265k → 279k (+15k) | 161 → 165 |
+| Грозный (90) | 616k → 712k (+97k) | 232 → 241 | 326k → 339k (+13k) | 109 → 112 |
+| Шали (60) | 489k → 658k (+169k) | 246 → 264 | 238k → 261k (+22k) | 103 → 109 |
+| the river (60) | 509k → 678k (+169k) | 283 → 299 | 232k → 274k (+43k) | 94 → 101 |
+| whole map (300) | 446k → 470k (+24k) | 561 → 557 | 222k → 223k (+1k) | 190 → 189 |
+| foothills (90) | 612k → 622k (+10k) | 270 → 271 | 243k → 258k (+15k) | 99 → 102 |
+
+Totals on the map: desktop 23.7k things (16.9k trees) = 714k triangles near, 123k as far stand-ins; phone
+tier 14.1k things = 388k near, 73k far. Only the chunks around the camera are drawn, cut by the LOD.
+
+Classic: `node cmp.cjs before/classic after/classic_all` — the 15 phone views and the desktop views are
+pixel-identical to the base commit when captured in the same order (the capture is order-dependent: the fake
+clock runs on between views).

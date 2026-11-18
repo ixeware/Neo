@@ -13,6 +13,7 @@ import { roadNet, roadClearance, ROAD_HALF, RC, ALL_MASK, type KeepOut } from '.
 import { hash2 } from './lowpoly';
 import { cityBlock, cityBlockFootprint, cityBlockHeight, groznyLandmark, GROZNY_FOOTPRINT, type GroznyKey } from './grozny';
 import { CITY_POINTS } from '../data/season';
+import { TOON, mat as styleMat } from './style';
 
 // ---- the city area ----------------------------------------------------------------------------------
 /** Centre and half-axes of the city fill (central Grozny; the map's west edge cuts the rest). */
@@ -363,7 +364,7 @@ export class CityFill {
   constructor(t: Terrain, plan: CityPlan, private low: boolean, shadows: boolean) {
     this.group.name = 'city-fill';
     this.items = plan.blocks;
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    const mat = TOON ? styleMat.solid() : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }); // toon: palette colours as authored
     const counts = new Int32Array(4 * CITY_SEEDS);
     this.geoOf = new Int32Array(this.items.length);
     this.items.forEach((b, i) => { const g = b.kind * CITY_SEEDS + b.seed; this.geoOf[i] = g; counts[g]++; });
@@ -381,7 +382,7 @@ export class CityFill {
       this.group.add(im);
     }
     const box = farBox();
-    this.far = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), Math.max(1, this.items.length));
+    this.far = new THREE.InstancedMesh(box, TOON ? mat : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), Math.max(1, this.items.length));
     this.far.name = 'city-far';
     this.far.castShadow = false; this.far.receiveShadow = true;
     this.far.frustumCulled = false;

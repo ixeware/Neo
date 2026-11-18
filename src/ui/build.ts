@@ -14,6 +14,7 @@ import type { Hud } from './hud';
 import type { Control } from './control';
 import type { Session, CmdBody } from '../net/session';
 import { bldText, bldFeed } from './buildText';
+import { baseThumbHtml } from '../render/toon/base/thumbs'; // art hook: the model's picture instead of the family icon
 
 const h = (tag: string, cls = '', html = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -461,7 +462,7 @@ export class Build {
       this.cards.clear();
       this.types().forEach((t, i) => {
         const tx = bldText(t, spicy), fi = FAM_OF(t);
-        const b = h('button', `bcard paper s${side}`, `<span class="key">${'1234567890'[i] ?? ''}</span><i class="bi bi-${BUILDINGS[t].fam}">${FAMS[fi].icon}</i><span class="bn${/[^\s\u00AD-]{10,}/.test(tx.card ?? tx.name) ? ' lg' : ''}">${esc(tx.card ?? tx.name)}</span><span class="bc"></span><span class="bq"></span><span class="bl"></span>`) as HTMLButtonElement;
+        const b = h('button', `bcard paper s${side}`, `<span class="key">${'1234567890'[i] ?? ''}</span><i class="bi bi-${BUILDINGS[t].fam}">${baseThumbHtml(BUILDINGS[t].key, side, FAMS[fi].icon)}</i><span class="bn${/[^\s\u00AD-]{10,}/.test(tx.card ?? tx.name) ? ' lg' : ''}">${esc(tx.card ?? tx.name)}</span><span class="bc"></span><span class="bq"></span><span class="bl"></span>`) as HTMLButtonElement;
         b.type = 'button'; b.dataset.t = String(t);
         b.title = `${tx.full ?? tx.name}. ${tx.blurb}${tx.joke ? ` ${tx.joke}` : ''}`;
         b.addEventListener('click', () => { this.mouse = null; this.pick(t); }); // the mouse is on the card: the ghost waits for it over the map

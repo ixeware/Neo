@@ -8,12 +8,15 @@ import { roadNet, roadClearance, ROAD_HALF, RC, ALL_MASK, type KeepOut } from '.
 import { Builder, PAL, houseGeometries, facadeTexture } from './models';
 import { tri, quad, archAt } from './props';
 import { HQ } from '../sim/defs';
+import { TOON, C, TEAM, mat, groundShadow } from './style';
+import { hqFloorGeo, hqRoofGeo, hqGroundGeo } from './toon/arch/highrise';
+import { toonHouseKits, toonHouseMaterial, HOUSE_NEAR } from './toon/arch/houses';
 import type { Pt } from '../sim/sim';
 import { landmarkSpots, fudziSpot } from './landmarks'; // v3 real places (decor.ts builds them)
 import { cityPlan, cityOccupied, cityQ, cityKeepOut, siteRect, inRect, CITY_SITES, CITY_HOUSES_FROM } from './city'; // v4 Грозный
 
-const WALLS = ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
-const ROOFS = ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
+const WALLS = TOON ? [...C.wall, C.wall[0], C.wall[4]] : ['#efe6d6', '#e5d3b3', '#d9c3a0', '#f2ede2', '#c99c78', '#e8dcc0', '#d8cbb6'].map(c => new THREE.Color(c));
+const ROOFS = TOON ? [...C.roof, C.roof[0], C.roof[6], C.roof[1]] : ['#4f7a4a', '#8b3a2f', '#3e5f8a', '#6b6f75', '#7a4a2c', '#a8452f', '#557e7a'].map(c => new THREE.Color(c));
 
 interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: number; sz: number; c: THREE.Color; c2?: THREE.Color; v?: number }
 
@@ -25,7 +28,7 @@ interface Item { x: number; z: number; y: number; ry: number; sx: number; sy: nu
  * From the overview (camera ~285 up) that is about half the houses and trees; at play zoom nothing near
  * changes. Render-only, so the order is free to differ from the build order.
  */
-interface LodChunk { im: THREE.InstancedMesh; n: number; x: number; z: number; K: number; min: number }
+interface LodChunk { im: THREE.InstancedMesh; n: number; x: number; z: number; K: number; min: number; near?: THREE.BufferGeometry; far?: THREE.BufferGeometry; D?: number }
 const lodChunks: LodChunk[] = [];
 const LOD_K: Record<string, [number, number]> = { houses: [155, 0.3], trees: [130, 0.25] };
 
@@ -35,10 +38,11 @@ export function updateWorldLod(cam: { x: number; y: number; z: number }) {
     const d = Math.hypot(c.x - cam.x, c.z - cam.z, cam.y);
     const n = d <= c.K ? c.n : Math.max(Math.ceil(c.n * c.min), Math.ceil((c.n * c.K) / d));
     if (c.im.count !== n) c.im.count = n;
+    if (c.far) { const g = d < c.D! ? c.near! : c.far; if (c.im.geometry !== g) c.im.geometry = g; } // new style: the detailed kit near the camera only
   }
 }
 
-function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true, name = '') {
+function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Material[], useC2: boolean[], parent: THREE.Object3D, chunk = 50, shadows = true, name = '', far?: THREE.BufferGeometry[], farD = 0) {
   const buckets = new Map<number, Item[]>();
   for (const it of items) {
     const k = Math.floor(it.x / chunk) * 1000 + Math.floor(it.z / chunk);
@@ -63,13 +67,18 @@ function chunked(items: Item[], geos: THREE.BufferGeometry[], mats: THREE.Materi
         im.setColorAt(i, useC2[gi] ? it.c2! : it.c);
       });
       im.castShadow = shadows; im.receiveShadow = true;
+      if (far && shadows) { // new style houses: only the walls / the roof cast (the first triangles of a kit), the painted details do not
+        const n = gi === 0 ? 24 : 18;
+        im.onBeforeShadow = () => { im.geometry.setDrawRange(0, n); };
+        im.onAfterShadow = () => { im.geometry.setDrawRange(0, Infinity); };
+      }
       im.computeBoundingSphere();
       im.name = name;
       parent.add(im);
       if (lod) {
         let cx = 0, cz = 0;
         for (const it of list) { cx += it.x; cz += it.z; }
-        lodChunks.push({ im, n: list.length, x: cx / list.length, z: cz / list.length, K: lod[0], min: lod[1] });
+        lodChunks.push({ im, n: list.length, x: cx / list.length, z: cz / list.length, K: lod[0], min: lod[1], near: far && geo, far: far?.[gi], D: farD });
       }
     });
   }
@@ -351,11 +360,19 @@ export function buildVillages(t: Terrain, pts: Pt[], parent: THREE.Object3D, hq 
     const two = hash2(i + 5, j + 13) > 0.78;
     place(x, z, blockRot, w, d, two ? 0.42 : 0.24 + hash2(i + 2, j) * 0.06, hash2(i + 9, j + 9));
   }
+  if (TOON) { // the new style: painted kits, a detailed one near the camera and a far twin (toon/arch/houses.ts)
+    const hm = toonHouseMaterial();
+    toonHouseKits().variants.forEach((kit, vi) => {
+      const list = items.filter(it => (it.v ?? 0) === vi);
+      if (list.length) chunked(list, [kit.body, kit.roof], [hm, hm], [false, true], parent, 50, hq, 'houses', [kit.farBody, kit.farRoof], HOUSE_NEAR());
+    });
+    return items.length;
+  }
   const { variants } = houseGeometries();
-  const mat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+  const hmat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
   variants.forEach((kit, vi) => {
     const list = items.filter(it => (it.v ?? 0) === vi);
-    if (list.length) chunked(list, [kit.body, kit.roof], [mat, mat], [false, true], parent, 50, hq, 'houses');
+    if (list.length) chunked(list, [kit.body, kit.roof], [hmat, hmat], [false, true], parent, 50, hq, 'houses');
   });
   return items.length;
 }
@@ -416,7 +433,11 @@ export function buildBridges(t: Terrain, parent: THREE.Object3D) {
 // brick village mosques around Атаги (yellow brick, green profiled-metal hip roof, one brick minaret
 // with a green spire) and the Ottoman-style Курчалой central mosque (cream stone, lead-grey domes,
 // pencil minarets with red rings). Front (entrance) is +z; one vertex-coloured mesh each.
-const MC = {
+// the new style paints the mosques from the palette: white marble, pale domes, gold, yellow and red brick, the mosque green
+const MC = TOON ? {
+  marble: C.marble, marble2: C.panel[0], domeW: C.dome, gold: C.gold, win: C.glass, niche: C.wall[1], door: C.door,
+  brick: C.wall[3], brick2: C.wall[2], trim: C.trim, green: C.mosqueGreen, stone: C.wall[0], lead: C.dome, ring: C.roof[0], pave: C.concrete,
+} : {
   marble: new THREE.Color('#f4f1ea'), marble2: new THREE.Color('#e4dfd4'), domeW: new THREE.Color('#cfe2ec'),
   gold: new THREE.Color('#d9b24a'), win: new THREE.Color('#41556a'), niche: new THREE.Color('#e9dcb8'), door: new THREE.Color('#5a4632'),
   brick: new THREE.Color('#c88a57'), brick2: new THREE.Color('#b57849'), trim: new THREE.Color('#efe8da'), green: new THREE.Color('#2f7f63'),
@@ -585,7 +606,7 @@ export function mosque(big: boolean, style: 0 | 1 = 0): THREE.Group {
   const b = new Builder();
   if (big) shaliMosque(b); else if (style === 1) ottomanMosque(b); else brickMosque(b);
   const geo = b.build();
-  mosqueMat ??= new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  mosqueMat ??= TOON ? mat.solid() : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const m = new THREE.Mesh(geo, mosqueMat);
   m.castShadow = true; m.receiveShadow = true;
   const g = new THREE.Group(); g.add(m);
@@ -599,8 +620,9 @@ export class HqBuilding {
   floors: THREE.Group[] = [];
   ghost?: THREE.LineSegments;
   roof: THREE.Group;
-  flag: THREE.Mesh;
+  flag!: THREE.Mesh;
   private dust: { t: number; m: THREE.Mesh }[] = [];
+  private shadow: THREE.Mesh | null = null;
   private shake = 0;
   readonly fh: number; readonly len: number; readonly dep: number;
   private mats: THREE.Material[];
@@ -612,12 +634,13 @@ export class HqBuilding {
     this.dep = side === 0 ? 3.0 : 2.2;
     // front / back: brick — the whole front once, stairwell over the one entrance; panel — one section
     // per entrance (4), stairwell over each canopy. Ends: three windows / the blind panel wall.
+    this.roof = new THREE.Group();
+    if (TOON) { this.mats = []; this.toonParts(); return; } // the new style: modelled floors, roof and entrances (toon/arch/highrise.ts)
     const tex = facadeTexture(side === 0 ? 'brick' : 'panel', side, 'long');
     tex.repeat.set(side === 0 ? 1 : 4, 1);
     const end = facadeTexture(side === 0 ? 'brick' : 'panel', side, 'end');
     const plain = new THREE.MeshLambertMaterial({ color: side === 0 ? '#9b5236' : '#d9d3c5' });
     this.mats = [new THREE.MeshLambertMaterial({ map: end }), new THREE.MeshLambertMaterial({ map: end }), plain, plain, new THREE.MeshLambertMaterial({ map: tex }), new THREE.MeshLambertMaterial({ map: tex })];
-    this.roof = new THREE.Group();
     const rb = new Builder();
     rb.box(new THREE.Color('#5c5a55'), [0, 0.06, 0], [this.len + 0.12, 0.12, this.dep + 0.12]);
     rb.box(new THREE.Color('#8d8a83'), [this.len * 0.3, 0.3, 0], [0.6, 0.45, 0.6]);
@@ -648,7 +671,34 @@ export class HqBuilding {
     this.group.add(ent);
   }
 
-  private signMesh(text: string) {
+  /** New style: roof (parapet, lift boxes, tank, antenna, the turret), the sign on a frame above the front, the flag, the ground around the entrances. */
+  private toonParts() {
+    const { side, len, dep } = this, solid = mat.solid();
+    const roofMesh = new THREE.Mesh(hqRoofGeo(side, len, dep), solid);
+    roofMesh.castShadow = true; roofMesh.receiveShadow = true;
+    this.roof.add(roofMesh);
+    const sx = side === 0 ? -len * 0.2 : -len * 0.08, sw = len * (side === 0 ? 0.5 : 0.4), sb = new Builder();
+    sb.box(C.metalDark, [sx, 0.62, dep / 2 - 0.02], [sw + 0.12, 0.62, 0.07]);
+    for (const s of [-1, 1]) sb.box(C.metalDark, [sx + s * sw * 0.4, 0.42, dep / 2 - 0.2], [0.06, 0.06, 0.36], [0.6, 0, 0]);
+    const frame = new THREE.Mesh(sb.build(), solid); frame.castShadow = true;
+    this.roof.add(frame);
+    const sign = this.signMesh(side === 0 ? 'АТАГИ' : 'КУРЧАЛОЙ', sw);
+    sign.position.set(sx, 0.62, dep / 2 + 0.02);
+    this.roof.add(sign);
+    const fx = side === 0 ? len * 0.42 : -len * 0.2, fz = -dep * 0.3;
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.9, 0.07), mat.plain(C.metal));
+    pole.position.set(fx, 0.95, fz);
+    this.roof.add(pole);
+    this.flag = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.6, 6, 1), mat.plain(TEAM[side].main, { side: THREE.DoubleSide }));
+    this.flag.position.set(fx + 0.5, 1.55, fz);
+    this.roof.add(this.flag);
+    this.group.add(this.roof);
+    const ground = new THREE.Mesh(hqGroundGeo(side, len, dep), solid);
+    ground.castShadow = true; ground.receiveShadow = true;
+    this.group.add(ground);
+  }
+
+  private signMesh(text: string, w = this.len * 0.5) {
     const c = document.createElement('canvas');
     c.width = 256; c.height = 64;
     const g = c.getContext('2d')!;
@@ -659,11 +709,17 @@ export class HqBuilding {
     g.fillText(text, 128, 34, 240);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
-    return new THREE.Mesh(new THREE.PlaneGeometry(this.len * 0.5, 0.5 * 0.92), new THREE.MeshBasicMaterial({ map: tex }));
+    return new THREE.Mesh(new THREE.PlaneGeometry(w, 0.5 * 0.92), new THREE.MeshBasicMaterial({ map: tex }));
   }
 
   private makeFloor(): THREE.Group {
     const g = new THREE.Group();
+    if (TOON) {
+      const m = new THREE.Mesh(hqFloorGeo(this.side, this.len, this.fh, this.dep, this.floors.length), mat.solid());
+      m.castShadow = true; m.receiveShadow = true;
+      g.add(m);
+      return g;
+    }
     const m = new THREE.Mesh(new THREE.BoxGeometry(this.len, this.fh, this.dep), this.mats);
     m.position.y = this.fh / 2;
     m.castShadow = true; m.receiveShadow = true;
@@ -688,6 +744,11 @@ export class HqBuilding {
       this.shake = animate ? 1 : 0;
     }
     this.roof.position.y = this.floors.length * this.fh;
+    if (TOON) { // phone tier: the fake shadow follows the height
+      if (this.shadow) this.group.remove(this.shadow);
+      this.shadow = groundShadow(this.len, this.dep, this.floors.length * this.fh + 0.3, this.group.rotation.y);
+      if (this.shadow) this.group.add(this.shadow);
+    }
     this.updateGhost();
   }
 
@@ -739,6 +800,7 @@ export class HqBuilding {
     this.group.position.set(p.x, y - 0.05, p.z);
     this.baseX = p.x;
     this.group.rotation.y = this.side === 0 ? 0.35 : -0.25;
+    if (TOON && this.shadow) this.setFloors(this.floors.length, false); // the shadow depends on the turn
   }
 }
 

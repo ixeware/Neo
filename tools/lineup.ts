@@ -14,6 +14,7 @@ import { heroGeometry, heroScale, donerBey, fudzi, gym, taxiStand, HERO_TYPES } 
 import { propUnitGeometry, propUnitScale, gelikProp, sportikiCrowd, cigPackTexture, cigPack, landmark, LANDMARK_KINDS, PROP_TYPES } from '../src/render/props';
 import { mosque, HqBuilding } from '../src/render/world';
 import { styleStage, ground } from '../src/render/style'; // `?gfx=classic|toon` picks the look, as in the game
+import { archView, ARCH_NAV } from './lineupArch'; // base buildings and the rest of the architecture track
 import {
   v4UnitGeometry, v4UnitScale, v4HoverHeight, isFlying, v4DronePropGeometry, V4_DRONE_ROTORS, V4_UNIT_KEYS, V4_UNIT_NAMES,
   groznyLandmark, setLandmarkClosed, GROZNY_KEYS, GROZNY_FOOTPRINT, cityBlock, cityBlockFootprint, cityBlockHeight, CITY_FLOORS, type V4UnitKey, type GroznyKey,
@@ -566,7 +567,7 @@ if (view === 'all') {
   const m = mosque(false); addObj(m, -20, -6);
   unit(0, 0, 3.6, 6.8, 0.2, false); unit(16, 1, -3.5, 6.6, 0.8, false);
   pitch = Number(q.get('pitch') ?? 0.14);
-}
+} else { const r = archView(view, q, { scene, placed, labels, addObj, unit }); if (r) { pitch = r.pitch ?? pitch; tight = r.tight ?? tight; gameCam = r.gameCam ?? null; } } // architecture track: tools/lineupArch.ts
 
 // ---- girls + Вайнаг (fictional lore NPCs, src/render/girls.ts) -------------------------------
 //   girls (all looks + Вайнаг both sides, next to Пацаны / админ / Амин) · girlsr (random looks, close)
@@ -707,7 +708,7 @@ const nav = document.getElementById('bar')!;
 for (const [v, txt] of [['all', 'всё'], ['heroes', 'новые'], ['units', 'сравнение 1'], ['units&half=2', 'сравнение 2'], ['hero&t=6', 'крупно'], ['bld', 'здания'], ['doner', 'донер'], ['decor', 'декор'], ['game', 'как в игре'], ['portraits', 'портреты'],
   ['v3', 'v3 герои'], ['plate', 'КРА 95'], ['crowd', 'спортики'], ['pack', 'пачка 2D'], ['pack3d', 'пачка 3D'], ['lm', 'места'], ['game2', 'места в игре'],
   ['v4units', 'v4 юниты'], ['v4unit&k=ipit', 'v4 крупно'], ['v4game', 'v4 в игре'], ['v4bld', 'Грозный'], ['v4bld1&k=shaiba', 'Грозный крупно'], ['v4bldgame', 'Грозный в игре'],
-  ['city', 'кварталы'], ['skyline', 'силуэт'], ['houses', 'дома'], ['houses&dist=14', 'улица в игре'], ['mosques', 'мечети']]) {
+  ['city', 'кварталы'], ['skyline', 'силуэт'], ['houses', 'дома'], ['houses&dist=14', 'улица в игре'], ['mosques', 'мечети'], ...ARCH_NAV]) {
   const a = document.createElement('a');
   a.href = `?view=${v}`; a.textContent = txt;
   const lq = new URLSearchParams(`view=${v}`);

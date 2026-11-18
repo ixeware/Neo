@@ -6,6 +6,8 @@ import { heightY, type Terrain } from '../world/terrain';
 import { drapedRing } from './world';
 import { PAL } from './models';
 import type { Pt } from '../sim/sim';
+import { TOON, mat } from './style';
+import { toonFlagPole } from './toon/arch/markers';
 
 export type Perk = 'sportiki' | 'gelik' | 'gym' | 'market';
 
@@ -106,8 +108,8 @@ export class PlaceMarker {
     ring.renderOrder = 2; prog.renderOrder = 3; this.zone.renderOrder = 3;
     this.group.add(ring, prog, this.zone);
     const y = heightY(t, p.x, p.z);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 6), new THREE.MeshLambertMaterial({ color: '#e9e4d8' }));
-    pole.position.set(p.x, y + 1.6, p.z);
+    const pole = TOON ? new THREE.Mesh(toonFlagPole(), mat.solid()) : new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.2, 6), new THREE.MeshLambertMaterial({ color: '#e9e4d8' }));
+    pole.position.set(p.x, TOON ? y : y + 1.6, p.z);
     this.flagMat = new THREE.MeshLambertMaterial({ color: NEUTRAL, map: flagTexture(p.perk ?? ''), side: THREE.DoubleSide });
     this.flag = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 0.8, 8, 1), this.flagMat);
     this.flag.position.set(p.x + 0.62, y + 2.75, p.z);

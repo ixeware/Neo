@@ -98,3 +98,16 @@ tier 14.1k things = 388k near, 73k far. Only the chunks around the camera are dr
 Classic: `node cmp.cjs before/classic after/classic_all` — the 15 phone views and the desktop views are
 pixel-identical to the base commit when captured in the same order (the capture is order-dependent: the fake
 clock runs on between views).
+
+Final state (production bundle served with `vite preview`, `final/`): Атаги 605k / 367 calls, Атаги-38 555k,
+close fight 534k, Шали 657k, the river 686k (+178k, the worst), field close-up 512k, bridge 552k on desktop;
+phone tier Атаги 272k / 163, Атаги-38 275k / 148, field 260k / 99, bridge 274k / 106.
+`dist/index.html` is 2,147,641 bytes (2.09 MB before this track: about +55 KB of the 110 KB allowed).
+
+## Screenshots worth looking at (`…/scratchpad/v5/ART-GROUND/`)
+`s7/desktop_first.png` (the first screen: Атаги and its base zone), `m2/desktop_atagi.png`,
+`s4/desktop_field.png`, `s4/desktop_bridge.png`, `m2/desktop_shali.png`, `m2/desktop_kurchaloy.png`,
+`m2/desktop_grozny.png`, `s3/desktop_foothills.png`, `s3/desktop_whole.png`, `s6/desktop_base.png`,
+phone: `m3/phone_atagi.png`, `m2/phone_atagi38.png`, `final/phone_field.png`, `final_land/phone_atagi38.png`
+(750 × 342); before: `before/toon/*.png`; classic: `after/classic_full/`, `after/classicp/`.
+

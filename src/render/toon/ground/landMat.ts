@@ -89,6 +89,24 @@ export function toonLandMaterial(mask: GroundMask, hq: THREE.Vector4[]): THREE.M
 				pc = mix( pc, ${v3(GC.rim)}, smoothstep( R - 0.07 - px, R - 0.07 + px, hr ) );
 				base = mix( base, pc, 1.0 - smoothstep( R - px, R + px, hr ) );
 			}
+			// eight round flower beds between the spokes
+			if ( hr > R && hr < R + 3.2 && R > 0.0 ) {
+				float a = atan( hd.x, hd.y ) - gHq[ i ].w;
+				float ac = floor( a / 0.7853982 + 0.5 ) * 0.7853982 + gHq[ i ].w;
+				vec2 bd = hd - vec2( sin( ac ), cos( ac ) ) * ( R + 1.55 );
+				float br = length( bd );
+				if ( br < 1.0 ) {
+					vec2 fq = vWxz / 0.15, fi = floor( fq );
+					float fh = gHash( fi + 9.1 );
+					float dot_ = ( 1.0 - smoothstep( 0.3, 0.3 + px / 0.15, length( fq - fi - 0.5 ) ) ) * step( 0.25, fh ) * ( 1.0 - smoothstep( 0.04, 0.08, px ) );
+					vec3 fc = fh > 0.75 ? ${v3(GC.flower[0])} : fh > 0.5 ? ${v3(GC.flower[1])} : ${v3(GC.flower[2])};
+					vec3 bc = mix( ${v3(GC.garden)}, fc, dot_ );
+					bc = mix( bc, ${v3(GC.flower[1])}, 1.0 - smoothstep( 0.2 - px, 0.2 + px, br ) );
+					bc = mix( bc, ${v3(GC.kerb)}, smoothstep( 0.68 - px, 0.68 + px, br ) );
+					bc = mix( bc, ${v3(GC.rim)}, smoothstep( 0.8 - px, 0.8 + px, br ) );
+					base = mix( base, bc, 1.0 - smoothstep( 0.86 - px, 0.86 + px, br ) );
+				}
+			}
 		}
 		diffuseColor.rgb = base;
 	}`);

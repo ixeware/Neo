@@ -126,10 +126,11 @@ export function buildLife(parent: THREE.Object3D, env: LifeEnv) {
     // a pennant: a triangle hanging from the line
     pennant: K(b => { b.add(GEO.cone4, 1, [0, -0.07, 0], [0.11, -0.14, 0.02]); }),
     pole: K(b => { b.add(GEO.cyl3, C.trim, [0, 0.45, 0], [0.06, 0.9, 0.06]); b.add(GEO.octa, C.gold, [0, 0.94, 0], [0.1, 0.1, 0.1]); }),
+    // a white dove: a small body and two swept wings (the beat lifts the tips)
     bird: K(b => {
-      b.add(GEO.tetra, C.ink, [0, 0, 0], [0.16, 0.08, 0.34]);
-      b.add(GEO.box, C.ink, [-0.26, 0, -0.02], [0.4, 0.015, 0.2]);
-      b.add(GEO.box, C.ink, [0.26, 0, -0.02], [0.4, 0.015, 0.2]);
+      b.add(GEO.octa, C.white, [0, 0, 0], [0.07, 0.06, 0.22]);
+      b.add(GEO.cone4, C.white, [-0.12, 0, -0.02], [0.1, 0.24, 0.012], [0, 0.35, Math.PI / 2]);
+      b.add(GEO.cone4, C.white, [0.12, 0, -0.02], [0.1, 0.24, 0.012], [0, -0.35, -Math.PI / 2]);
     }),
   };
   const accs = new Map<number, Acc>();
@@ -259,7 +260,7 @@ export function buildLife(parent: THREE.Object3D, env: LifeEnv) {
   spots.forEach((v, k) => {
     if (!v) return;
     const R = 13 + k * 4, y = heightY(t, v.x, v.z) + 7 + k, w = (k % 2 ? -1 : 1) * 0.045, ph0 = k * 2.1;
-    for (let j = -3; j <= 3; j++) add(fl, kit.bird, v.x, y - Math.abs(j) * 0.05, v.z, K_BIRD, ph0 - Math.abs(j) * 0.035 * Math.sign(w), R + j * 0.55, w, { s: 1.1 });
+    for (let j = -3; j <= 3; j++) add(fl, kit.bird, v.x, y - Math.abs(j) * 0.05, v.z, K_BIRD, ph0 - Math.abs(j) * 0.02 * Math.sign(w), R + j * 0.3, w, { s: 0.9 });
   });
   if (fl.n) {
     birds = toMesh(fl, material, 0, 1);

@@ -433,7 +433,11 @@ export function buildBridges(t: Terrain, parent: THREE.Object3D) {
 // brick village mosques around Атаги (yellow brick, green profiled-metal hip roof, one brick minaret
 // with a green spire) and the Ottoman-style Курчалой central mosque (cream stone, lead-grey domes,
 // pencil minarets with red rings). Front (entrance) is +z; one vertex-coloured mesh each.
-const MC = {
+// the new style paints the mosques from the palette: white marble, pale domes, gold, yellow and red brick, the mosque green
+const MC = TOON ? {
+  marble: C.marble, marble2: C.panel[0], domeW: C.dome, gold: C.gold, win: C.glass, niche: C.wall[1], door: C.door,
+  brick: C.wall[3], brick2: C.wall[2], trim: C.trim, green: C.mosqueGreen, stone: C.wall[0], lead: C.dome, ring: C.roof[0], pave: C.concrete,
+} : {
   marble: new THREE.Color('#f4f1ea'), marble2: new THREE.Color('#e4dfd4'), domeW: new THREE.Color('#cfe2ec'),
   gold: new THREE.Color('#d9b24a'), win: new THREE.Color('#41556a'), niche: new THREE.Color('#e9dcb8'), door: new THREE.Color('#5a4632'),
   brick: new THREE.Color('#c88a57'), brick2: new THREE.Color('#b57849'), trim: new THREE.Color('#efe8da'), green: new THREE.Color('#2f7f63'),
@@ -602,7 +606,7 @@ export function mosque(big: boolean, style: 0 | 1 = 0): THREE.Group {
   const b = new Builder();
   if (big) shaliMosque(b); else if (style === 1) ottomanMosque(b); else brickMosque(b);
   const geo = b.build();
-  mosqueMat ??= new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  mosqueMat ??= TOON ? mat.solid() : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const m = new THREE.Mesh(geo, mosqueMat);
   m.castShadow = true; m.receiveShadow = true;
   const g = new THREE.Group(); g.add(m);

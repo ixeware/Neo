@@ -252,7 +252,7 @@ export class Build {
   /** Send the build command for the ghost. `keep`: stay in hand for the next one. */
   private confirm(keep: boolean) {
     const d = this.d, s = d.session(), side = d.side(), t = this.placing, D = BUILDINGS[t];
-    if (this.mode === 'aim') return;
+    if (this.mode === 'aim') { if (this.aimAt) this.fire(this.aimAt.x, this.aimAt.z); else d.sound.deny(); return; }
     if (!s || this.mode !== 'place' || !D || !this.g.has) return;
     const ev = this.evalGhost();
     if (!ev.n) { d.sound.deny(); if (ev.why) d.hud.note(d.deny(ev.why), 2200); return; }
@@ -277,7 +277,7 @@ export class Build {
     if (!b || !s || b.s !== side) return;
     const why = a === 'up' ? sim.canUp(side, id, me) : a === 'rep' ? sim.canRep(side, id, me) : a === 'sell' ? sim.canSell(side, id, me) : a === 'fire' ? sim.canFire(side, id, b.x, b.z, me) : 'Нет такой постройки';
     if (why) { d.sound.deny(); d.hud.note(d.deny(why), 2400); return; }
-    if (a === 'fire') { d.sound.click(); this.mode = 'aim'; this.show(); d.hud.note(this.touch ? 'Куда кидаем арбуз? Тапни по карте' : 'Куда кидаем арбуз? Кликни по карте. ПКМ — отмена', 4200); return; }
+    if (a === 'fire') { d.sound.click(); this.mode = 'aim'; this.show(); d.hud.note(this.touch ? 'Куда кидаем арбуз? Тапни по карте, потом ✓' : 'Куда кидаем арбуз? Кликни по карте. ПКМ — отмена', 4200); return; }
     if (a === 'sell' && performance.now() > this.sellArm) { this.sellArm = performance.now() + 4000; d.sound.click(); this.selKey = ''; return; } // the second tap sells
     s.submit({ k: 'bld', s: side, op: a as 'up' | 'sell' | 'rep', n: id } as CmdBody);
     d.sound.click();
@@ -302,7 +302,13 @@ export class Build {
       if (p) { this.moveGhost(p.x, p.z); if (!m.touch) this.confirm(m.shift); }
       return true;
     }
-    if (this.mode === 'aim') { const p = d.stage.pick(x, y); if (p) this.fire(p.x, p.z); return true; }
+    if (this.mode === 'aim') {
+      // a mouse fires where it clicks (the ring followed it); a finger first shows where it lands, ✓ fires
+      const p = d.stage.pick(x, y);
+      if (p && m.touch) { this.aimAt = { x: p.x, z: p.z }; d.sound.click(); this.paint(performance.now(), true); }
+      else if (p) this.fire(p.x, p.z);
+      return true;
+    }
     // a building under the pointer; units come first (src/ui/control.ts picks them)
     const c = d.control;
     if (c.amove || c.pickAt(x, y, m.touch, 'own') || (c.sel.size && c.pickAt(x, y, m.touch, 'enemy'))) return false;
@@ -491,23 +497,23 @@ export class Build {
 
   private paintBar() {
     const d = this.d;
-    let n = '', w = '', ok = true, aim = this.mode === 'aim';
-    if (aim) { n = this.name(BKEY.arbuzomet); w = 'Тапни по карте: туда прилетит арбуз'; }
+    let n = '', w = '', ok = true, ready = true, aim = this.mode === 'aim';
+    if (aim) { n = this.name(BKEY.arbuzomet); ready = !!this.aimAt; w = !this.touch ? 'Кликни по карте: туда прилетит арбуз' : ready ? 'Круг — куда прилетит. Жми ✓ или тапни ещё' : 'Тапни по карте: покажу, куда прилетит арбуз'; }
     else {
       const ev = this.ev, t = this.placing, D = BUILDINGS[t];
       if (!D) return;
       n = `${this.name(t)} · ${ev.n > 1 ? `${ev.n} шт. · ` : ''}${ev.n ? ev.price : d.sim.bcost(d.side(), t, 1)} ₽`;
-      ok = ev.n > 0;
+      ok = ready = ev.n > 0;
       w = ok ? (D.line ? 'Тяни от забора пальцем — пойдёт линия. Потом ✓' : 'Тащи постройку пальцем, потом ✓') : d.deny(ev.why ?? 'Тут не построишь');
     }
-    const key = `${n}|${w}|${ok ? 1 : 0}|${aim ? 1 : 0}`;
+    const key = `${n}|${w}|${ok ? 1 : 0}|${ready ? 1 : 0}|${aim ? 1 : 0}|${this.touch ? 1 : 0}`;
     if (key === this.barKey) return;
     this.barKey = key;
     (this.bar.querySelector('.bb-n') as HTMLElement).textContent = n;
     const we = this.bar.querySelector('.bb-w') as HTMLElement;
     we.textContent = w; we.classList.toggle('bad', !ok);
     const okb = this.bar.querySelector('.bb-ok') as HTMLElement;
-    okb.hidden = aim; okb.classList.toggle('off', !ok);
+    okb.hidden = aim && !this.touch; okb.classList.toggle('off', !ready); // a mouse fires by its click, a finger by ✓
   }
 
   private paintSel(now: number) {

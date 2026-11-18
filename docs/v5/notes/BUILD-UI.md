@@ -65,22 +65,69 @@ Track: the build mode and the base on screen, on top of SIM-BASE (docs/v5/BASE.m
 - The palette shows one family at a time (digits 1–9 pick inside it); a phone held sideways gets a
   «next family» button instead of five chips (no room).
 - A phone held sideways hides «Стройка» while units are selected: the command bar needs the whole row
-  between the bank and the minimap (otherwise it wraps into two rows and reaches the сход sheet).
+  between the bank and the minimap (otherwise it wraps into two rows and reaches the сход sheet). For the
+  same reason a long income line («· аура нищеты ×0,5 · мы в плюсе») is cut with «…» there while units are
+  selected instead of widening the bank slip.
 - Units come first under the finger; a building is picked only where no own unit (and, with a selection, no
   enemy unit) is.
 - Draw calls: one mesh per non-wall building (they turn, rise and lean one by one); walls, bars, shadows,
   rings and bolts are shared. Worst case one full base in view ≈ 30 + 8.
+- A finger never fires the Арбузомёт by a stray tap: the tap only moves the ring, ✓ fires.
 
 ## How to verify
 
+Scripts live in `<scratch>/v5/BUILD-UI/` (not in the repo).
+
 - `npx vite --port 5273 --strictPort --host 127.0.0.1`, then
-  `node <scratch>/v5/BUILD-UI/e2e.cjs <desktop|p390|p360|land> <toon|classic>` — the whole flow with real
-  input (palette, valid / invalid spot, wall line, select, upgrade, sell, overlaps with the command bar and a
-  real сход, 44 px targets, clean texts, console errors, keys, minimap aspect).
-- `node <scratch>/v5/BUILD-UI/fx.cjs <toon|classic>` — a base under attack: events, hidden rule, screenshots.
+  `node e2e.cjs <desktop|p390|p360|land> <toon|classic>` — the whole flow with real input: palette, valid /
+  invalid spot, wall line by one command, select, upgrade, repair (price from the sim's own event), sell
+  (two taps), an enemy building tapped (panel without own buttons), attack order on an enemy building by a
+  tap and by a right click (`ord.tb`, the building then loses hp), the Арбузомёт (ring first on a phone),
+  overlaps with the command bar and a real сход, 44 px targets, clean texts, console errors, keys, minimap
+  aspect. `bash runall.sh desktop:toon p390:classic …` runs several and keeps failures in `runs.log`.
+  Nothing else heavy may run next to it: the sell confirmation is a 4 s window and a starved browser misses it.
+- `node fx.cjs <toon|classic>` — a base under attack: events, hidden rule, screenshots.
+- `node probe.cjs 750 342` — a phone sideways with a long income line, units selected and a сход, with and
+  without the palette: rectangles of the command bar, the sheet and the bank.
+- `npx vite build`, then `node play.cjs cur <toon|classic>` (and `base`, `base0` for the builds before) —
+  three minutes against the AI on the phone tier from the built file: frame times in three windows, the
+  AI's base on screen, tower shots, a building destroyed by a real attack order leaving the screen.
+
+## Verified (last run of this track)
+
+- e2e: desktop 1366×768 171/171 in both styles; 390×844, 360×640 and 750×342 205/205 in both styles;
+  0 console errors everywhere.
+- Three minutes against the AI, 390×844, `?lq`, headless software renderer (so only the comparison counts),
+  median frame time in ms — own base before anything is built / own base at 150–164 s / the AI's base at
+  166–180 s:
+
+  | build | W0 | W1 | W2 | sim per tick |
+  |---|---|---|---|---|
+  | commit 4b8c2dc, no buildings at all (old look) | 126 | 135 | 132 | 0.138 ms |
+  | release candidate before this track (sim buildings, nothing drawn), new look | 135 | 131 | 136 | 0.154 ms |
+  | now, new look (two runs) | 135 / 144 | 130 / 140 | 137 / 136 | 0.156 / 0.159 ms |
+  | now, old look | 123 | 133 | 130 | 0.153 ms |
+
+  Run-to-run noise is about ±7 % (the two runs of the same build). The same view of the AI's base with the
+  base group shown / hidden / shown: 140 / 138 / 141 ms (new look), 135 / 140 / 141 ms (old look) — the
+  drawing of the buildings is inside the noise. Draw calls at the end 132–134 against 128–131 before.
+- In those runs: the AI had 3–4 buildings at three minutes (Прорабская, Ларёк, Рогатка, then a fence), all
+  drawn; its Рогатка shot the squad sent at it (3–16 `shot` events with k ≥ `BASE.shotK`, `bhit` on the
+  building); the Рогатка broken by a real `ord` with `tb` left the state and the screen (`bld` `die`, no view,
+  not pickable). The own towers did not fire in these runs: no enemy came within their range in three
+  minutes (towers shooting at attackers are in `fx.cjs`).
+
+## Known, not from this track
+
+- Phone upright, 360–390 px wide: the event chip (yellow note under the right top slip) is partly behind the
+  fifth toolbar button («Кто в игре»). Both are older than this track; the chip needs its own place.
+- Phone sideways narrower than about 700 px (640×360): nine command buttons do not fit in one row, the
+  bar wraps into two and its top row covers 8 px of an open сход sheet — with the deck as well as with the
+  palette (`.cmdbar { flex-wrap: wrap-reverse }` in control.css). 750×342 is clear.
 
 ## Next / not done
 
 - Real models (ART-ARCH) through `setBaseModelFactory`; card thumbnails (today a family icon).
 - `BLD_TEXT` / `FEED` from the content track through `setBuildTexts`.
-- Arbuzomet aim on a phone has no ring preview before the tap.
+- The floating price / reason label hides when it would cover a HUD slip; it could step to the other side
+  of the ghost instead.
